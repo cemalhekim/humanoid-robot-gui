@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Unitree Telemetry</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/vendor/three/three.module.js",
+          "three/addons/controls/OrbitControls.js": "/vendor/three/OrbitControls.js",
+          "three/addons/loaders/STLLoader.js": "/vendor/three/STLLoader.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Unitree Telemetry</h1>
+        <p id="subtitle">Waiting for rt/lowstate</p>
+      </div>
+      <div class="status-strip">
+        <span id="connection" class="pill bad">Disconnected</span>
+        <span id="age" class="metric">age --</span>
+        <span id="rate" class="metric">-- Hz</span>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="left-pane">
+        <section class="summary-grid">
+          <article class="panel">
+            <h2>Robot</h2>
+            <dl id="robotFields" class="kv"></dl>
+          </article>
+          <article class="panel">
+            <h2>IMU</h2>
+            <dl id="imuFields" class="kv"></dl>
+          </article>
+          <article class="panel">
+            <h2>Battery</h2>
+            <dl id="batteryFields" class="kv"></dl>
+          </article>
+          <article class="panel">
+            <h2>RH56BFX Hands</h2>
+            <dl id="handFields" class="kv"></dl>
+          </article>
+          <article class="panel">
+            <h2>Forces</h2>
+            <dl id="forceFields" class="kv"></dl>
+          </article>
+        </section>
+
+        <section class="motor-panel">
+          <div class="section-head">
+            <h2>Motor Data</h2>
+            <label class="filter">
+              <span>Filter</span>
+              <input id="filter" type="search" placeholder="index or joint name">
+            </label>
+          </div>
+          <div id="motorsView" class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Index</th>
+                  <th>Joint</th>
+                  <th>Mode</th>
+                  <th>Position q</th>
+                  <th>Velocity dq</th>
+                  <th>Torque tau_est</th>
+                  <th>Temp</th>
+                  <th>Voltage</th>
+                </tr>
+              </thead>
+              <tbody id="motorRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="robotView" class="right-pane">
+        <div class="section-head">
+          <h2>Live Robot</h2>
+          <dl id="viewerFields" class="viewer-inline"></dl>
+        </div>
+        <div id="robotCanvas" class="robot-canvas">
+          <div class="view-tools" aria-label="3D view controls">
+            <svg class="view-cube" viewBox="0 0 180 180" role="img" aria-label="View cube">
+              <polygon class="cube-face" points="90,8 172,50 90,92 8,50" />
+              <polygon class="cube-face" points="8,50 90,92 90,172 8,130" />
+              <polygon class="cube-face" points="172,50 90,92 90,172 172,130" />
+              <line class="cube-edge" x1="90" y1="8" x2="90" y2="172" />
+              <line class="cube-edge dashed" x1="8" y1="50" x2="172" y2="130" />
+              <line class="cube-edge dashed" x1="172" y1="50" x2="8" y2="130" />
+              <text class="cube-label" data-view="top" x="90" y="56">top</text>
+              <text class="cube-label" data-view="left" x="36" y="104">left</text>
+              <text class="cube-label" data-view="right" x="142" y="104">right</text>
+              <text class="cube-label" data-view="front" x="120" y="146">front</text>
+              <text class="cube-label" data-view="back" x="60" y="146">back</text>
+              <text class="cube-label" data-view="bottom" x="90" y="100">bottom</text>
+            </svg>
+            <button type="button" data-view="grid" title="Toggle grid">Grid</button>
+            <button type="button" data-view="rotate" title="Toggle auto rotate">Rotate</button>
+          </div>
+        </div>
+      </section>
+
+      <details id="rawView" class="raw-drawer">
+        <summary>Raw JSON</summary>
+        <pre id="rawJson">{}</pre>
+      </details>
+    </main>
+
+    <script src="/app.js"></script>
+    <script type="module" src="/viewer.js"></script>
+  </body>
+</html>

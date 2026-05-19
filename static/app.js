@@ -69,17 +69,22 @@ function renderMotors(motors) {
     .join("");
 }
 
-function renderNetwork(network) {
+function networkLabel(network) {
   const type = network?.type || "Network";
   const iface = network?.interface && network.interface !== "unknown" ? ` (${network.interface})` : "";
-  const quality = network?.quality || "Connected";
-  const label = `${type}${iface}`;
+  return `${type}${iface}`;
+}
 
-  els.networkType.textContent = label;
-  els.networkQuality.textContent = quality;
-  els.sidebarNetworkType.textContent = label;
-  els.sidebarNetworkQuality.textContent = quality;
-  els.footerNetworkType.textContent = `${type} Link`;
+function renderNetwork(network) {
+  const robot = network?.robot || {};
+  const host = network?.host || {};
+  const robotTarget = robot.target ? ` to ${robot.target}` : "";
+
+  els.networkType.textContent = `${networkLabel(robot)}${robotTarget}`;
+  els.networkQuality.textContent = robot.quality || "Connected";
+  els.sidebarNetworkType.textContent = networkLabel(host);
+  els.sidebarNetworkQuality.textContent = host.quality || "Connected";
+  els.footerNetworkType.textContent = `${networkLabel(robot)} Robot Link`;
 }
 
 function render(snapshot) {

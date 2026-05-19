@@ -12,6 +12,7 @@ import json
 import mimetypes
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -111,13 +112,41 @@ def network_type(interface: str | None) -> str:
     return interface
 
 
-def network_status() -> dict[str, Any]:
-    interface = default_interface()
+def route_interface(destination: str) -> str | None:
+    try:
+        output = subprocess.check_output(
+            ["ip", "route", "get", destination],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=1,
+        )
+    except Exception:
+        return None
+
+    parts = output.split()
+    if "dev" in parts:
+        index = parts.index("dev")
+        if index + 1 < len(parts):
+            return parts[index + 1]
+    return None
+
+
+def interface_status(interface: str | None, host: str | None = None) -> dict[str, Any]:
     return {
         "type": network_type(interface),
         "interface": interface or "unknown",
-        "host": public_host(),
+        "host": host or public_host(),
         "quality": "Connected",
+    }
+
+
+def network_status(robot_host: str) -> dict[str, Any]:
+    return {
+        "host": interface_status(default_interface()),
+        "robot": {
+            **interface_status(route_interface(robot_host), robot_host),
+            "target": robot_host,
+        },
     }
 
 
@@ -269,12 +298,13 @@ def lowstate_to_dict(
 
 
 class TelemetryStore:
-    def __init__(self, domain: int) -> None:
+    def __init__(self, domain: int, robot_host: str) -> None:
         self.domain = domain
+        self.robot_host = robot_host
         self.lock = threading.Lock()
         self.latest: dict[str, Any] = {
             "connected": False,
-            "network": network_status(),
+            "network": network_status(self.robot_host),
             "timestamp": None,
             "samples": 0,
             "sample_rate_hz": 0,
@@ -297,7 +327,7 @@ class TelemetryStore:
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
-            return {**self.latest, "network": network_status()}
+            return {**self.latest, "network": network_status(self.robot_host)}
 
     def _set_error(self, error: str) -> None:
         with self.lock:
@@ -459,9 +489,10 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8088)
     parser.add_argument("--domain", type=int, default=0)
+    parser.add_argument("--robot-host", default="192.168.123.164")
     args = parser.parse_args()
 
-    store = TelemetryStore(domain=args.domain)
+    store = TelemetryStore(domain=args.domain, robot_host=args.robot_host)
     store.start()
 
     TelemetryHandler.store = store

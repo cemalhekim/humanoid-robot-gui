@@ -19,17 +19,15 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="Primary">
         <div class="brand-lockup">
-          <span class="vodafone-mark" aria-hidden="true"></span>
+          <img class="vodafone-mark" src="/assets/vodafone-mark.svg" alt="" aria-hidden="true">
           <span>vodafone</span>
         </div>
         <nav class="side-nav">
-          <a class="nav-item active" href="#robotView"><span class="nav-icon">▣</span>Robot Control</a>
-          <a class="nav-item" href="#motorsView"><span class="nav-icon">▤</span>Dashboard</a>
+          <a class="nav-item active" href="#dashboard"><span class="nav-icon">▣</span>Dashboard</a>
+          <a class="nav-item" href="#motorsView"><span class="nav-icon">▤</span>Motor Data</a>
           <a class="nav-item" href="#robotFields"><span class="nav-icon">◉</span>Robot Status</a>
           <a class="nav-item" href="#robotView"><span class="nav-icon">◇</span>Simulation</a>
-          <a class="nav-item" href="#rawView"><span class="nav-icon">☷</span>Telemetry Log</a>
-          <a class="nav-item" href="#batteryFields"><span class="nav-icon">⚡</span>Power</a>
-          <a class="nav-item" href="#viewerFields"><span class="nav-icon">⚙</span>Settings</a>
+          <a class="nav-item" href="#rawView"><span class="nav-icon">☷</span>Raw JSON</a>
         </nav>
         <div class="sidebar-signal">
           <div class="signal-rings" aria-hidden="true"></div>
@@ -60,7 +58,7 @@
           </div>
         </header>
 
-        <main class="dashboard">
+        <main id="dashboard" class="dashboard">
           <section class="assistant-pane panel">
             <div class="section-head">
               <div>
@@ -128,10 +126,8 @@
             </div>
             <div id="robotCanvas" class="robot-canvas">
               <div class="view-tools" aria-label="3D view controls">
-                <button type="button" data-view="front" title="Front view">3D View</button>
                 <button type="button" data-view="grid" title="Toggle grid">Grid</button>
                 <button type="button" data-view="rotate" title="Toggle auto rotate">Rotate</button>
-                <button type="button" data-view="top" title="Top view">Top</button>
               </div>
               <svg class="view-cube" viewBox="0 0 180 180" role="img" aria-label="View cube">
                 <polygon class="cube-face" points="90,8 172,50 90,92 8,50" />
@@ -140,8 +136,10 @@
                 <line class="cube-edge" x1="90" y1="8" x2="90" y2="172" />
                 <line class="cube-edge dashed" x1="8" y1="50" x2="172" y2="130" />
                 <line class="cube-edge dashed" x1="172" y1="50" x2="8" y2="130" />
+                <text class="cube-label" data-view="top" x="90" y="56">top</text>
                 <text class="cube-label" data-view="left" x="36" y="104">left</text>
                 <text class="cube-label" data-view="right" x="142" y="104">right</text>
+                <text class="cube-label" data-view="front" x="120" y="146">front</text>
                 <text class="cube-label" data-view="back" x="60" y="146">back</text>
                 <text class="cube-label" data-view="bottom" x="90" y="100">bottom</text>
               </svg>
@@ -178,10 +176,16 @@
             </div>
           </section>
 
-          <details id="rawView" class="raw-drawer panel">
-            <summary>Raw JSON Telemetry</summary>
+          <section id="rawView" class="raw-page panel">
+            <div class="section-head">
+              <div>
+                <h2>Raw JSON Telemetry</h2>
+                <p class="panel-subtitle">Current normalized telemetry snapshot</p>
+              </div>
+              <a class="close-page" href="#dashboard">Back to Dashboard</a>
+            </div>
             <pre id="rawJson">{}</pre>
-          </details>
+          </section>
         </main>
 
         <footer class="trust-strip">
@@ -189,7 +193,7 @@
           <span>AI Powered <small>OpenAI integration ready</small></span>
           <span>Secure Connection <small>Local telemetry server</small></span>
           <span>Reliable Control <small>Read-only operation</small></span>
-          <strong><span class="vodafone-mark small" aria-hidden="true"></span>vodafone</strong>
+          <strong><img class="vodafone-mark small" src="/assets/vodafone-mark.svg" alt="" aria-hidden="true">vodafone</strong>
         </footer>
       </div>
     </div>

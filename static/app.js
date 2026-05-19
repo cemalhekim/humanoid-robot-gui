@@ -108,7 +108,6 @@ function renderRobotStatus(snapshot) {
       { label: "Yaw", value: imu.rpy?.[2] },
       { label: "Gyroscope", value: imu.gyroscope },
       { label: "Accelerometer", value: imu.accelerometer },
-      { label: "Quaternion", value: imu.quaternion },
       { label: "Temperature", value: imu.temperature },
     ],
   );
@@ -133,8 +132,6 @@ function renderRobotStatus(snapshot) {
     ],
     [
       { label: "Samples", value: hands.samples ?? 0 },
-      { label: "Topic", value: hands.topic },
-      ...(hands.note ? [{ label: "Note", value: hands.note }] : []),
       ...(hands.joints || []).slice(0, 4).map((joint) => ({ label: joint.name, value: joint.q })),
     ],
   );

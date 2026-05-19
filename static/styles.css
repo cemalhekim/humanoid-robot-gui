@@ -520,9 +520,9 @@ h3 {
 }
 
 .mini-panel {
-  min-height: 168px;
+  min-height: 154px;
   max-height: none;
-  overflow: auto;
+  overflow: hidden;
   padding: 14px;
 }
 
@@ -561,13 +561,13 @@ h3 {
 
 .metric-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   gap: 8px;
 }
 
 .status-metric {
   min-width: 0;
-  padding: 10px;
+  padding: 9px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.24);
@@ -594,22 +594,22 @@ h3 {
   display: block;
   overflow-wrap: anywhere;
   color: #fff;
-  font-size: 16px;
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
 
 .status-list {
   display: grid;
-  grid-template-columns: minmax(92px, 0.56fr) minmax(0, 1.44fr);
-  gap: 8px 12px;
+  grid-template-columns: minmax(82px, 0.52fr) minmax(0, 1.48fr);
+  gap: 6px 10px;
   margin: 0;
-  font-size: 12px;
-  line-height: 1.25;
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .status-list.full {
-  grid-template-columns: minmax(92px, 0.5fr) minmax(0, 1.5fr);
+  grid-template-columns: minmax(82px, 0.48fr) minmax(0, 1.52fr);
 }
 
 .status-list dt {

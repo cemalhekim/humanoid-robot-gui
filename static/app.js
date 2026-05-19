@@ -16,6 +16,7 @@ const els = {
   motorRows: document.getElementById("motorRows"),
   rawJson: document.getElementById("rawJson"),
   filter: document.getElementById("filter"),
+  navItems: document.querySelectorAll(".nav-item"),
 };
 
 function fmt(value, suffix = "") {
@@ -105,6 +106,13 @@ els.filter.addEventListener("input", () => {
   if (state.latest) renderMotors(state.latest.motors);
 });
 
+function syncActiveNav() {
+  const activeHash = window.location.hash || "#dashboard";
+  els.navItems.forEach((item) => {
+    item.classList.toggle("active", item.getAttribute("href") === activeHash);
+  });
+}
+
 function connectEvents() {
   const events = new EventSource("/events");
   events.onmessage = (event) => {
@@ -124,4 +132,6 @@ fetch("/api/state")
   .then((response) => response.json())
   .then(render)
   .catch(() => {});
+window.addEventListener("hashchange", syncActiveNav);
+syncActiveNav();
 connectEvents();

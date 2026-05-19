@@ -575,20 +575,6 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
-.close-page {
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid rgba(230, 0, 0, 0.55);
-  border-radius: 7px;
-  background: rgba(230, 0, 0, 0.16);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  text-decoration: none;
-}
-
 .filter {
   display: flex;
   align-items: center;

@@ -352,7 +352,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.snapshot())
         elif self.path == "/events":
             self._send_events()
-        elif self.path.startswith("/models/") or self.path.startswith("/vendor/"):
+        elif self.path.startswith("/models/") or self.path.startswith("/vendor/") or self.path.startswith("/assets/"):
             self._send_static_asset(self.path)
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")

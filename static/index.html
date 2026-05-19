@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Unitree Telemetry</title>
+    <title>Vodafone Robot Control</title>
     <link rel="stylesheet" href="/styles.css">
     <script type="importmap">
       {
@@ -16,103 +16,183 @@
     </script>
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>Unitree Telemetry</h1>
-        <p id="subtitle">Waiting for rt/lowstate</p>
-      </div>
-      <div class="status-strip">
-        <span id="connection" class="pill bad">Disconnected</span>
-        <span id="age" class="metric">age --</span>
-        <span id="rate" class="metric">-- Hz</span>
-      </div>
-    </header>
-
-    <main class="dashboard">
-      <section class="left-pane">
-        <section class="summary-grid">
-          <article class="panel">
-            <h2>Robot</h2>
-            <dl id="robotFields" class="kv"></dl>
-          </article>
-          <article class="panel">
-            <h2>IMU</h2>
-            <dl id="imuFields" class="kv"></dl>
-          </article>
-          <article class="panel">
-            <h2>Battery</h2>
-            <dl id="batteryFields" class="kv"></dl>
-          </article>
-          <article class="panel">
-            <h2>RH56BFX Hands</h2>
-            <dl id="handFields" class="kv"></dl>
-          </article>
-          <article class="panel">
-            <h2>Forces</h2>
-            <dl id="forceFields" class="kv"></dl>
-          </article>
-        </section>
-
-        <section class="motor-panel">
-          <div class="section-head">
-            <h2>Motor Data</h2>
-            <label class="filter">
-              <span>Filter</span>
-              <input id="filter" type="search" placeholder="index or joint name">
-            </label>
-          </div>
-          <div id="motorsView" class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Index</th>
-                  <th>Joint</th>
-                  <th>Mode</th>
-                  <th>Position q</th>
-                  <th>Velocity dq</th>
-                  <th>Torque tau_est</th>
-                  <th>Temp</th>
-                  <th>Voltage</th>
-                </tr>
-              </thead>
-              <tbody id="motorRows"></tbody>
-            </table>
-          </div>
-        </section>
-      </section>
-
-      <section id="robotView" class="right-pane">
-        <div class="section-head">
-          <h2>Live Robot</h2>
-          <dl id="viewerFields" class="viewer-inline"></dl>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary">
+        <div class="brand-lockup">
+          <span class="vodafone-mark" aria-hidden="true"></span>
+          <span>vodafone</span>
         </div>
-        <div id="robotCanvas" class="robot-canvas">
-          <div class="view-tools" aria-label="3D view controls">
-            <svg class="view-cube" viewBox="0 0 180 180" role="img" aria-label="View cube">
-              <polygon class="cube-face" points="90,8 172,50 90,92 8,50" />
-              <polygon class="cube-face" points="8,50 90,92 90,172 8,130" />
-              <polygon class="cube-face" points="172,50 90,92 90,172 172,130" />
-              <line class="cube-edge" x1="90" y1="8" x2="90" y2="172" />
-              <line class="cube-edge dashed" x1="8" y1="50" x2="172" y2="130" />
-              <line class="cube-edge dashed" x1="172" y1="50" x2="8" y2="130" />
-              <text class="cube-label" data-view="top" x="90" y="56">top</text>
-              <text class="cube-label" data-view="left" x="36" y="104">left</text>
-              <text class="cube-label" data-view="right" x="142" y="104">right</text>
-              <text class="cube-label" data-view="front" x="120" y="146">front</text>
-              <text class="cube-label" data-view="back" x="60" y="146">back</text>
-              <text class="cube-label" data-view="bottom" x="90" y="100">bottom</text>
-            </svg>
-            <button type="button" data-view="grid" title="Toggle grid">Grid</button>
-            <button type="button" data-view="rotate" title="Toggle auto rotate">Rotate</button>
+        <nav class="side-nav">
+          <a class="nav-item active" href="#robotView"><span class="nav-icon">▣</span>Robot Control</a>
+          <a class="nav-item" href="#motorsView"><span class="nav-icon">▤</span>Dashboard</a>
+          <a class="nav-item" href="#robotFields"><span class="nav-icon">◉</span>Robot Status</a>
+          <a class="nav-item" href="#robotView"><span class="nav-icon">◇</span>Simulation</a>
+          <a class="nav-item" href="#rawView"><span class="nav-icon">☷</span>Telemetry Log</a>
+          <a class="nav-item" href="#batteryFields"><span class="nav-icon">⚡</span>Power</a>
+          <a class="nav-item" href="#viewerFields"><span class="nav-icon">⚙</span>Settings</a>
+        </nav>
+        <div class="sidebar-signal">
+          <div class="signal-rings" aria-hidden="true"></div>
+          <div class="connection-card">
+            <span>Connection</span>
+            <strong>5G SA Network</strong>
+            <small>Signal Strength</small>
+            <strong>Excellent</strong>
           </div>
         </div>
-      </section>
+      </aside>
 
-      <details id="rawView" class="raw-drawer">
-        <summary>Raw JSON</summary>
-        <pre id="rawJson">{}</pre>
-      </details>
-    </main>
+      <div class="workspace">
+        <header class="topbar">
+          <div class="title-block">
+            <p class="eyebrow">AI Robot Assistant</p>
+            <h1>Unitree H1 Telemetry Control</h1>
+            <p id="subtitle">Waiting for rt/lowstate</p>
+          </div>
+          <div class="status-strip">
+            <span class="metric signal-chip">5G Connected</span>
+            <span class="metric">Ultra Low Latency</span>
+            <span id="rate" class="metric success">-- Hz</span>
+            <span class="metric">Network <strong>Excellent</strong></span>
+            <span id="connection" class="pill bad">Disconnected</span>
+            <span id="age" class="metric">age --</span>
+            <button class="emergency-button" type="button" disabled title="Read-only telemetry dashboard">Emergency Stop</button>
+          </div>
+        </header>
+
+        <main class="dashboard">
+          <section class="assistant-pane panel">
+            <div class="section-head">
+              <div>
+                <h2>Command Center</h2>
+                <p class="panel-subtitle">Real-time robot telemetry and control supervision</p>
+              </div>
+              <span class="live-badge">Live</span>
+            </div>
+            <div class="command-feed">
+              <article class="chat-card user-card">
+                <span>Operator</span>
+                <p>Monitor Unitree H1 telemetry over Vodafone 5G.</p>
+              </article>
+              <article class="chat-card assistant-card">
+                <span>AI Assistant</span>
+                <p>Telemetry stream is mirrored into dashboard panels, motor data, raw JSON, and the live simulation.</p>
+                <pre>{ "source": "rt/lowstate", "mode": "read_only" }</pre>
+              </article>
+              <article class="chat-card system-card">
+                <span>Robot System</span>
+                <p>Command channel is disabled. This dashboard only subscribes to telemetry topics.</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="status-pane panel">
+            <div class="section-head">
+              <div>
+                <h2>Robot Status</h2>
+                <p class="robot-name">Unitree H1</p>
+              </div>
+              <span class="status-dot">Online</span>
+            </div>
+            <section class="summary-grid">
+              <article class="mini-panel primary-panel">
+                <h3>Robot</h3>
+                <dl id="robotFields" class="kv"></dl>
+              </article>
+              <article class="mini-panel">
+                <h3>IMU</h3>
+                <dl id="imuFields" class="kv"></dl>
+              </article>
+              <article class="mini-panel">
+                <h3>Battery</h3>
+                <dl id="batteryFields" class="kv"></dl>
+              </article>
+              <article class="mini-panel">
+                <h3>RH56BFX Hands</h3>
+                <dl id="handFields" class="kv"></dl>
+              </article>
+              <article class="mini-panel">
+                <h3>Forces</h3>
+                <dl id="forceFields" class="kv"></dl>
+              </article>
+            </section>
+          </section>
+
+          <section id="robotView" class="simulation-pane panel">
+            <div class="section-head">
+              <div>
+                <h2>Live Simulation</h2>
+                <dl id="viewerFields" class="viewer-inline"></dl>
+              </div>
+              <span class="live-badge">Live</span>
+            </div>
+            <div id="robotCanvas" class="robot-canvas">
+              <div class="view-tools" aria-label="3D view controls">
+                <button type="button" data-view="front" title="Front view">3D View</button>
+                <button type="button" data-view="grid" title="Toggle grid">Grid</button>
+                <button type="button" data-view="rotate" title="Toggle auto rotate">Rotate</button>
+                <button type="button" data-view="top" title="Top view">Top</button>
+              </div>
+              <svg class="view-cube" viewBox="0 0 180 180" role="img" aria-label="View cube">
+                <polygon class="cube-face" points="90,8 172,50 90,92 8,50" />
+                <polygon class="cube-face" points="8,50 90,92 90,172 8,130" />
+                <polygon class="cube-face" points="172,50 90,92 90,172 172,130" />
+                <line class="cube-edge" x1="90" y1="8" x2="90" y2="172" />
+                <line class="cube-edge dashed" x1="8" y1="50" x2="172" y2="130" />
+                <line class="cube-edge dashed" x1="172" y1="50" x2="8" y2="130" />
+                <text class="cube-label" data-view="left" x="36" y="104">left</text>
+                <text class="cube-label" data-view="right" x="142" y="104">right</text>
+                <text class="cube-label" data-view="back" x="60" y="146">back</text>
+                <text class="cube-label" data-view="bottom" x="90" y="100">bottom</text>
+              </svg>
+            </div>
+          </section>
+
+          <section class="motor-panel panel">
+            <div class="section-head">
+              <div>
+                <h2>Motor Data</h2>
+                <p class="panel-subtitle">Joint-level telemetry stream</p>
+              </div>
+              <label class="filter">
+                <span>Filter</span>
+                <input id="filter" type="search" placeholder="index or joint name">
+              </label>
+            </div>
+            <div id="motorsView" class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Index</th>
+                    <th>Joint</th>
+                    <th>Mode</th>
+                    <th>Position q</th>
+                    <th>Velocity dq</th>
+                    <th>Torque tau_est</th>
+                    <th>Temp</th>
+                    <th>Voltage</th>
+                  </tr>
+                </thead>
+                <tbody id="motorRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <details id="rawView" class="raw-drawer panel">
+            <summary>Raw JSON Telemetry</summary>
+            <pre id="rawJson">{}</pre>
+          </details>
+        </main>
+
+        <footer class="trust-strip">
+          <span>5G Ultra Low Latency <small>Real-time monitoring</small></span>
+          <span>AI Powered <small>OpenAI integration ready</small></span>
+          <span>Secure Connection <small>Local telemetry server</small></span>
+          <span>Reliable Control <small>Read-only operation</small></span>
+          <strong><span class="vodafone-mark small" aria-hidden="true"></span>vodafone</strong>
+        </footer>
+      </div>
+    </div>
 
     <script src="/app.js"></script>
     <script type="module" src="/viewer.js"></script>

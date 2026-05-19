@@ -9,7 +9,6 @@ const els = {
   age: document.getElementById("age"),
   rate: document.getElementById("rate"),
   networkType: document.getElementById("networkType"),
-  networkQuality: document.getElementById("networkQuality"),
   sidebarNetworkType: document.getElementById("sidebarNetworkType"),
   sidebarNetworkQuality: document.getElementById("sidebarNetworkQuality"),
   footerNetworkType: document.getElementById("footerNetworkType"),
@@ -41,6 +40,106 @@ function setFields(node, data) {
   node.innerHTML = entries
     .map(([key, value]) => `<dt>${key}</dt><dd>${fmt(value)}</dd>`)
     .join("");
+}
+
+function valueList(values, labels) {
+  return (values || []).map((value, index) => ({
+    label: labels?.[index] || String(index),
+    value,
+  }));
+}
+
+function renderMetricCards(node, cards, rows = []) {
+  node.innerHTML = `
+    <div class="metric-card-grid">
+      ${cards
+        .map(
+          (card) => `
+            <div class="status-metric ${card.tone || ""}">
+              <span>${card.label}</span>
+              <strong>${fmt(card.value, card.suffix || "")}</strong>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+    ${
+      rows.length
+        ? `<dl class="status-list">${rows
+            .map((row) => `<dt>${row.label}</dt><dd>${fmt(row.value)}</dd>`)
+            .join("")}</dl>`
+        : ""
+    }
+  `;
+}
+
+function renderRobotStatus(snapshot) {
+  const robot = snapshot.robot || {};
+  const imu = snapshot.imu || {};
+  const battery = snapshot.battery || {};
+  const hands = snapshot.hands || {};
+
+  renderMetricCards(
+    els.robotFields,
+    [
+      { label: "Mode", value: robot.mode_machine ?? "--", tone: "red" },
+      { label: "Samples", value: snapshot.samples ?? 0 },
+      { label: "Motors", value: snapshot.motor_count ?? 0 },
+    ],
+    [
+      { label: "Control", value: robot.mode_pr },
+      { label: "Tick", value: robot.tick },
+      { label: "CRC", value: robot.crc },
+    ],
+  );
+
+  renderMetricCards(
+    els.imuFields,
+    [
+      { label: "Roll", value: imu.rpy?.[0], suffix: " rad" },
+      { label: "Pitch", value: imu.rpy?.[1], suffix: " rad" },
+      { label: "Yaw", value: imu.rpy?.[2], suffix: " rad" },
+    ],
+    [
+      ...valueList(imu.gyroscope, ["Gyro X", "Gyro Y", "Gyro Z"]),
+      ...valueList(imu.accelerometer, ["Accel X", "Accel Y", "Accel Z"]),
+      { label: "Temp", value: imu.temperature },
+    ],
+  );
+
+  renderMetricCards(
+    els.batteryFields,
+    [
+      { label: "SOC", value: battery.soc, suffix: "%" },
+      { label: "Current", value: battery.current },
+    ],
+    Object.entries(battery)
+      .filter(([key]) => !["soc", "current"].includes(key))
+      .slice(0, 4)
+      .map(([label, value]) => ({ label, value })),
+  );
+
+  renderMetricCards(
+    els.handFields,
+    [
+      { label: "State", value: hands.connected ? "Connected" : "Offline", tone: hands.connected ? "" : "red" },
+      { label: "Joints", value: hands.joint_count ?? 0 },
+      { label: "Samples", value: hands.samples ?? 0 },
+    ],
+    (hands.joints || []).slice(0, 6).map((joint) => ({ label: joint.name, value: joint.q })),
+  );
+
+  renderMetricCards(
+    els.forceFields,
+    [
+      { label: "Foot Force", value: snapshot.foot_force?.length ? "Available" : "--" },
+      { label: "Force Est", value: snapshot.foot_force_est?.length ? "Available" : "--" },
+    ],
+    [
+      ...valueList(snapshot.foot_force, ["FL", "FR", "RL", "RR"]),
+      ...valueList(snapshot.foot_force_est, ["Est FL", "Est FR", "Est RL", "Est RR"]),
+    ],
+  );
 }
 
 function renderMotors(motors) {
@@ -79,9 +178,11 @@ function renderNetwork(network) {
   const robot = network?.robot || {};
   const host = network?.host || {};
   const robotTarget = robot.target ? ` to ${robot.target}` : "";
+  const robotConnected = (robot.quality || "Disconnected") === "Connected";
 
   els.networkType.textContent = `${networkLabel(robot)}${robotTarget}`;
-  els.networkQuality.textContent = robot.quality || "Connected";
+  els.connection.textContent = robotConnected ? "Live" : "Offline";
+  els.connection.className = `pill ${robotConnected ? "good" : "bad"}`;
   els.sidebarNetworkType.textContent = networkLabel(host);
   els.sidebarNetworkQuality.textContent = host.quality || "Connected";
   els.footerNetworkType.textContent = `${networkLabel(robot)} Robot Link`;
@@ -92,8 +193,6 @@ function render(snapshot) {
   const connected = Boolean(snapshot.connected);
   const age = snapshot.timestamp ? Math.max(0, Date.now() / 1000 - snapshot.timestamp) : null;
 
-  els.connection.textContent = connected ? "Connected" : "Disconnected";
-  els.connection.className = `pill ${connected ? "good" : "bad"}`;
   els.age.textContent = `age ${age === null ? "--" : age.toFixed(1)}s`;
   els.rate.textContent = `${fmt(snapshot.sample_rate_hz)} Hz`;
   els.subtitle.textContent = connected
@@ -101,25 +200,7 @@ function render(snapshot) {
     : snapshot.error || "Waiting for rt/lowstate";
   renderNetwork(snapshot.network);
 
-  setFields(els.robotFields, snapshot.robot);
-  setFields(els.imuFields, snapshot.imu);
-  setFields(els.batteryFields, snapshot.battery);
-  const handSummary = snapshot.hands || {};
-  const handFields = {
-    connected: handSummary.connected,
-    topic: handSummary.topic,
-    samples: handSummary.samples,
-    joint_count: handSummary.joint_count,
-  };
-  for (const joint of handSummary.joints || []) {
-    handFields[joint.name] = joint.q;
-  }
-  if (handSummary.note) handFields.note = handSummary.note;
-  setFields(els.handFields, handFields);
-  setFields(els.forceFields, {
-    foot_force: snapshot.foot_force,
-    foot_force_est: snapshot.foot_force_est,
-  });
+  renderRobotStatus(snapshot);
   renderMotors(snapshot.motors);
   els.rawJson.textContent = JSON.stringify(snapshot, null, 2);
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));

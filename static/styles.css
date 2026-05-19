@@ -438,28 +438,6 @@ h3 {
   font-size: 12px;
 }
 
-.live-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  padding: 0 9px;
-  border-radius: 5px;
-  background: linear-gradient(135deg, #e60000, #8b0000);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 850;
-  text-transform: uppercase;
-}
-
-.live-badge::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #fff;
-}
-
 .robot-name {
   margin-top: 9px;
   font-size: 23px;
@@ -573,6 +551,74 @@ h3 {
   color: #fff;
   min-width: 0;
   font-variant-numeric: tabular-nums;
+}
+
+.status-content {
+  display: grid;
+  gap: 12px;
+}
+
+.metric-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.status-metric {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.status-metric.red {
+  border-color: rgba(230, 0, 0, 0.44);
+  background: rgba(230, 0, 0, 0.12);
+}
+
+.status-metric span {
+  display: block;
+  margin-bottom: 5px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-metric strong {
+  display: block;
+  overflow: hidden;
+  color: #fff;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-list {
+  display: grid;
+  grid-template-columns: minmax(94px, 0.8fr) minmax(0, 1.2fr);
+  gap: 7px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.status-list dt {
+  color: var(--muted);
+}
+
+.status-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .filter {

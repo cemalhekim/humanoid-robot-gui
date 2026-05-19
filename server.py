@@ -136,7 +136,7 @@ def interface_status(interface: str | None, host: str | None = None) -> dict[str
         "type": network_type(interface),
         "interface": interface or "unknown",
         "host": host or public_host(),
-        "quality": "Connected",
+        "quality": "Connected" if interface else "Disconnected",
     }
 
 

@@ -105,6 +105,7 @@ function resolveMeshPath(filename) {
 }
 
 function setFields(data) {
+  if (!fields) return;
   fields.innerHTML = Object.entries(data)
     .map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`)
     .join("");
@@ -134,8 +135,8 @@ function bindViewTools() {
       }
       if (view === "front") setCamera([2.15, 0.55, 0], [0, -0.65, 0]);
       if (view === "back") setCamera([-2.15, 0.55, 0], [0, -0.65, 0]);
-      if (view === "left") setCamera([0, 0.55, -2.15], [0, -0.65, 0]);
-      if (view === "right") setCamera([0, 0.55, 2.15], [0, -0.65, 0]);
+      if (view === "left") setCamera([0, 0.55, 2.15], [0, -0.65, 0]);
+      if (view === "right") setCamera([0, 0.55, -2.15], [0, -0.65, 0]);
       if (view === "top") setCamera([0.01, 2.25, 0.01], [0, -0.55, 0]);
       if (view === "bottom") setCamera([0.01, -3.0, 0.01], [0, -0.55, 0]);
       if (view === "grid" && gridHelper) {

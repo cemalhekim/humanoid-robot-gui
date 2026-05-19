@@ -49,7 +49,6 @@
             <span id="networkType" class="metric signal-chip">Detecting network</span>
             <span class="metric">Ultra Low Latency</span>
             <span id="rate" class="metric success">-- Hz</span>
-            <span class="metric">Network <strong id="networkQuality">Connected</strong></span>
             <span id="connection" class="pill bad">Disconnected</span>
             <span id="age" class="metric">age --</span>
             <button class="emergency-button" type="button" disabled title="Read-only telemetry dashboard">Emergency Stop</button>
@@ -63,7 +62,6 @@
                 <h2>Command Center</h2>
                 <p class="panel-subtitle">Real-time robot telemetry and control supervision</p>
               </div>
-              <span class="live-badge">Live</span>
             </div>
             <div class="command-feed">
               <article class="chat-card user-card">
@@ -93,23 +91,23 @@
             <section class="summary-grid">
               <article class="mini-panel primary-panel">
                 <h3>Robot</h3>
-                <dl id="robotFields" class="kv"></dl>
+                <div id="robotFields" class="status-content"></div>
               </article>
               <article class="mini-panel">
                 <h3>IMU</h3>
-                <dl id="imuFields" class="kv"></dl>
+                <div id="imuFields" class="status-content"></div>
               </article>
               <article class="mini-panel">
                 <h3>Battery</h3>
-                <dl id="batteryFields" class="kv"></dl>
+                <div id="batteryFields" class="status-content"></div>
               </article>
               <article class="mini-panel">
                 <h3>RH56BFX Hands</h3>
-                <dl id="handFields" class="kv"></dl>
+                <div id="handFields" class="status-content"></div>
               </article>
               <article class="mini-panel">
                 <h3>Forces</h3>
-                <dl id="forceFields" class="kv"></dl>
+                <div id="forceFields" class="status-content"></div>
               </article>
             </section>
           </section>
@@ -118,9 +116,7 @@
             <div class="section-head">
               <div>
                 <h2>Live Simulation</h2>
-                <dl id="viewerFields" class="viewer-inline"></dl>
               </div>
-              <span class="live-badge">Live</span>
             </div>
             <div id="robotCanvas" class="robot-canvas">
               <div class="view-tools" aria-label="3D view controls">

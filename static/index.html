@@ -31,9 +31,9 @@
           <div class="signal-rings" aria-hidden="true"></div>
           <div class="connection-card">
             <span>Connection</span>
-            <strong>5G SA Network</strong>
+            <strong id="sidebarNetworkType">Detecting network</strong>
             <small>Signal Strength</small>
-            <strong>Excellent</strong>
+            <strong id="sidebarNetworkQuality">Connected</strong>
           </div>
         </div>
       </aside>
@@ -46,10 +46,10 @@
             <p id="subtitle">Waiting for rt/lowstate</p>
           </div>
           <div class="status-strip">
-            <span class="metric signal-chip">5G Connected</span>
+            <span id="networkType" class="metric signal-chip">Detecting network</span>
             <span class="metric">Ultra Low Latency</span>
             <span id="rate" class="metric success">-- Hz</span>
-            <span class="metric">Network <strong>Excellent</strong></span>
+            <span class="metric">Network <strong id="networkQuality">Connected</strong></span>
             <span id="connection" class="pill bad">Disconnected</span>
             <span id="age" class="metric">age --</span>
             <button class="emergency-button" type="button" disabled title="Read-only telemetry dashboard">Emergency Stop</button>
@@ -68,7 +68,7 @@
             <div class="command-feed">
               <article class="chat-card user-card">
                 <span>Operator</span>
-                <p>Monitor Unitree H1 telemetry over Vodafone 5G.</p>
+                <p>Monitor Unitree H1 telemetry over the active Vodafone network link.</p>
               </article>
               <article class="chat-card assistant-card">
                 <span>AI Assistant</span>
@@ -186,7 +186,7 @@
         </main>
 
         <footer class="trust-strip">
-          <span>5G Ultra Low Latency <small>Real-time monitoring</small></span>
+          <span><span id="footerNetworkType">Network Link</span> <small>Real-time monitoring</small></span>
           <span>AI Powered <small>OpenAI integration ready</small></span>
           <span>Secure Connection <small>Local telemetry server</small></span>
           <span>Reliable Control <small>Read-only operation</small></span>

@@ -8,6 +8,11 @@ const els = {
   connection: document.getElementById("connection"),
   age: document.getElementById("age"),
   rate: document.getElementById("rate"),
+  networkType: document.getElementById("networkType"),
+  networkQuality: document.getElementById("networkQuality"),
+  sidebarNetworkType: document.getElementById("sidebarNetworkType"),
+  sidebarNetworkQuality: document.getElementById("sidebarNetworkQuality"),
+  footerNetworkType: document.getElementById("footerNetworkType"),
   robotFields: document.getElementById("robotFields"),
   imuFields: document.getElementById("imuFields"),
   batteryFields: document.getElementById("batteryFields"),
@@ -64,6 +69,19 @@ function renderMotors(motors) {
     .join("");
 }
 
+function renderNetwork(network) {
+  const type = network?.type || "Network";
+  const iface = network?.interface && network.interface !== "unknown" ? ` (${network.interface})` : "";
+  const quality = network?.quality || "Connected";
+  const label = `${type}${iface}`;
+
+  els.networkType.textContent = label;
+  els.networkQuality.textContent = quality;
+  els.sidebarNetworkType.textContent = label;
+  els.sidebarNetworkQuality.textContent = quality;
+  els.footerNetworkType.textContent = `${type} Link`;
+}
+
 function render(snapshot) {
   state.latest = snapshot;
   const connected = Boolean(snapshot.connected);
@@ -76,6 +94,7 @@ function render(snapshot) {
   els.subtitle.textContent = connected
     ? `${fmt(snapshot.motor_count)} motors, ${fmt(snapshot.samples)} samples`
     : snapshot.error || "Waiting for rt/lowstate";
+  renderNetwork(snapshot.network);
 
   setFields(els.robotFields, snapshot.robot);
   setFields(els.imuFields, snapshot.imu);

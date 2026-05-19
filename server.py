@@ -85,6 +85,42 @@ def public_host() -> str:
         return "127.0.0.1"
 
 
+def default_interface() -> str | None:
+    try:
+        for line in Path("/proc/net/route").read_text().splitlines()[1:]:
+            fields = line.split()
+            if len(fields) >= 2 and fields[1] == "00000000":
+                return fields[0]
+    except OSError:
+        return None
+    return None
+
+
+def network_type(interface: str | None) -> str:
+    if not interface:
+        return "Network"
+    lowered = interface.lower()
+    if lowered.startswith(("eth", "en")):
+        return "Ethernet"
+    if lowered.startswith(("wl", "wifi")):
+        return "Wi-Fi"
+    if lowered.startswith(("ww", "wwan", "cell", "usb")):
+        return "Cellular"
+    if lowered.startswith(("tun", "tap", "wg")):
+        return "VPN"
+    return interface
+
+
+def network_status() -> dict[str, Any]:
+    interface = default_interface()
+    return {
+        "type": network_type(interface),
+        "interface": interface or "unknown",
+        "host": public_host(),
+        "quality": "Connected",
+    }
+
+
 def finite_number(value: Any) -> Any:
     if isinstance(value, float):
         if value != value or value in (float("inf"), float("-inf")):
@@ -238,6 +274,7 @@ class TelemetryStore:
         self.lock = threading.Lock()
         self.latest: dict[str, Any] = {
             "connected": False,
+            "network": network_status(),
             "timestamp": None,
             "samples": 0,
             "sample_rate_hz": 0,
@@ -260,7 +297,7 @@ class TelemetryStore:
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
-            return dict(self.latest)
+            return {**self.latest, "network": network_status()}
 
     def _set_error(self, error: str) -> None:
         with self.lock:

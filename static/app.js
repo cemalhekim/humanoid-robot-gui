@@ -73,6 +73,13 @@ function renderMetricCards(node, cards, rows = []) {
   `;
 }
 
+function renderStatusList(node, rows) {
+  node.innerHTML = `<dl class="status-list full">${rows
+    .filter((row) => row.value !== undefined)
+    .map((row) => `<dt>${row.label}</dt><dd>${fmt(row.value)}</dd>`)
+    .join("")}</dl>`;
+}
+
 function renderRobotStatus(snapshot) {
   const robot = snapshot.robot || {};
   const imu = snapshot.imu || {};
@@ -93,49 +100,50 @@ function renderRobotStatus(snapshot) {
     ],
   );
 
-  renderMetricCards(
+  renderStatusList(
     els.imuFields,
     [
-      { label: "Roll", value: imu.rpy?.[0], suffix: " rad" },
-      { label: "Pitch", value: imu.rpy?.[1], suffix: " rad" },
-      { label: "Yaw", value: imu.rpy?.[2], suffix: " rad" },
-    ],
-    [
-      ...valueList(imu.gyroscope, ["Gyro X", "Gyro Y", "Gyro Z"]),
-      ...valueList(imu.accelerometer, ["Accel X", "Accel Y", "Accel Z"]),
-      { label: "Temp", value: imu.temperature },
+      { label: "Roll", value: imu.rpy?.[0] },
+      { label: "Pitch", value: imu.rpy?.[1] },
+      { label: "Yaw", value: imu.rpy?.[2] },
+      { label: "Gyroscope", value: imu.gyroscope },
+      { label: "Accelerometer", value: imu.accelerometer },
+      { label: "Quaternion", value: imu.quaternion },
+      { label: "Temperature", value: imu.temperature },
     ],
   );
 
-  renderMetricCards(
+  renderStatusList(
     els.batteryFields,
     [
-      { label: "SOC", value: battery.soc, suffix: "%" },
+      { label: "State", value: battery.state },
+      { label: "SOC", value: battery.soc === undefined ? undefined : `${fmt(battery.soc)}%` },
       { label: "Current", value: battery.current },
+      { label: "Cycle", value: battery.cycle },
+      { label: "Temperature", value: battery.temperature },
+      { label: "Checked", value: battery.checked_fields },
     ],
-    Object.entries(battery)
-      .filter(([key]) => !["soc", "current"].includes(key))
-      .slice(0, 4)
-      .map(([label, value]) => ({ label, value })),
   );
 
   renderMetricCards(
     els.handFields,
     [
-      { label: "State", value: hands.connected ? "Connected" : "Offline", tone: hands.connected ? "" : "red" },
+      { label: "State", value: hands.connected ? "Connected" : "Offline", tone: hands.connected ? "" : "red", wide: true },
       { label: "Joints", value: hands.joint_count ?? 0 },
-      { label: "Samples", value: hands.samples ?? 0 },
     ],
-    (hands.joints || []).slice(0, 6).map((joint) => ({ label: joint.name, value: joint.q })),
+    [
+      { label: "Samples", value: hands.samples ?? 0 },
+      { label: "Topic", value: hands.topic },
+      ...(hands.note ? [{ label: "Note", value: hands.note }] : []),
+      ...(hands.joints || []).slice(0, 4).map((joint) => ({ label: joint.name, value: joint.q })),
+    ],
   );
 
-  renderMetricCards(
+  renderStatusList(
     els.forceFields,
     [
-      { label: "Foot Force", value: snapshot.foot_force?.length ? "Available" : "--" },
-      { label: "Force Est", value: snapshot.foot_force_est?.length ? "Available" : "--" },
-    ],
-    [
+      { label: "Foot force", value: snapshot.foot_force?.length ? snapshot.foot_force : "--" },
+      { label: "Estimated", value: snapshot.foot_force_est?.length ? snapshot.foot_force_est : "--" },
       ...valueList(snapshot.foot_force, ["FL", "FR", "RL", "RR"]),
       ...valueList(snapshot.foot_force_est, ["Est FL", "Est FR", "Est RL", "Est RR"]),
     ],

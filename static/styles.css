@@ -513,21 +513,22 @@ h3 {
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
   min-height: 0;
   overflow: auto;
   padding-right: 2px;
 }
 
 .mini-panel {
-  min-height: 116px;
-  max-height: 190px;
+  min-height: 168px;
+  max-height: none;
   overflow: auto;
-  padding: 13px;
+  padding: 14px;
 }
 
 .primary-panel {
   grid-column: 1 / -1;
+  min-height: 178px;
   border-color: rgba(230, 0, 0, 0.35);
   background: linear-gradient(145deg, rgba(230, 0, 0, 0.16), rgba(255, 255, 255, 0.04));
 }
@@ -555,12 +556,12 @@ h3 {
 
 .status-content {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .metric-card-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
   gap: 8px;
 }
 
@@ -591,20 +592,24 @@ h3 {
 
 .status-metric strong {
   display: block;
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: #fff;
   font-size: 16px;
   font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .status-list {
   display: grid;
-  grid-template-columns: minmax(94px, 0.8fr) minmax(0, 1.2fr);
-  gap: 7px 10px;
+  grid-template-columns: minmax(92px, 0.56fr) minmax(0, 1.44fr);
+  gap: 8px 12px;
   margin: 0;
   font-size: 12px;
+  line-height: 1.25;
+}
+
+.status-list.full {
+  grid-template-columns: minmax(92px, 0.5fr) minmax(0, 1.5fr);
 }
 
 .status-list dt {
@@ -614,11 +619,10 @@ h3 {
 .status-list dd {
   min-width: 0;
   margin: 0;
-  overflow: hidden;
   color: #fff;
   font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .filter {

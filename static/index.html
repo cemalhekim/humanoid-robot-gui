@@ -24,7 +24,26 @@
         </div>
         <nav class="side-nav">
           <a class="nav-item active" href="#dashboard"><span class="nav-icon">▣</span>Dashboard</a>
-          <a class="nav-item" href="#cameraPage"><span class="nav-icon">▣</span>Camera Stream</a>
+          <a class="nav-item" href="#cameraPage">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M4.5 7.5h3.1l1.5-2h5.8l1.5 2h3.1c.8 0 1.5.7 1.5 1.5v8.5c0 .8-.7 1.5-1.5 1.5h-15c-.8 0-1.5-.7-1.5-1.5V9c0-.8.7-1.5 1.5-1.5Z"></path>
+                <circle cx="12" cy="13" r="3.4"></circle>
+              </svg>
+            </span>
+            Camera Stream
+          </a>
+          <a class="nav-item" href="#rosGraph">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <circle cx="6" cy="6" r="2.4"></circle>
+                <circle cx="18" cy="7" r="2.4"></circle>
+                <circle cx="12" cy="18" r="2.4"></circle>
+                <path d="M8.3 6.2 15.7 6.8M7.2 8.1l3.6 7.8M16.7 9l-3.5 6.9"></path>
+              </svg>
+            </span>
+            ROS Graph
+          </a>
           <a class="nav-item" href="#motorPage"><span class="nav-icon">▤</span>Motor Data</a>
           <a class="nav-item" href="#rawView"><span class="nav-icon">☷</span>Raw JSON</a>
         </nav>
@@ -215,6 +234,29 @@
                   <strong>No stream yet</strong>
                   <p>The panel stays ready even before a stream source is configured.</p>
                 </article>
+              </aside>
+            </div>
+          </section>
+
+          <section id="rosGraph" class="ros-page panel">
+            <div class="section-head">
+              <div>
+                <h2>ROS Graph</h2>
+                <p class="panel-subtitle">Discovered ROS2 nodes and active subscriptions</p>
+              </div>
+              <button id="refreshRosGraph" class="ghost-button" type="button">Refresh</button>
+            </div>
+            <div class="ros-summary" id="rosSummary">
+              <span>Nodes <strong>--</strong></span>
+              <span>Subscriptions <strong>--</strong></span>
+              <span>Publishers <strong>--</strong></span>
+              <span>Topics <strong>--</strong></span>
+            </div>
+            <div class="ros-layout">
+              <div class="ros-map" id="rosMap"></div>
+              <aside class="ros-details">
+                <h3>Subscription Edges</h3>
+                <div id="rosEdges" class="ros-edge-list"></div>
               </aside>
             </div>
           </section>

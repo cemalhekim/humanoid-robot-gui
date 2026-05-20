@@ -135,6 +135,16 @@ input {
   font-size: 18px;
 }
 
+.nav-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .sidebar-signal {
   position: relative;
   min-height: 230px;
@@ -405,11 +415,13 @@ h1 {
 
 .dashboard:has(.raw-page:target) > :not(.raw-page),
 .dashboard:has(.motor-page:target) > :not(.motor-page),
-.dashboard:has(.camera-page:target) > :not(.camera-page) {
+.dashboard:has(.camera-page:target) > :not(.camera-page),
+.dashboard:has(.ros-page:target) > :not(.ros-page) {
   display: none;
 }
 
-.camera-page {
+.camera-page,
+.ros-page {
   grid-column: 1 / -1;
   grid-row: 1 / -1;
   display: none;
@@ -419,7 +431,8 @@ h1 {
   z-index: 5;
 }
 
-.camera-page:target {
+.camera-page:target,
+.ros-page:target {
   display: grid;
 }
 
@@ -1008,6 +1021,177 @@ pre {
   margin-bottom: 8px;
   color: var(--text);
   font-size: 1.02rem;
+}
+
+.ros-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ros-summary span,
+.ros-node-card,
+.ros-details,
+.ros-edge {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.ros-summary span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.ros-summary strong {
+  color: var(--good);
+  font-size: 18px;
+}
+
+.ros-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.42fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+.ros-map {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 50% 16%, rgba(230, 0, 0, 0.14), transparent 36%),
+    rgba(0, 0, 0, 0.28);
+  background-size: 24px 24px, 24px 24px, auto, auto;
+}
+
+.ros-svg {
+  display: block;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.ros-column-labels text {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+
+.ros-link {
+  fill: none;
+  stroke-width: 2;
+  opacity: 0.75;
+}
+
+.ros-link.pub {
+  stroke: rgba(230, 0, 0, 0.78);
+  marker-end: url(#rosArrowRed);
+}
+
+.ros-link.sub {
+  stroke: rgba(255, 255, 255, 0.58);
+  marker-end: url(#rosArrowWhite);
+}
+
+#rosArrowRed path {
+  fill: var(--accent);
+}
+
+#rosArrowWhite path {
+  fill: rgba(255, 255, 255, 0.7);
+}
+
+.ros-graph-node rect,
+.ros-graph-topic rect {
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.34));
+}
+
+.ros-graph-node rect {
+  fill: rgba(18, 18, 18, 0.96);
+  stroke: rgba(255, 255, 255, 0.16);
+}
+
+.ros-graph-node.publisher rect {
+  stroke: rgba(230, 0, 0, 0.72);
+}
+
+.ros-graph-node.subscriber rect {
+  stroke: rgba(255, 255, 255, 0.2);
+}
+
+.ros-graph-topic rect {
+  fill: rgba(92, 0, 0, 0.94);
+  stroke: rgba(255, 65, 65, 0.66);
+}
+
+.ros-graph-node text,
+.ros-graph-topic text {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.ros-graph-topic text {
+  fill: #fff;
+}
+
+.ros-edge small,
+.ros-muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ros-details {
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px;
+  border-radius: 12px;
+}
+
+.ros-edge-list {
+  display: grid;
+  gap: 10px;
+  max-height: 100%;
+  overflow: auto;
+}
+
+.ros-edge {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 10px;
+}
+
+.ros-edge strong,
+.ros-edge span {
+  overflow-wrap: anywhere;
+}
+
+.ros-edge span {
+  color: var(--accent-2);
+  font-weight: 800;
+}
+
+.ros-empty {
+  padding: 22px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  color: var(--muted);
 }
 
 .hidden {

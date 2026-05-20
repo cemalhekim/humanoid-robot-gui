@@ -22,7 +22,7 @@ from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 from typing import Any
 
 try:
@@ -316,31 +316,31 @@ def lowstate_to_dict(
     return data
 
 
-def h264_payload_from_raw_ros(data: bytes) -> bytes | None:
+def h264_payload_from_raw_ros(data: bytes, target_resolution: int = 360) -> bytes | None:
     offset = 4
     if len(data) < offset + 8:
         return None
     offset += 8
-    chunks = []
-    for _ in range(3):
-        if offset + 4 > len(data):
+    fallback: bytes | None = None
+    while offset + 8 <= len(data):
+        resolution = struct.unpack_from("<I", data, offset)[0]
+        payload_size = struct.unpack_from("<I", data, offset + 4)[0]
+        offset += 8
+        if resolution not in (180, 360, 720):
             break
-        size = struct.unpack_from("<I", data, offset)[0]
-        offset += 4
-        if size > len(data) - offset:
+        if payload_size > len(data) - offset:
             break
-        chunk = data[offset : offset + size]
-        offset += size
+        payload = data[offset : offset + payload_size]
+        offset += payload_size
         while offset % 4:
             offset += 1
-        if chunk:
-            chunks.append(chunk)
-    if not chunks:
-        return None
-    first = chunks[0]
-    if len(first) >= 8 and first[4:8] in (b"\x00\x00\x00\x01", b"\x00\x00\x01"):
-        return first[4:] + b"".join(chunks[1:])
-    return b"".join(chunks)
+        if not payload:
+            continue
+        if fallback is None:
+            fallback = payload
+        if resolution == target_resolution:
+            return payload
+    return fallback
 
 
 def configure_ros2_camera_environment(interface: str) -> None:
@@ -353,11 +353,109 @@ def configure_ros2_camera_environment(interface: str) -> None:
         )
 
 
+def run_ros2_command(args: list[str], timeout: float = 2.5) -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            ["ros2", *args],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    output = result.stdout.strip() or result.stderr.strip()
+    return result.returncode == 0, output
+
+
+def parse_topic_list(output: str) -> dict[str, list[str]]:
+    topics: dict[str, list[str]] = {}
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or " [" not in line or not line.endswith("]"):
+            continue
+        name, raw_types = line.rsplit(" [", 1)
+        topics[name] = [item.strip() for item in raw_types[:-1].split(",") if item.strip()]
+    return topics
+
+
+def parse_node_info(name: str, output: str) -> dict[str, Any]:
+    sections = {
+        "Subscribers:": "subscribers",
+        "Publishers:": "publishers",
+        "Service Servers:": "service_servers",
+        "Service Clients:": "service_clients",
+        "Action Servers:": "action_servers",
+        "Action Clients:": "action_clients",
+    }
+    node = {key: [] for key in sections.values()}
+    node["name"] = name
+    current: str | None = None
+    for raw_line in output.splitlines():
+        stripped = raw_line.strip()
+        if stripped in sections:
+            current = sections[stripped]
+            continue
+        if current is None or not raw_line.startswith("    ") or ":" not in stripped:
+            continue
+        topic, msg_type = stripped.split(":", 1)
+        node[current].append({"name": topic.strip(), "type": msg_type.strip()})
+    return node
+
+
+def collect_ros_graph(interface: str) -> dict[str, Any]:
+    configure_ros2_camera_environment(interface)
+    timestamp = time.time()
+    ok_nodes, node_output = run_ros2_command(["node", "list"])
+    ok_topics, topic_output = run_ros2_command(["topic", "list", "-t"])
+    if not ok_nodes:
+        return {"timestamp": timestamp, "nodes": [], "topics": {}, "subscriptions": [], "error": node_output}
+
+    node_names = [line.strip() for line in node_output.splitlines() if line.strip()]
+    topic_types = parse_topic_list(topic_output if ok_topics else "")
+    nodes = []
+    subscriptions = []
+    publishers = []
+    for node_name in node_names[:40]:
+        ok_info, info_output = run_ros2_command(["node", "info", node_name], timeout=2.0)
+        if not ok_info:
+            nodes.append({"name": node_name, "subscribers": [], "publishers": [], "error": info_output})
+            continue
+        node = parse_node_info(node_name, info_output)
+        nodes.append(node)
+        for sub in node["subscribers"]:
+            subscriptions.append({"node": node_name, "topic": sub["name"], "type": sub["type"]})
+        for pub in node["publishers"]:
+            publishers.append({"node": node_name, "topic": pub["name"], "type": pub["type"]})
+
+    return {
+        "timestamp": timestamp,
+        "interface": interface or "default",
+        "nodes": nodes,
+        "topics": topic_types,
+        "subscriptions": subscriptions,
+        "publishers": publishers,
+        "error": None if ok_topics else topic_output,
+    }
+
+
 def camera_decoder_worker(store: "TelemetryStore", fifo_path: str) -> None:
     if cv2 is None:
         store.set_camera_error("OpenCV is not available for H264 decode.")
         return
+    os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "quiet")
+    try:
+        cv2.setLogLevel(0)
+    except AttributeError:
+        pass
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, 2)
+        os.close(devnull)
+    except OSError:
+        pass
     cap = cv2.VideoCapture(fifo_path, cv2.CAP_FFMPEG)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     if not cap.isOpened():
         store.set_camera_error("OpenCV could not open H264 camera stream.")
         return
@@ -366,7 +464,7 @@ def camera_decoder_worker(store: "TelemetryStore", fifo_path: str) -> None:
         if not ok or frame is None:
             time.sleep(0.02)
             continue
-        ok, encoded = cv2.imencode(".jpg", frame)
+        ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
         if ok:
             store.set_camera_frame(encoded.tobytes())
     cap.release()
@@ -404,7 +502,7 @@ def ros_camera_worker(store: "TelemetryStore") -> None:
         store.set_camera_error(f"Could not create H264 pipe: {exc}")
         return
 
-    payloads: queue.Queue[bytes] = queue.Queue(maxsize=120)
+    payloads: queue.Queue[bytes] = queue.Queue(maxsize=240)
     threading.Thread(target=camera_decoder_worker, args=(store, fifo_path), daemon=True).start()
     threading.Thread(target=camera_fifo_writer, args=(store, fifo_path, payloads), daemon=True).start()
 
@@ -416,18 +514,11 @@ def ros_camera_worker(store: "TelemetryStore") -> None:
             self.create_subscription(Go2FrontVideoData, "/frontvideostream", self.on_frame, 10, raw=True)
 
         def on_frame(self, msg: bytes) -> None:
-            payload = h264_payload_from_raw_ros(bytes(msg))
+            payload = h264_payload_from_raw_ros(bytes(msg), store.camera_resolution)
             if not payload:
                 store.set_camera_error("Front video packet did not contain H264 payload.")
                 return
-            try:
-                payloads.put_nowait(payload)
-            except queue.Full:
-                try:
-                    payloads.get_nowait()
-                    payloads.put_nowait(payload)
-                except queue.Empty:
-                    pass
+            payloads.put(payload)
 
     node = FrontVideoNode()
     store.set_camera_error(None)
@@ -448,10 +539,12 @@ class TelemetryStore:
         self.camera_source = os.environ.get("CAMERA_SOURCE", "")
         self.lock = threading.Lock()
         self.camera_lock = threading.Lock()
+        self.camera_condition = threading.Condition(self.camera_lock)
         self.camera_frame: bytes | None = None
         self.camera_timestamp: float | None = None
         self.camera_error: str | None = None
         self.camera_topic = "/frontvideostream"
+        self.camera_resolution = int(os.environ.get("CAMERA_RESOLUTION", "360"))
         self.latest: dict[str, Any] = {
             "connected": False,
             "network": network_status(self.robot_host),
@@ -469,6 +562,8 @@ class TelemetryStore:
         self.thread: threading.Thread | None = None
         self.sample_times: deque[float] = deque(maxlen=300)
         self.samples = 0
+        self.ros_graph_cache: dict[str, Any] | None = None
+        self.ros_graph_timestamp = 0.0
 
     def start(self) -> None:
         self.running = True
@@ -484,16 +579,27 @@ class TelemetryStore:
             return {
                 "source": self.camera_topic,
                 "interface": self.camera_source or "default",
+                "resolution": self.camera_resolution,
                 "available": self.camera_frame is not None,
                 "timestamp": self.camera_timestamp,
                 "error": self.camera_error,
             }
+
+    def ros_graph_snapshot(self) -> dict[str, Any]:
+        now = time.time()
+        if self.ros_graph_cache is not None and now - self.ros_graph_timestamp < 3.0:
+            return self.ros_graph_cache
+        graph = collect_ros_graph(self.camera_source)
+        self.ros_graph_cache = graph
+        self.ros_graph_timestamp = now
+        return graph
 
     def set_camera_frame(self, frame: bytes) -> None:
         with self.camera_lock:
             self.camera_frame = frame
             self.camera_timestamp = time.time()
             self.camera_error = None
+            self.camera_condition.notify_all()
 
     def set_camera_error(self, error: str | None) -> None:
         with self.camera_lock:
@@ -502,6 +608,13 @@ class TelemetryStore:
     def get_camera_frame(self) -> bytes | None:
         with self.camera_lock:
             return self.camera_frame
+
+    def wait_for_camera_frame(self, last_timestamp: float | None, timeout: float = 1.0) -> tuple[bytes | None, float | None]:
+        with self.camera_condition:
+            if self.camera_frame is not None and self.camera_timestamp != last_timestamp:
+                return self.camera_frame, self.camera_timestamp
+            self.camera_condition.wait(timeout)
+            return self.camera_frame, self.camera_timestamp
 
     def _set_error(self, error: str) -> None:
         with self.lock:
@@ -581,24 +694,27 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         sys.stdout.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
 
     def do_GET(self) -> None:
-        if self.path in ("/", "/index.html"):
+        request_path = urlsplit(self.path).path
+        if request_path in ("/", "/index.html"):
             self._send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
-        elif self.path == "/app.js":
+        elif request_path == "/app.js":
             self._send_file(STATIC_DIR / "app.js", "application/javascript; charset=utf-8")
-        elif self.path == "/viewer.js":
+        elif request_path == "/viewer.js":
             self._send_file(STATIC_DIR / "viewer.js", "application/javascript; charset=utf-8")
-        elif self.path == "/styles.css":
+        elif request_path == "/styles.css":
             self._send_file(STATIC_DIR / "styles.css", "text/css; charset=utf-8")
-        elif self.path == "/api/state":
+        elif request_path == "/api/state":
             self._send_json(self.store.snapshot())
-        elif self.path == "/api/camera":
+        elif request_path == "/api/camera":
             self._send_json(self.store.camera_snapshot())
-        elif self.path == "/camera.mjpg":
+        elif request_path == "/api/ros-graph":
+            self._send_json(self.store.ros_graph_snapshot())
+        elif request_path == "/camera.mjpg":
             self._send_camera_stream()
-        elif self.path == "/events":
+        elif request_path == "/events":
             self._send_events()
-        elif self.path.startswith("/models/") or self.path.startswith("/vendor/") or self.path.startswith("/assets/"):
-            self._send_static_asset(self.path)
+        elif request_path.startswith("/models/") or request_path.startswith("/vendor/") or request_path.startswith("/assets/"):
+            self._send_static_asset(request_path)
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -665,13 +781,18 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
+        last_timestamp: float | None = None
         while True:
-            frame = self.store.get_camera_frame()
+            frame, timestamp = self.store.wait_for_camera_frame(last_timestamp, timeout=1.0)
             if frame is None:
-                time.sleep(0.2)
                 continue
+            if timestamp == last_timestamp:
+                continue
+            last_timestamp = timestamp
             payload = (
                 b"--frame\r\n"
                 b"Content-Type: image/jpeg\r\n"
@@ -684,7 +805,6 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 break
-            time.sleep(0.04)
 
 
 def main() -> None:

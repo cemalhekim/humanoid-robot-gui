@@ -21,6 +21,10 @@ const els = {
   rawJson: document.getElementById("rawJson"),
   cameraStream: document.getElementById("cameraStream"),
   cameraPlaceholder: document.getElementById("cameraPlaceholder"),
+  rosSummary: document.getElementById("rosSummary"),
+  rosMap: document.getElementById("rosMap"),
+  rosEdges: document.getElementById("rosEdges"),
+  refreshRosGraph: document.getElementById("refreshRosGraph"),
   filter: document.getElementById("filter"),
   navItems: document.querySelectorAll(".nav-item"),
 };
@@ -31,6 +35,15 @@ function fmt(value, suffix = "") {
   if (typeof value === "number") return `${Number.isInteger(value) ? value : value.toFixed(3)}${suffix}`;
   if (typeof value === "boolean") return value ? "true" : "false";
   return String(value);
+}
+
+function esc(value) {
+  return String(value ?? "--")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function setFields(node, data) {
@@ -215,7 +228,7 @@ function render(snapshot) {
 
 function connectCameraPreview() {
   if (!els.cameraStream || !els.cameraPlaceholder) return;
-  const feed = "/camera.mjpg";
+  const feed = `/camera.mjpg?ts=${Date.now()}`;
   els.cameraStream.src = feed;
   els.cameraStream.addEventListener("load", () => {
     els.cameraPlaceholder.classList.add("hidden");
@@ -231,6 +244,139 @@ function connectCameraPreview() {
       }
     })
     .catch(() => {});
+}
+
+function renderRosGraph(graph) {
+  if (!els.rosMap || !els.rosEdges || !els.rosSummary) return;
+  const nodes = graph.nodes || [];
+  const subscriptions = graph.subscriptions || [];
+  const publishers = graph.publishers || [];
+  const topics = Object.keys(graph.topics || {});
+  const nodeNames = new Set(nodes.map((node) => node.name));
+  const activeTopics = Array.from(
+    new Set([...publishers.map((edge) => edge.topic), ...subscriptions.map((edge) => edge.topic)]),
+  ).sort();
+  const publisherNodes = new Set(publishers.map((edge) => edge.node));
+  const subscriberNodes = new Set(subscriptions.map((edge) => edge.node));
+  const graphNodes = Array.from(new Set([...publisherNodes, ...subscriberNodes, ...nodeNames])).sort();
+  const width = Math.max(980, 360 + activeTopics.length * 24);
+  const rowHeight = 78;
+  const height = Math.max(520, Math.max(graphNodes.length, activeTopics.length) * rowHeight + 80);
+  const nodeXLeft = 170;
+  const topicX = width / 2;
+  const nodeXRight = width - 170;
+  const nodeY = new Map(graphNodes.map((name, index) => [name, 60 + index * rowHeight]));
+  const topicY = new Map(activeTopics.map((name, index) => [name, 60 + index * rowHeight]));
+
+  els.rosSummary.innerHTML = `
+    <span>Nodes <strong>${fmt(nodes.length)}</strong></span>
+    <span>Subscriptions <strong>${fmt(subscriptions.length)}</strong></span>
+    <span>Publishers <strong>${fmt(publishers.length)}</strong></span>
+    <span>Topics <strong>${fmt(topics.length)}</strong></span>
+  `;
+
+  if (graph.error && nodes.length === 0) {
+    els.rosMap.innerHTML = `<div class="ros-empty">ROS graph unavailable: ${esc(graph.error)}</div>`;
+    els.rosEdges.innerHTML = "";
+    return;
+  }
+
+  const publisherLines = publishers
+    .filter((edge) => nodeY.has(edge.node) && topicY.has(edge.topic))
+    .map((edge) => {
+      const y1 = nodeY.get(edge.node);
+      const y2 = topicY.get(edge.topic);
+      return `<path class="ros-link pub" d="M ${nodeXLeft + 126} ${y1} C ${nodeXLeft + 245} ${y1}, ${topicX - 245} ${y2}, ${topicX - 132} ${y2}"></path>`;
+    })
+    .join("");
+  const subscriberLines = subscriptions
+    .filter((edge) => nodeY.has(edge.node) && topicY.has(edge.topic))
+    .map((edge) => {
+      const y1 = topicY.get(edge.topic);
+      const y2 = nodeY.get(edge.node);
+      return `<path class="ros-link sub" d="M ${topicX + 132} ${y1} C ${topicX + 245} ${y1}, ${nodeXRight - 245} ${y2}, ${nodeXRight - 126} ${y2}"></path>`;
+    })
+    .join("");
+  const publisherShapes = Array.from(publisherNodes)
+    .sort()
+    .map((name) => {
+      const y = nodeY.get(name);
+      return `
+        <g class="ros-graph-node publisher" transform="translate(${nodeXLeft} ${y})">
+          <rect x="-126" y="-24" width="252" height="48" rx="12"></rect>
+          <text x="0" y="5">${esc(name)}</text>
+        </g>
+      `;
+    })
+    .join("");
+  const subscriberShapes = Array.from(subscriberNodes)
+    .sort()
+    .map((name) => {
+      const y = nodeY.get(name);
+      return `
+        <g class="ros-graph-node subscriber" transform="translate(${nodeXRight} ${y})">
+          <rect x="-126" y="-24" width="252" height="48" rx="12"></rect>
+          <text x="0" y="5">${esc(name)}</text>
+        </g>
+      `;
+    })
+    .join("");
+  const topicShapes = activeTopics
+    .map((name) => {
+      const y = topicY.get(name);
+      return `
+        <g class="ros-graph-topic" transform="translate(${topicX} ${y})">
+          <rect x="-132" y="-20" width="264" height="40" rx="7"></rect>
+          <text x="0" y="5">${esc(name)}</text>
+        </g>
+      `;
+    })
+    .join("");
+
+  els.rosMap.innerHTML = `
+    <svg class="ros-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="ROS graph">
+      <defs>
+        <marker id="rosArrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z"></path>
+        </marker>
+        <marker id="rosArrowWhite" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z"></path>
+        </marker>
+      </defs>
+      <g class="ros-column-labels">
+        <text x="${nodeXLeft}" y="24">Publishers</text>
+        <text x="${topicX}" y="24">Topics</text>
+        <text x="${nodeXRight}" y="24">Subscribers</text>
+      </g>
+      <g class="ros-links">${publisherLines}${subscriberLines}</g>
+      <g>${topicShapes}${publisherShapes}${subscriberShapes}</g>
+    </svg>
+  `;
+
+  els.rosEdges.innerHTML = subscriptions.length
+    ? subscriptions
+        .map(
+          (edge) => `
+            <div class="ros-edge">
+              <strong>${esc(edge.node)}</strong>
+              <span>${esc(edge.topic)}</span>
+              <small>${esc(edge.type)}</small>
+            </div>
+          `,
+        )
+        .join("")
+    : `<div class="ros-empty">No subscriptions discovered.</div>`;
+}
+
+function loadRosGraph() {
+  if (!els.rosMap) return;
+  els.rosMap.innerHTML = `<div class="ros-empty">Scanning ROS graph...</div>`;
+  fetch("/api/ros-graph")
+    .then((response) => response.json())
+    .then(renderRosGraph)
+    .catch((error) => {
+      els.rosMap.innerHTML = `<div class="ros-empty">ROS graph request failed: ${esc(error.message)}</div>`;
+    });
 }
 
 els.filter.addEventListener("input", () => {
@@ -265,6 +411,8 @@ fetch("/api/state")
   .then(render)
   .catch(() => {});
 window.addEventListener("hashchange", syncActiveNav);
+els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 syncActiveNav();
 connectCameraPreview();
+loadRosGraph();
 connectEvents();

@@ -404,8 +404,23 @@ h1 {
 }
 
 .dashboard:has(.raw-page:target) > :not(.raw-page),
-.dashboard:has(.motor-page:target) > :not(.motor-page) {
+.dashboard:has(.motor-page:target) > :not(.motor-page),
+.dashboard:has(.camera-page:target) > :not(.camera-page) {
   display: none;
+}
+
+.camera-page {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  display: none;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  z-index: 5;
+}
+
+.camera-page:target {
+  display: grid;
 }
 
 .section-head {
@@ -868,6 +883,133 @@ pre {
   font-size: 24px;
 }
 
+.camera-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.camera-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(234, 0, 0, 0.14);
+}
+
+.camera-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.8fr);
+  gap: 16px;
+  min-height: 560px;
+}
+
+.camera-stage,
+.camera-side {
+  display: grid;
+  gap: 16px;
+}
+
+.camera-frame {
+  position: relative;
+  min-height: 480px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+    radial-gradient(circle at 50% 12%, rgba(234, 0, 0, 0.16), transparent 42%),
+    #050505;
+  overflow: hidden;
+}
+
+#cameraStream {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 480px;
+  object-fit: cover;
+  background: #050505;
+}
+
+.camera-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 32px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.84);
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.58)),
+    radial-gradient(circle at 50% 20%, rgba(234, 0, 0, 0.2), transparent 44%);
+}
+
+.camera-placeholder .placeholder-mark {
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.camera-placeholder p,
+.camera-placeholder small,
+.camera-card p {
+  margin: 0;
+  max-width: 42ch;
+}
+
+.camera-footer {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 8px 14px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.camera-footer span {
+  color: var(--muted);
+}
+
+.camera-footer strong {
+  color: var(--text);
+}
+
+.camera-side {
+  align-content: start;
+}
+
+.camera-card {
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.camera-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.camera-card strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 1.02rem;
+}
+
 .hidden {
   display: none;
 }
@@ -942,6 +1084,10 @@ pre {
   }
 
   .trust-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .camera-layout {
     grid-template-columns: 1fr;
   }
 

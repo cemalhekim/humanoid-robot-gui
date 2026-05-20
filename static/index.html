@@ -24,6 +24,7 @@
         </div>
         <nav class="side-nav">
           <a class="nav-item active" href="#dashboard"><span class="nav-icon">▣</span>Dashboard</a>
+          <a class="nav-item" href="#cameraPage"><span class="nav-icon">▣</span>Camera Stream</a>
           <a class="nav-item" href="#motorPage"><span class="nav-icon">▤</span>Motor Data</a>
           <a class="nav-item" href="#rawView"><span class="nav-icon">☷</span>Raw JSON</a>
         </nav>
@@ -167,6 +168,54 @@
                 </thead>
                 <tbody id="motorRows"></tbody>
               </table>
+            </div>
+          </section>
+
+          <section id="cameraPage" class="camera-page panel">
+            <div class="section-head">
+              <div>
+                <h2>Camera Stream</h2>
+                <p class="panel-subtitle">Unitree SDK2 OpenCV front camera feed</p>
+              </div>
+              <div class="camera-status">
+                <span class="camera-dot"></span>
+                <strong>Waiting for stream</strong>
+              </div>
+            </div>
+            <div class="camera-layout">
+              <div class="camera-stage">
+                <div class="camera-frame">
+                  <img id="cameraStream" src="" alt="Camera stream">
+                  <div class="camera-placeholder" id="cameraPlaceholder">
+                    <div class="placeholder-mark">Live View</div>
+                    <p>Connect the SDK2/OpenCV feed to `/camera.mjpg`.</p>
+                    <small>Run the front camera pipeline on the robot PC, then point this page at the stream.</small>
+                  </div>
+                </div>
+                <div class="camera-footer">
+                  <span>Source</span>
+                  <strong>SDK2 / OpenCV</strong>
+                  <span>Mode</span>
+                  <strong>Browser stream</strong>
+                </div>
+              </div>
+              <aside class="camera-side">
+                <article class="camera-card">
+                  <span>Connection</span>
+                  <strong>Robot PC</strong>
+                  <p>Use the robot-side interface that reaches the front camera topic.</p>
+                </article>
+                <article class="camera-card">
+                  <span>Example</span>
+                  <strong>camera_opencv.py</strong>
+                  <p>SDK2 example path referenced by Unitree for front camera access.</p>
+                </article>
+                <article class="camera-card">
+                  <span>Fallback</span>
+                  <strong>No stream yet</strong>
+                  <p>The panel stays ready even before a stream source is configured.</p>
+                </article>
+              </aside>
             </div>
           </section>
 

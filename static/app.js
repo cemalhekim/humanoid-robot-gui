@@ -19,6 +19,8 @@ const els = {
   forceFields: document.getElementById("forceFields"),
   motorRows: document.getElementById("motorRows"),
   rawJson: document.getElementById("rawJson"),
+  cameraStream: document.getElementById("cameraStream"),
+  cameraPlaceholder: document.getElementById("cameraPlaceholder"),
   filter: document.getElementById("filter"),
   navItems: document.querySelectorAll(".nav-item"),
 };
@@ -211,6 +213,26 @@ function render(snapshot) {
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));
 }
 
+function connectCameraPreview() {
+  if (!els.cameraStream || !els.cameraPlaceholder) return;
+  const feed = "/camera.mjpg";
+  els.cameraStream.src = feed;
+  els.cameraStream.addEventListener("load", () => {
+    els.cameraPlaceholder.classList.add("hidden");
+  });
+  els.cameraStream.addEventListener("error", () => {
+    els.cameraPlaceholder.classList.remove("hidden");
+  });
+  fetch("/api/camera")
+    .then((response) => response.json())
+    .then((camera) => {
+      if (camera.available) {
+        els.cameraPlaceholder.classList.add("hidden");
+      }
+    })
+    .catch(() => {});
+}
+
 els.filter.addEventListener("input", () => {
   state.filter = els.filter.value;
   if (state.latest) renderMotors(state.latest.motors);
@@ -244,4 +266,5 @@ fetch("/api/state")
   .catch(() => {});
 window.addEventListener("hashchange", syncActiveNav);
 syncActiveNav();
+connectCameraPreview();
 connectEvents();

@@ -8,6 +8,7 @@ const els = {
   connection: document.getElementById("connection"),
   age: document.getElementById("age"),
   rate: document.getElementById("rate"),
+  chillMotors: document.getElementById("chillMotors"),
   networkType: document.getElementById("networkType"),
   sidebarNetworkType: document.getElementById("sidebarNetworkType"),
   sidebarNetworkQuality: document.getElementById("sidebarNetworkQuality"),
@@ -27,6 +28,36 @@ const els = {
   refreshRosGraph: document.getElementById("refreshRosGraph"),
   filter: document.getElementById("filter"),
   navItems: document.querySelectorAll(".nav-item"),
+  wristState: document.getElementById("wristState"),
+  wristStop: document.getElementById("wristStop"),
+  wristCurrentQ: document.getElementById("wristCurrentQ"),
+  wristCurrentDq: document.getElementById("wristCurrentDq"),
+  wristTargetQReadout: document.getElementById("wristTargetQReadout"),
+  wristMessage: document.getElementById("wristMessage"),
+  wristLastCommand: document.getElementById("wristLastCommand"),
+  wristArm: document.getElementById("wristArm"),
+  wristRisk: document.getElementById("wristRisk"),
+  wristLive: document.getElementById("wristLive"),
+  wristLowcmd: document.getElementById("wristLowcmd"),
+  wristAutoGains: document.getElementById("wristAutoGains"),
+  wristTargetRelative: document.getElementById("wristTargetRelative"),
+  wristTargetLabel: document.getElementById("wristTargetLabel"),
+  wristTarget: document.getElementById("wristTarget"),
+  wristDelta: document.getElementById("wristDelta"),
+  wristKp: document.getElementById("wristKp"),
+  wristKd: document.getElementById("wristKd"),
+  wristDuration: document.getElementById("wristDuration"),
+  wristPeriod: document.getElementById("wristPeriod"),
+  wristRate: document.getElementById("wristRate"),
+  wristTargetValue: document.getElementById("wristTargetValue"),
+  wristDeltaValue: document.getElementById("wristDeltaValue"),
+  wristKpValue: document.getElementById("wristKpValue"),
+  wristKdValue: document.getElementById("wristKdValue"),
+  wristDurationValue: document.getElementById("wristDurationValue"),
+  wristPeriodValue: document.getElementById("wristPeriodValue"),
+  wristRateValue: document.getElementById("wristRateValue"),
+  wristSendAbsolute: document.getElementById("wristSendAbsolute"),
+  wristOscillate: document.getElementById("wristOscillate"),
 };
 
 function fmt(value, suffix = "") {
@@ -100,6 +131,13 @@ function renderRobotStatus(snapshot) {
   const imu = snapshot.imu || {};
   const battery = snapshot.battery || {};
   const hands = snapshot.hands || {};
+  const analysis = snapshot.analysis || {};
+  const motorSummary = analysis.motors || {};
+  const imuSummary = analysis.imu || {};
+  const health = analysis.health || {};
+  const hottest = motorSummary.hottest;
+  const maxTau = motorSummary.max_abs_tau;
+  const maxVelocity = motorSummary.max_abs_velocity;
 
   renderMetricCards(
     els.robotFields,
@@ -109,18 +147,22 @@ function renderRobotStatus(snapshot) {
       { label: "Motors", value: snapshot.motor_count ?? 0 },
     ],
     [
+      { label: "Health", value: health.state },
       { label: "Control", value: robot.mode_pr },
       { label: "Tick", value: robot.tick },
       { label: "CRC", value: robot.crc },
+      { label: "Real motors", value: motorSummary.real_count },
+      { label: "Reserved slots", value: motorSummary.reserved_count },
+      { label: "Mode counts", value: motorSummary.mode_counts },
     ],
   );
 
   renderStatusList(
     els.imuFields,
     [
-      { label: "Roll", value: imu.rpy?.[0] },
-      { label: "Pitch", value: imu.rpy?.[1] },
-      { label: "Yaw", value: imu.rpy?.[2] },
+      { label: "Roll", value: imuSummary.roll_deg === undefined ? imu.rpy?.[0] : `${fmt(imuSummary.roll_deg)} deg` },
+      { label: "Pitch", value: imuSummary.pitch_deg === undefined ? imu.rpy?.[1] : `${fmt(imuSummary.pitch_deg)} deg` },
+      { label: "Yaw", value: imuSummary.yaw_deg === undefined ? imu.rpy?.[2] : `${fmt(imuSummary.yaw_deg)} deg` },
       { label: "Gyroscope", value: imu.gyroscope },
       { label: "Accelerometer", value: imu.accelerometer },
       { label: "Temperature", value: imu.temperature },
@@ -154,6 +196,10 @@ function renderRobotStatus(snapshot) {
   renderStatusList(
     els.forceFields,
     [
+      { label: "Hottest motor", value: hottest ? `${hottest.name} ${fmt(hottest.value)} C` : "--" },
+      { label: "Max torque", value: maxTau ? `${maxTau.name} ${fmt(maxTau.value)}` : "--" },
+      { label: "Max velocity", value: maxVelocity ? `${maxVelocity.name} ${fmt(maxVelocity.value)}` : "--" },
+      { label: "Health flags", value: (health.flags || []).map((flag) => flag.message) },
       { label: "Foot force", value: snapshot.foot_force?.length ? snapshot.foot_force : "--" },
       { label: "Estimated", value: snapshot.foot_force_est?.length ? snapshot.foot_force_est : "--" },
       ...valueList(snapshot.foot_force, ["FL", "FR", "RL", "RR"]),
@@ -222,8 +268,287 @@ function render(snapshot) {
 
   renderRobotStatus(snapshot);
   renderMotors(snapshot.motors);
+  renderWristTelemetry(snapshot);
   els.rawJson.textContent = JSON.stringify(snapshot, null, 2);
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));
+}
+
+function wristParams(mode = "absolute") {
+  const commandMode = targetCommandMode(mode);
+  applyAutoWristGains(commandMode);
+  const targetValue = Number(els.wristTarget?.value || 0);
+  return {
+    mode: commandMode,
+    armed: Boolean(els.wristArm?.checked),
+    i_understand_risk: Boolean(els.wristRisk?.checked),
+    target_q: targetValue,
+    delta_q: commandMode === "relative" && mode === "absolute" ? targetValue : Number(els.wristDelta?.value || 0),
+    kp: Number(els.wristKp?.value || 0),
+    kd: Number(els.wristKd?.value || 0),
+    duration: Number(els.wristDuration?.value || 0.35),
+    period: Number(els.wristPeriod?.value || 2),
+    rate: Number(els.wristRate?.value || 80),
+    control_path: els.wristLowcmd?.checked ? "lowcmd" : "arm_sdk",
+    auto_gains: Boolean(els.wristAutoGains?.checked),
+  };
+}
+
+function targetCommandMode(mode) {
+  if (mode !== "absolute") return mode;
+  return els.wristTargetRelative?.checked ? "relative" : "absolute";
+}
+
+function wristSafetyReady() {
+  return Boolean(els.wristArm?.checked && els.wristRisk?.checked);
+}
+
+function setWristButtons() {
+  if (!els.wristSendAbsolute) return;
+  const ready = wristSafetyReady();
+  els.wristSendAbsolute.disabled = !ready;
+  els.wristOscillate.disabled = !ready || !els.wristLowcmd?.checked;
+  if (!ready && els.wristMessage) {
+    els.wristMessage.textContent = "Enable both safety checkboxes before sending a wrist command.";
+  }
+  syncTargetMode();
+}
+
+function updateWristSliderLabels() {
+  if (!els.wristTarget) return;
+  const target = Number(els.wristTarget.value);
+  const delta = Number(els.wristDelta.value);
+  const kp = Number(els.wristKp.value);
+  const kd = Number(els.wristKd.value);
+  const duration = Number(els.wristDuration.value);
+  const wristPeriod = Number(els.wristPeriod.value);
+  const rate = Number(els.wristRate.value);
+  els.wristTargetValue.textContent = target.toFixed(3);
+  els.wristTargetQReadout.textContent = target.toFixed(3);
+  els.wristDeltaValue.textContent = delta.toFixed(3);
+  els.wristKpValue.textContent = kp.toFixed(2);
+  els.wristKdValue.textContent = kd.toFixed(2);
+  els.wristDurationValue.textContent = `${duration.toFixed(2)} s`;
+  els.wristPeriodValue.textContent = `${wristPeriod.toFixed(2)} s`;
+  els.wristRateValue.textContent = `${rate.toFixed(0)} Hz`;
+}
+
+function syncTargetMode() {
+  if (!els.wristTarget || !els.wristTargetRelative) return;
+  els.wristTargetRelative.disabled = false;
+  const relative = Boolean(els.wristTargetRelative.checked);
+  const current = Number(els.wristTarget.value || 0);
+  els.wristTargetLabel.textContent = relative ? "Relative q" : "Target q";
+  els.wristTarget.min = relative ? "-0.25" : "-1.2";
+  els.wristTarget.max = relative ? "0.25" : "1.2";
+  els.wristTarget.step = "0.005";
+  if (relative && Math.abs(current) > 0.25) {
+    els.wristTarget.value = "0.03";
+    els.wristTarget.dataset.touched = "1";
+  }
+  if (relative && !els.wristTarget.dataset.touched) {
+    els.wristTarget.value = "0.03";
+  }
+  updateWristSliderLabels();
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function computeAutoWristGains(mode = "absolute") {
+  const currentQ = Number(els.wristCurrentQ?.textContent);
+  const target = Number(els.wristTarget?.value || 0);
+  const delta = Math.abs(Number(els.wristDelta?.value || 0));
+  const period = Math.max(0.4, Number(els.wristPeriod?.value || 2));
+  let kp;
+  let kd;
+
+  if (mode === "oscillate") {
+    const maxTargetSpeed = (2.0 * Math.PI * delta) / period;
+    kp = 6.0 + 80.0 * delta + 3.0 * maxTargetSpeed;
+    kd = 0.4 + 0.08 * Math.sqrt(kp) + 0.8 * maxTargetSpeed;
+  } else {
+    const relativeTarget = Math.abs(Number(els.wristTarget?.value || 0));
+    const error = mode === "relative" ? relativeTarget : Math.abs(target - (Number.isFinite(currentQ) ? currentQ : target));
+    const x = clamp(error / 0.2, 0, 1);
+    kp = 4.0 + (18.0 - 4.0) * x;
+    kd = 0.28 * 2.0 * Math.sqrt(kp);
+  }
+
+  return {
+    kp: clamp(kp, 4.0, 22.0),
+    kd: clamp(kd, 0.35, 2.0),
+  };
+}
+
+function applyAutoWristGains(mode = "absolute") {
+  if (!els.wristAutoGains?.checked || !els.wristKp || !els.wristKd) return;
+  const gains = computeAutoWristGains(mode);
+  els.wristKp.value = String(gains.kp.toFixed(2));
+  els.wristKd.value = String(gains.kd.toFixed(2));
+  updateWristSliderLabels();
+}
+
+function renderWristTelemetry(snapshot) {
+  if (!els.wristCurrentQ) return;
+  const wrist = (snapshot.motors || []).find((motor) => motor.index === 26);
+  els.wristCurrentQ.textContent = fmt(wrist?.q);
+  els.wristCurrentDq.textContent = fmt(wrist?.dq);
+  if (wrist && !els.wristTarget.dataset.touched) {
+    const current = Math.max(-1.2, Math.min(1.2, Number(wrist.q || 0)));
+    els.wristTarget.value = els.wristTargetRelative?.checked ? "0.03" : String(current);
+    updateWristSliderLabels();
+  }
+  applyAutoWristGains(targetCommandMode("absolute"));
+}
+
+function renderWristStatus(status) {
+  if (!els.wristState) return;
+  const active = Boolean(status.active);
+  const available = Boolean(status.available);
+  els.wristState.textContent = active ? "Publishing" : available ? "Ready" : "Unavailable";
+  els.wristState.className = `pill ${available ? "good" : "bad"}`;
+  els.wristMessage.textContent = status.message || "--";
+  const last = status.last_command;
+  els.wristLastCommand.textContent = last
+    ? `target ${fmt(last.target_q)} kp ${fmt(last.kp)} kd ${fmt(last.kd)}`
+    : "No command sent";
+}
+
+function loadWristStatus() {
+  if (!els.wristState) return;
+  fetch("/api/wrist/status")
+    .then((response) => response.json())
+    .then(renderWristStatus)
+    .catch((error) => {
+      els.wristState.textContent = "Unavailable";
+      els.wristState.className = "pill bad";
+      els.wristMessage.textContent = error.message;
+    });
+}
+
+function sendWristCommand(mode) {
+  if (!els.wristState) return;
+  if (!wristSafetyReady()) {
+    els.wristMessage.textContent = "Command blocked: enable both safety checkboxes first.";
+    els.wristState.textContent = "Blocked";
+    els.wristState.className = "pill bad";
+    setWristButtons();
+    return;
+  }
+  const params = wristParams(mode);
+  const currentQ = Number(els.wristCurrentQ.textContent);
+  if (params.mode === "absolute" && Number.isFinite(currentQ) && Math.abs(params.target_q - currentQ) < 0.003) {
+    els.wristMessage.textContent = "Target equals current q. Move the Target q slider or use Send Step.";
+    els.wristState.textContent = "No delta";
+    els.wristState.className = "pill good";
+    return;
+  }
+  els.wristMessage.textContent =
+    mode === "absolute"
+      ? params.mode === "relative"
+        ? `Sending relative q ${params.delta_q.toFixed(3)} rad`
+        : `Sending target q ${params.target_q.toFixed(3)}`
+      : mode === "oscillate"
+        ? `Starting back/forth ${params.delta_q.toFixed(3)} rad`
+        : `Sending step ${params.delta_q.toFixed(3)} rad`;
+  els.wristState.textContent = "Sending";
+  els.wristState.className = "pill good";
+  fetch("/api/wrist/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  })
+    .then((response) =>
+      response.json().then((data) => {
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+      }),
+    )
+    .then((data) => renderWristStatus(data.status || data))
+    .catch((error) => {
+      els.wristMessage.textContent = error.message;
+      els.wristState.textContent = "Blocked";
+      els.wristState.className = "pill bad";
+    });
+}
+
+function stopWristCommand() {
+  fetch("/api/wrist/stop", { method: "POST" })
+    .then((response) => response.json())
+    .then(renderWristStatus)
+    .catch((error) => {
+      els.wristMessage.textContent = error.message;
+    });
+}
+
+function chillMotors() {
+  if (!els.chillMotors) return;
+  els.chillMotors.disabled = true;
+  els.chillMotors.classList.add("pending");
+  els.chillMotors.textContent = "Chilling";
+  fetch("/api/robot/chill", { method: "POST" })
+    .then((response) =>
+      response.json().then((data) => {
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+      }),
+    )
+    .then((data) => {
+      els.subtitle.textContent = data.message || "Damp mode requested.";
+      if (els.wristMessage) els.wristMessage.textContent = data.message || "Damp mode requested.";
+    })
+    .catch((error) => {
+      els.subtitle.textContent = `Chill failed: ${error.message}`;
+      if (els.wristMessage) els.wristMessage.textContent = error.message;
+    })
+    .finally(() => {
+      els.chillMotors.disabled = false;
+      els.chillMotors.classList.remove("pending");
+      els.chillMotors.textContent = "Chill Motors";
+      loadWristStatus();
+    });
+}
+
+let wristLiveTimer = null;
+
+function setupWristControls() {
+  if (!els.wristTarget) return;
+  const sliders = [els.wristTarget, els.wristDelta, els.wristKp, els.wristKd, els.wristDuration, els.wristRate];
+  sliders.push(els.wristPeriod);
+  sliders.forEach((slider) => {
+    slider.addEventListener("input", () => {
+      slider.dataset.touched = "1";
+      if (slider === els.wristTarget) els.wristTarget.dataset.touched = "1";
+      if (slider === els.wristKp || slider === els.wristKd) {
+        els.wristAutoGains.checked = false;
+      }
+      syncTargetMode();
+      applyAutoWristGains(targetCommandMode("absolute"));
+      updateWristSliderLabels();
+      if (els.wristLive.checked && els.wristArm.checked && els.wristRisk.checked) {
+        clearTimeout(wristLiveTimer);
+        wristLiveTimer = setTimeout(() => sendWristCommand("absolute"), 180);
+      }
+    });
+  });
+  els.wristSendAbsolute.addEventListener("click", () => sendWristCommand("absolute"));
+  els.wristOscillate.addEventListener("click", () => sendWristCommand("oscillate"));
+  els.wristStop.addEventListener("click", stopWristCommand);
+  els.wristArm.addEventListener("change", setWristButtons);
+  els.wristRisk.addEventListener("change", setWristButtons);
+  els.wristLowcmd.addEventListener("change", setWristButtons);
+  els.wristLowcmd.addEventListener("change", () => applyAutoWristGains(targetCommandMode("absolute")));
+  els.wristTargetRelative.addEventListener("change", () => {
+    els.wristTarget.dataset.touched = "1";
+    syncTargetMode();
+    applyAutoWristGains(targetCommandMode("absolute"));
+  });
+  els.wristAutoGains.addEventListener("change", () => applyAutoWristGains(targetCommandMode("absolute")));
+  syncTargetMode();
+  setWristButtons();
+  loadWristStatus();
+  setInterval(loadWristStatus, 1000);
 }
 
 function connectCameraPreview() {
@@ -251,7 +576,8 @@ function renderRosGraph(graph) {
   const nodes = graph.nodes || [];
   const subscriptions = graph.subscriptions || [];
   const publishers = graph.publishers || [];
-  const topics = Object.keys(graph.topics || {});
+  const topicTypes = graph.topics || {};
+  const topics = Object.keys(topicTypes).sort();
   const nodeNames = new Set(nodes.map((node) => node.name));
   const activeTopics = Array.from(
     new Set([...publishers.map((edge) => edge.topic), ...subscriptions.map((edge) => edge.topic)]),
@@ -259,25 +585,65 @@ function renderRosGraph(graph) {
   const publisherNodes = new Set(publishers.map((edge) => edge.node));
   const subscriberNodes = new Set(subscriptions.map((edge) => edge.node));
   const graphNodes = Array.from(new Set([...publisherNodes, ...subscriberNodes, ...nodeNames])).sort();
-  const width = Math.max(980, 360 + activeTopics.length * 24);
+  const hasEdges = publishers.length || subscriptions.length;
+  const displayedTopics = hasEdges ? activeTopics : topics;
+  const width = Math.max(980, 360 + displayedTopics.length * 24);
   const rowHeight = 78;
-  const height = Math.max(520, Math.max(graphNodes.length, activeTopics.length) * rowHeight + 80);
+  const height = Math.max(520, Math.max(graphNodes.length, displayedTopics.length) * rowHeight + 80);
   const nodeXLeft = 170;
   const topicX = width / 2;
   const nodeXRight = width - 170;
   const nodeY = new Map(graphNodes.map((name, index) => [name, 60 + index * rowHeight]));
-  const topicY = new Map(activeTopics.map((name, index) => [name, 60 + index * rowHeight]));
+  const topicY = new Map(displayedTopics.map((name, index) => [name, 60 + index * rowHeight]));
 
   els.rosSummary.innerHTML = `
     <span>Nodes <strong>${fmt(nodes.length)}</strong></span>
-    <span>Subscriptions <strong>${fmt(subscriptions.length)}</strong></span>
-    <span>Publishers <strong>${fmt(publishers.length)}</strong></span>
+    <span>Subs <strong>${fmt(subscriptions.length)}</strong></span>
+    <span>Pubs <strong>${fmt(publishers.length)}</strong></span>
     <span>Topics <strong>${fmt(topics.length)}</strong></span>
   `;
 
   if (graph.error && nodes.length === 0) {
     els.rosMap.innerHTML = `<div class="ros-empty">ROS graph unavailable: ${esc(graph.error)}</div>`;
     els.rosEdges.innerHTML = "";
+    return;
+  }
+
+  if (!hasEdges) {
+    const topicCards = topics
+      .map((name) => {
+        const types = topicTypes[name] || [];
+        return `
+          <div class="ros-topic-card">
+            <strong>${esc(name)}</strong>
+            <span>${types.map(esc).join(", ") || "unknown type"}</span>
+          </div>
+        `;
+      })
+      .join("");
+
+    els.rosMap.innerHTML = `
+      <div class="ros-topic-browser">
+        <div class="ros-topic-status">
+          <strong>${fmt(topics.length)} topics discovered</strong>
+          <span>Publisher and subscriber edges are not exposed by discovery.</span>
+        </div>
+        <div class="ros-topic-grid">${topicCards}</div>
+      </div>
+    `;
+    els.rosEdges.innerHTML = topics.length
+      ? topics
+          .slice(0, 18)
+          .map(
+            (name) => `
+              <div class="ros-edge">
+                <strong>${esc(name)}</strong>
+                <small>${esc((topicTypes[name] || []).join(", ") || "unknown type")}</small>
+              </div>
+            `,
+          )
+          .join("")
+      : `<div class="ros-empty">No ROS topics discovered.</div>`;
     return;
   }
 
@@ -321,7 +687,7 @@ function renderRosGraph(graph) {
       `;
     })
     .join("");
-  const topicShapes = activeTopics
+  const topicShapes = displayedTopics
     .map((name) => {
       const y = topicY.get(name);
       return `
@@ -353,8 +719,9 @@ function renderRosGraph(graph) {
     </svg>
   `;
 
-  els.rosEdges.innerHTML = subscriptions.length
-    ? subscriptions
+  const edgeList = [...publishers, ...subscriptions];
+  els.rosEdges.innerHTML = edgeList.length
+    ? edgeList
         .map(
           (edge) => `
             <div class="ros-edge">
@@ -412,7 +779,9 @@ fetch("/api/state")
   .catch(() => {});
 window.addEventListener("hashchange", syncActiveNav);
 els.refreshRosGraph?.addEventListener("click", loadRosGraph);
+els.chillMotors?.addEventListener("click", chillMotors);
 syncActiveNav();
 connectCameraPreview();
 loadRosGraph();
+setupWristControls();
 connectEvents();

@@ -45,6 +45,7 @@
             ROS Graph
           </a>
           <a class="nav-item" href="#motorPage"><span class="nav-icon">▤</span>Motor Data</a>
+          <a class="nav-item" href="#wristPage"><span class="nav-icon">◌</span>Right Wrist</a>
           <a class="nav-item" href="#rawView"><span class="nav-icon">☷</span>Raw JSON</a>
         </nav>
         <div class="sidebar-signal">
@@ -71,6 +72,7 @@
             <span id="rate" class="metric success">-- Hz</span>
             <span id="connection" class="pill bad">Disconnected</span>
             <span id="age" class="metric">age --</span>
+            <button id="chillMotors" class="chill-button" type="button" title="Request damp mode and release wrist control">Chill Motors</button>
             <button class="emergency-button" type="button" disabled title="Read-only telemetry dashboard">Emergency Stop</button>
           </div>
         </header>
@@ -258,6 +260,91 @@
                 <h3>Subscription Edges</h3>
                 <div id="rosEdges" class="ros-edge-list"></div>
               </aside>
+            </div>
+          </section>
+
+          <section id="wristPage" class="wrist-page panel">
+            <div class="section-head">
+              <div>
+                <h2>Right Wrist Control</h2>
+                <p class="panel-subtitle">Live telemetry with guarded arm_sdk commands for RightWristYaw</p>
+              </div>
+              <div class="wrist-actions">
+                <span id="wristState" class="pill bad">Unavailable</span>
+                <button id="wristStop" class="emergency-button compact" type="button">Stop Wrist</button>
+              </div>
+            </div>
+            <div class="wrist-layout">
+              <section class="wrist-readout">
+                <article class="wrist-meter">
+                  <span>Current q</span>
+                  <strong id="wristCurrentQ">--</strong>
+                  <small>RightWristYaw telemetry</small>
+                </article>
+                <article class="wrist-meter">
+                  <span>Velocity dq</span>
+                  <strong id="wristCurrentDq">--</strong>
+                  <small>Live lowstate value</small>
+                </article>
+                <article class="wrist-meter">
+                  <span>Target q</span>
+                  <strong id="wristTargetQReadout">0.000</strong>
+                  <small>Slider command target</small>
+                </article>
+                <article class="wrist-meter">
+                  <span>Status</span>
+                  <strong id="wristMessage">Waiting</strong>
+                  <small id="wristLastCommand">No command sent</small>
+                </article>
+              </section>
+
+              <section class="wrist-controls">
+                <div class="control-mode">
+                  <label><input id="wristArm" type="checkbox" checked> Arm command page</label>
+                  <label><input id="wristRisk" type="checkbox" checked> I understand this can move the robot</label>
+                  <label><input id="wristLive" type="checkbox"> Apply when sliders change</label>
+                  <label><input id="wristLowcmd" type="checkbox" checked> Use lowcmd takeover</label>
+                  <label><input id="wristAutoGains" type="checkbox" checked> Auto gains</label>
+                </div>
+
+                <div class="slider-row">
+                  <span>
+                    <span id="wristTargetLabel">Target q</span>
+                    <label class="inline-toggle"><input id="wristTargetRelative" type="checkbox"> Relative</label>
+                    <strong id="wristTargetValue">0.000</strong>
+                  </span>
+                  <input id="wristTarget" type="range" min="-1.2" max="1.2" value="0" step="0.005">
+                </div>
+                <label class="slider-row">
+                  <span>Relative step <strong id="wristDeltaValue">0.030</strong></span>
+                  <input id="wristDelta" type="range" min="-0.25" max="0.25" value="0.03" step="0.005">
+                </label>
+                <label class="slider-row">
+                  <span>kp <strong id="wristKpValue">4.00</strong></span>
+                  <input id="wristKp" type="range" min="0" max="30" value="4" step="0.25">
+                </label>
+                <label class="slider-row">
+                  <span>kd <strong id="wristKdValue">0.35</strong></span>
+                  <input id="wristKd" type="range" min="0" max="5" value="0.35" step="0.05">
+                </label>
+                <label class="slider-row">
+                  <span>Duration <strong id="wristDurationValue">0.35 s</strong></span>
+                  <input id="wristDuration" type="range" min="0.05" max="12" value="0.35" step="0.05">
+                </label>
+                <label class="slider-row">
+                  <span>Period <strong id="wristPeriodValue">2.00 s</strong></span>
+                  <input id="wristPeriod" type="range" min="0.4" max="8" value="2" step="0.1">
+                </label>
+                <label class="slider-row">
+                  <span>Rate <strong id="wristRateValue">80 Hz</strong></span>
+                  <input id="wristRate" type="range" min="20" max="200" value="80" step="10">
+                </label>
+
+                <div class="wrist-command-row">
+                  <button id="wristSendAbsolute" type="button">Send Target</button>
+                  <button id="wristOscillate" type="button">Start Back/Forth</button>
+                </div>
+              </section>
             </div>
           </section>
 

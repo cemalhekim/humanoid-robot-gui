@@ -1230,7 +1230,7 @@
 
   <!-- R Gripper -->
   <joint name="R_base_link_joint" type="fixed">
-    <origin xyz="0.054 0 0" rpy="3.1415926535897932384626433832795 0 -1.5707963267948966192313216916398"/>
+    <origin xyz="0.054 0 0" rpy="3.1415926535897932384626433832795 0 1.5707963267948966192313216916398"/>
     <parent link="right_wrist_yaw_link"/>
     <child link="R_hand_base_link"/>
   </joint>

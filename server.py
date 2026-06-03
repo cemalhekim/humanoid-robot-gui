@@ -1023,8 +1023,44 @@ class TelemetryStore:
                 "vyaw": [-1.0, 1.0],
                 "duration": [0.1, 10.0],
                 "stand_height": [0.0, 1.0],
+                "swing_height": [0.0, 0.3],
+                "target_x": [-2.0, 2.0],
+                "target_y": [-2.0, 2.0],
+                "target_yaw": [-3.14, 3.14],
             },
-            "actions": ["stand_up", "start", "stop_move", "damp", "zero_torque", "high_stand", "low_stand", "set_height", "velocity"],
+            "actions": [
+                "ready",
+                "balance_stand",
+                "stand_up",
+                "start",
+                "stop_move",
+                "damp",
+                "zero_torque",
+                "high_stand",
+                "low_stand",
+                "set_height",
+                "set_swing_height",
+                "velocity",
+                "move",
+                "continuous_gait_on",
+                "continuous_gait_off",
+                "next_foot_left",
+                "next_foot_right",
+                "wave_hand",
+                "shake_hand",
+                "shake_hand_start",
+                "shake_hand_end",
+                "enable_odom",
+                "disable_odom",
+                "get_odom",
+                "set_target_position",
+                "get_fsm_id",
+                "get_fsm_mode",
+                "get_balance_mode",
+                "get_swing_height",
+                "get_stand_height",
+                "get_phase",
+            ],
         }
 
     def _build_arm_sdk_cmd(self, msg: Any, target_q: float, kp: float, kd: float, weight: float = 1.0) -> Any:
@@ -1181,7 +1217,39 @@ class TelemetryStore:
             return 400, {"ok": False, "error": "Loco command requires armed=true and i_understand_risk=true."}
 
         action = str(payload.get("action", "")).strip()
-        allowed_actions = {"stand_up", "start", "stop_move", "damp", "zero_torque", "high_stand", "low_stand", "set_height", "velocity"}
+        allowed_actions = {
+            "ready",
+            "balance_stand",
+            "stand_up",
+            "start",
+            "stop_move",
+            "damp",
+            "zero_torque",
+            "high_stand",
+            "low_stand",
+            "set_height",
+            "set_swing_height",
+            "velocity",
+            "move",
+            "continuous_gait_on",
+            "continuous_gait_off",
+            "next_foot_left",
+            "next_foot_right",
+            "wave_hand",
+            "shake_hand",
+            "shake_hand_start",
+            "shake_hand_end",
+            "enable_odom",
+            "disable_odom",
+            "get_odom",
+            "set_target_position",
+            "get_fsm_id",
+            "get_fsm_mode",
+            "get_balance_mode",
+            "get_swing_height",
+            "get_stand_height",
+            "get_phase",
+        }
         if action not in allowed_actions:
             return 400, {"ok": False, "error": f"Unsupported loco action: {action}"}
 
@@ -1191,8 +1259,14 @@ class TelemetryStore:
             vyaw = self._coerce_float(payload, "vyaw", 0.0, -1.0, 1.0)
             duration = self._coerce_float(payload, "duration", 1.0, 0.1, 10.0)
             stand_height = self._coerce_float(payload, "stand_height", 0.0, 0.0, 1.0)
+            swing_height = self._coerce_float(payload, "swing_height", 0.05, 0.0, 0.3)
+            target_x = self._coerce_float(payload, "target_x", 0.0, -2.0, 2.0)
+            target_y = self._coerce_float(payload, "target_y", 0.0, -2.0, 2.0)
+            target_yaw = self._coerce_float(payload, "target_yaw", 0.0, -3.14, 3.14)
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
+        continuous = bool(payload.get("continuous_move"))
+        target_relative = bool(payload.get("target_relative", True))
 
         with self.command_lock:
             loco_client = self.loco_client
@@ -1210,6 +1284,12 @@ class TelemetryStore:
             "vyaw": round(vyaw, 4),
             "duration": round(duration, 4),
             "stand_height": round(stand_height, 4),
+            "swing_height": round(swing_height, 4),
+            "target_x": round(target_x, 4),
+            "target_y": round(target_y, 4),
+            "target_yaw": round(target_yaw, 4),
+            "continuous_move": continuous,
+            "target_relative": target_relative,
             "time": time.time(),
         }
 
@@ -1226,7 +1306,10 @@ class TelemetryStore:
                 select_code, _ = motion_switcher.SelectMode("ai")
                 time.sleep(0.15)
 
-            if action == "stand_up":
+            result_data = None
+            if action in ("ready", "balance_stand"):
+                call_code = loco_client.BalanceStand()
+            elif action == "stand_up":
                 call_code = loco_client.StandUp()
             elif action == "start":
                 call_code = loco_client.Start()
@@ -1244,8 +1327,48 @@ class TelemetryStore:
                 call_code = loco_client.LowStand()
             elif action == "set_height":
                 call_code = loco_client.SetStandHeight(stand_height)
+            elif action == "set_swing_height":
+                call_code = loco_client.SetSwingHeight(swing_height)
             elif action == "velocity":
                 call_code = loco_client.SetVelocity(vx, vy, vyaw, duration)
+            elif action == "move":
+                call_code = loco_client.Move(vx, vy, vyaw, continuous)
+            elif action == "continuous_gait_on":
+                call_code = loco_client.ContinuousGait(True)
+            elif action == "continuous_gait_off":
+                call_code = loco_client.ContinuousGait(False)
+            elif action == "next_foot_left":
+                call_code = loco_client.SetNextFoot(True)
+            elif action == "next_foot_right":
+                call_code = loco_client.SetNextFoot(False)
+            elif action == "wave_hand":
+                call_code = loco_client.WaveHand()
+            elif action == "shake_hand":
+                call_code = loco_client.ShakeHand()
+            elif action == "shake_hand_start":
+                call_code = loco_client.ShakeHand(0)
+            elif action == "shake_hand_end":
+                call_code = loco_client.ShakeHand(1)
+            elif action == "enable_odom":
+                call_code = loco_client.EnableOdom()
+            elif action == "disable_odom":
+                call_code = loco_client.DisableOdom()
+            elif action == "get_odom":
+                call_code, result_data = loco_client.GetOdom()
+            elif action == "set_target_position":
+                call_code = loco_client.SetTargetPos(target_x, target_y, target_yaw, target_relative)
+            elif action == "get_fsm_id":
+                call_code, result_data = loco_client.GetFsmId()
+            elif action == "get_fsm_mode":
+                call_code, result_data = loco_client.GetFsmMode()
+            elif action == "get_balance_mode":
+                call_code, result_data = loco_client.GetBalanceMode()
+            elif action == "get_swing_height":
+                call_code, result_data = loco_client.GetSwingHeight()
+            elif action == "get_stand_height":
+                call_code, result_data = loco_client.GetStandHeight()
+            elif action == "get_phase":
+                call_code, result_data = loco_client.GetPhase()
 
             command = {
                 **command,
@@ -1253,6 +1376,7 @@ class TelemetryStore:
                 "call_code": call_code,
                 "stop_code": stop_code,
                 "motion_mode": motion_mode,
+                "result": result_data,
             }
             ok = call_code in (0, None)
             message = f"Loco {action} accepted." if ok else f"Loco {action} returned code {call_code}."
@@ -1265,7 +1389,7 @@ class TelemetryStore:
                 last_command=command,
                 motion_mode=motion_mode,
             )
-            return (200 if ok else 502), {"ok": ok, "message": message, "status": self.loco_snapshot()}
+            return (200 if ok else 502), {"ok": ok, "message": message, "result": result_data, "status": self.loco_snapshot()}
         except Exception as exc:
             command = {**command, "select_mode_code": select_code, "call_code": call_code, "error": str(exc)}
             with self.command_lock:

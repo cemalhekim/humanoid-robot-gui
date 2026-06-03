@@ -67,24 +67,56 @@ const els = {
   locoLastCommand: document.getElementById("locoLastCommand"),
   locoArm: document.getElementById("locoArm"),
   locoRisk: document.getElementById("locoRisk"),
+  locoReady: document.getElementById("locoReady"),
+  locoBalanceStand: document.getElementById("locoBalanceStand"),
   locoStandUp: document.getElementById("locoStandUp"),
   locoStart: document.getElementById("locoStart"),
   locoDamp: document.getElementById("locoDamp"),
   locoZeroTorque: document.getElementById("locoZeroTorque"),
   locoHighStand: document.getElementById("locoHighStand"),
   locoLowStand: document.getElementById("locoLowStand"),
+  locoGaitOn: document.getElementById("locoGaitOn"),
+  locoGaitOff: document.getElementById("locoGaitOff"),
+  locoNextFootLeft: document.getElementById("locoNextFootLeft"),
+  locoNextFootRight: document.getElementById("locoNextFootRight"),
+  locoWaveHand: document.getElementById("locoWaveHand"),
+  locoShakeHand: document.getElementById("locoShakeHand"),
+  locoShakeStart: document.getElementById("locoShakeStart"),
+  locoShakeEnd: document.getElementById("locoShakeEnd"),
+  locoEnableOdom: document.getElementById("locoEnableOdom"),
+  locoDisableOdom: document.getElementById("locoDisableOdom"),
   locoVx: document.getElementById("locoVx"),
   locoVy: document.getElementById("locoVy"),
   locoVyaw: document.getElementById("locoVyaw"),
   locoDuration: document.getElementById("locoDuration"),
   locoStandHeight: document.getElementById("locoStandHeight"),
+  locoSwingHeight: document.getElementById("locoSwingHeight"),
+  locoContinuousMove: document.getElementById("locoContinuousMove"),
+  locoTargetRelative: document.getElementById("locoTargetRelative"),
+  locoTargetX: document.getElementById("locoTargetX"),
+  locoTargetY: document.getElementById("locoTargetY"),
+  locoTargetYaw: document.getElementById("locoTargetYaw"),
   locoVxValue: document.getElementById("locoVxValue"),
   locoVyValue: document.getElementById("locoVyValue"),
   locoVyawValue: document.getElementById("locoVyawValue"),
   locoDurationValue: document.getElementById("locoDurationValue"),
   locoStandHeightValue: document.getElementById("locoStandHeightValue"),
+  locoSwingHeightValue: document.getElementById("locoSwingHeightValue"),
+  locoTargetXValue: document.getElementById("locoTargetXValue"),
+  locoTargetYValue: document.getElementById("locoTargetYValue"),
+  locoTargetYawValue: document.getElementById("locoTargetYawValue"),
   locoSendVelocity: document.getElementById("locoSendVelocity"),
+  locoMove: document.getElementById("locoMove"),
   locoSetHeight: document.getElementById("locoSetHeight"),
+  locoSetSwingHeight: document.getElementById("locoSetSwingHeight"),
+  locoSetTargetPosition: document.getElementById("locoSetTargetPosition"),
+  locoGetOdom: document.getElementById("locoGetOdom"),
+  locoGetFsmId: document.getElementById("locoGetFsmId"),
+  locoGetFsmMode: document.getElementById("locoGetFsmMode"),
+  locoGetBalanceMode: document.getElementById("locoGetBalanceMode"),
+  locoGetSwingHeight: document.getElementById("locoGetSwingHeight"),
+  locoGetStandHeight: document.getElementById("locoGetStandHeight"),
+  locoGetPhase: document.getElementById("locoGetPhase"),
   locoHistory: document.getElementById("locoHistory"),
   locoPresets: document.querySelectorAll("[data-loco-preset]"),
 };
@@ -314,20 +346,46 @@ function updateLocoSliderLabels() {
   els.locoVyawValue.textContent = `${Number(els.locoVyaw.value).toFixed(2)} rad/s`;
   els.locoDurationValue.textContent = `${Number(els.locoDuration.value).toFixed(2)} s`;
   els.locoStandHeightValue.textContent = Number(els.locoStandHeight.value).toFixed(2);
+  els.locoSwingHeightValue.textContent = Number(els.locoSwingHeight.value).toFixed(3);
+  els.locoTargetXValue.textContent = `${Number(els.locoTargetX.value).toFixed(2)} m`;
+  els.locoTargetYValue.textContent = `${Number(els.locoTargetY.value).toFixed(2)} m`;
+  els.locoTargetYawValue.textContent = `${Number(els.locoTargetYaw.value).toFixed(2)} rad`;
 }
 
 function setLocoButtons() {
   if (!els.locoState) return;
   const ready = locoSafetyReady();
   [
+    els.locoReady,
+    els.locoBalanceStand,
     els.locoStandUp,
     els.locoStart,
     els.locoDamp,
     els.locoZeroTorque,
     els.locoHighStand,
     els.locoLowStand,
+    els.locoGaitOn,
+    els.locoGaitOff,
+    els.locoNextFootLeft,
+    els.locoNextFootRight,
+    els.locoWaveHand,
+    els.locoShakeHand,
+    els.locoShakeStart,
+    els.locoShakeEnd,
+    els.locoEnableOdom,
+    els.locoDisableOdom,
     els.locoSendVelocity,
+    els.locoMove,
     els.locoSetHeight,
+    els.locoSetSwingHeight,
+    els.locoSetTargetPosition,
+    els.locoGetOdom,
+    els.locoGetFsmId,
+    els.locoGetFsmMode,
+    els.locoGetBalanceMode,
+    els.locoGetSwingHeight,
+    els.locoGetStandHeight,
+    els.locoGetPhase,
   ].forEach((button) => {
     if (button) button.disabled = !ready;
   });
@@ -385,6 +443,7 @@ function renderLocoHistory(history) {
           <strong>${esc(item.action)}</strong>
           <span>${esc(timeLabel)} code ${esc(code)}</span>
           <small>vx ${fmt(item.vx)} · vy ${fmt(item.vy)} · yaw ${fmt(item.vyaw)} · ${fmt(item.duration)}s</small>
+          ${item.result === undefined || item.result === null ? "" : `<small>result ${esc(JSON.stringify(item.result))}</small>`}
         </div>
       `;
     })
@@ -413,6 +472,12 @@ function locoPayload(action) {
     vyaw: Number(els.locoVyaw?.value || 0),
     duration: Number(els.locoDuration?.value || 1),
     stand_height: Number(els.locoStandHeight?.value || 0.5),
+    swing_height: Number(els.locoSwingHeight?.value || 0.05),
+    continuous_move: Boolean(els.locoContinuousMove?.checked),
+    target_relative: Boolean(els.locoTargetRelative?.checked),
+    target_x: Number(els.locoTargetX?.value || 0),
+    target_y: Number(els.locoTargetY?.value || 0),
+    target_yaw: Number(els.locoTargetYaw?.value || 0),
   };
 }
 
@@ -464,11 +529,23 @@ function applyLocoPreset(name) {
 
 function setupLocoControls() {
   if (!els.locoState) return;
-  [els.locoVx, els.locoVy, els.locoVyaw, els.locoDuration, els.locoStandHeight].forEach((slider) => {
+  [
+    els.locoVx,
+    els.locoVy,
+    els.locoVyaw,
+    els.locoDuration,
+    els.locoStandHeight,
+    els.locoSwingHeight,
+    els.locoTargetX,
+    els.locoTargetY,
+    els.locoTargetYaw,
+  ].forEach((slider) => {
     slider?.addEventListener("input", updateLocoSliderLabels);
   });
   els.locoArm?.addEventListener("change", setLocoButtons);
   els.locoRisk?.addEventListener("change", setLocoButtons);
+  els.locoReady?.addEventListener("click", () => sendLocoCommand("ready"));
+  els.locoBalanceStand?.addEventListener("click", () => sendLocoCommand("balance_stand"));
   els.locoStandUp?.addEventListener("click", () => sendLocoCommand("stand_up"));
   els.locoStart?.addEventListener("click", () => sendLocoCommand("start"));
   els.locoStop?.addEventListener("click", () => sendLocoCommand("stop_move"));
@@ -476,8 +553,28 @@ function setupLocoControls() {
   els.locoZeroTorque?.addEventListener("click", () => sendLocoCommand("zero_torque"));
   els.locoHighStand?.addEventListener("click", () => sendLocoCommand("high_stand"));
   els.locoLowStand?.addEventListener("click", () => sendLocoCommand("low_stand"));
+  els.locoGaitOn?.addEventListener("click", () => sendLocoCommand("continuous_gait_on"));
+  els.locoGaitOff?.addEventListener("click", () => sendLocoCommand("continuous_gait_off"));
+  els.locoNextFootLeft?.addEventListener("click", () => sendLocoCommand("next_foot_left"));
+  els.locoNextFootRight?.addEventListener("click", () => sendLocoCommand("next_foot_right"));
+  els.locoWaveHand?.addEventListener("click", () => sendLocoCommand("wave_hand"));
+  els.locoShakeHand?.addEventListener("click", () => sendLocoCommand("shake_hand"));
+  els.locoShakeStart?.addEventListener("click", () => sendLocoCommand("shake_hand_start"));
+  els.locoShakeEnd?.addEventListener("click", () => sendLocoCommand("shake_hand_end"));
+  els.locoEnableOdom?.addEventListener("click", () => sendLocoCommand("enable_odom"));
+  els.locoDisableOdom?.addEventListener("click", () => sendLocoCommand("disable_odom"));
   els.locoSendVelocity?.addEventListener("click", () => sendLocoCommand("velocity"));
+  els.locoMove?.addEventListener("click", () => sendLocoCommand("move"));
   els.locoSetHeight?.addEventListener("click", () => sendLocoCommand("set_height"));
+  els.locoSetSwingHeight?.addEventListener("click", () => sendLocoCommand("set_swing_height"));
+  els.locoSetTargetPosition?.addEventListener("click", () => sendLocoCommand("set_target_position"));
+  els.locoGetOdom?.addEventListener("click", () => sendLocoCommand("get_odom"));
+  els.locoGetFsmId?.addEventListener("click", () => sendLocoCommand("get_fsm_id"));
+  els.locoGetFsmMode?.addEventListener("click", () => sendLocoCommand("get_fsm_mode"));
+  els.locoGetBalanceMode?.addEventListener("click", () => sendLocoCommand("get_balance_mode"));
+  els.locoGetSwingHeight?.addEventListener("click", () => sendLocoCommand("get_swing_height"));
+  els.locoGetStandHeight?.addEventListener("click", () => sendLocoCommand("get_stand_height"));
+  els.locoGetPhase?.addEventListener("click", () => sendLocoCommand("get_phase"));
   els.locoPresets.forEach((button) => {
     button.addEventListener("click", () => applyLocoPreset(button.dataset.locoPreset));
   });

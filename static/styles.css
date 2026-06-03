@@ -695,7 +695,7 @@ h3 {
 }
 
 .loco-action-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .loco-presets {
@@ -703,18 +703,30 @@ h3 {
   margin-bottom: 8px;
 }
 
+.loco-query-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
 .loco-action-grid button,
 .loco-presets button,
+.loco-query-grid button,
 .wrist-command-row button {
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: linear-gradient(135deg, rgba(230, 0, 0, 0.84), rgba(88, 0, 0, 0.86));
   color: #fff;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
   cursor: pointer;
+  min-height: 38px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 850;
 }
 
 .loco-action-grid button:disabled,
 .loco-presets button:disabled,
+.loco-query-grid button:disabled,
 .wrist-command-row button:disabled,
 .loco-controls button:disabled {
   cursor: not-allowed;
@@ -724,6 +736,10 @@ h3 {
 .loco-velocity-panel {
   display: grid;
   gap: 8px;
+}
+
+.compact-mode {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .loco-history {
@@ -1644,6 +1660,10 @@ pre {
   }
 
   .loco-presets {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .loco-action-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

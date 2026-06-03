@@ -145,6 +145,50 @@ http://192.168.1.42:8090
 
 Use a trusted network. The server does not implement authentication.
 
+For the H1-2 setup where the robot PC is reached over Wi-Fi at `10.2.100.142` but body DDS runs on the robot PC's local `eth0` control link, run the server on the robot PC and force DDS to `eth0`:
+
+```bash
+cd /home/unitree/robot_telemetry_web
+MAMBA_ROOT_PREFIX=/home/unitree/.micromamba \
+  /home/unitree/.local/micromamba run -n tv \
+  python -u server.py --host 0.0.0.0 --port 8088 \
+  --robot-host 192.168.123.164 --camera-source eth0
+```
+
+Then open:
+
+```text
+http://10.2.100.142:8088
+```
+
+In this mode the browser uses Wi-Fi, while the server reads `rt/lowstate`, Loco RPC, wrist control, and camera DDS locally on the robot PC.
+
+To kill every dashboard server process and user service started from this workspace:
+
+```bash
+cd /home/unitree/robot_telemetry_web
+python3 kill_servers.py
+```
+
+To start the robot dashboard from scratch with one Python file:
+
+```bash
+cd /home/unitree/robot_telemetry_web
+python3 run_servers.py
+```
+
+On the robot PC this installs and starts a fresh `robot-telemetry-web.service` user service. The helper detects which `server.py` flags are supported by the current branch. For debugging in the current terminal instead of systemd, run:
+
+```bash
+python3 run_servers.py --mode foreground
+```
+
+Check it with:
+
+```bash
+systemctl --user status robot-telemetry-web.service --no-pager
+```
+
 ## DDS Domain
 
 By default the server initializes Unitree DDS with domain `0`.

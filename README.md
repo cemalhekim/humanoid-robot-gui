@@ -152,7 +152,8 @@ cd /home/unitree/robot_telemetry_web
 MAMBA_ROOT_PREFIX=/home/unitree/.micromamba \
   /home/unitree/.local/micromamba run -n tv \
   python -u server.py --host 0.0.0.0 --port 8088 \
-  --robot-host 192.168.123.164 --camera-source eth0
+  --robot-host 192.168.123.164 --camera-source eth0 \
+  --camera-backend teleimager
 ```
 
 Then open:

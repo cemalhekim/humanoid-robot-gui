@@ -6,7 +6,7 @@ After=default.target
 Type=simple
 WorkingDirectory=/home/unitree/robot_telemetry_web
 Environment=MAMBA_ROOT_PREFIX=/home/unitree/.micromamba
-ExecStart=/home/unitree/.local/micromamba run -n tv python -u /home/unitree/robot_telemetry_web/server.py --host 0.0.0.0 --port 8088 --robot-host 192.168.123.164 --camera-source eth0
+ExecStart=/home/unitree/.local/micromamba run -n tv python -u /home/unitree/robot_telemetry_web/server.py --host 0.0.0.0 --port 8088 --robot-host 192.168.123.164 --camera-source eth0 --camera-backend teleimager
 Restart=always
 RestartSec=3
 StandardOutput=append:/home/unitree/logs/robot_telemetry_web.log

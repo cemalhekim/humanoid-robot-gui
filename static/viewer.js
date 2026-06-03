@@ -53,11 +53,13 @@ const HAND_JOINTS = {
 
 const container = document.getElementById("robotCanvas");
 const fields = document.getElementById("viewerFields");
+const fallback = document.getElementById("viewerFallback");
 let scene;
 let camera;
 let renderer;
 let controls;
 let robotRoot;
+let quickRoot;
 let gridHelper;
 let jointGroups = new Map();
 let latestState = null;
@@ -66,6 +68,14 @@ let failedMeshes = 0;
 let totalMeshes = 0;
 let modelReady = false;
 let autoRotate = false;
+const placeholderMaterial = new THREE.MeshStandardMaterial({
+  color: 0x4b6f8f,
+  roughness: 0.8,
+  metalness: 0.05,
+  transparent: true,
+  opacity: 0.34,
+  wireframe: true,
+});
 
 function parseVector(value, fallback = [0, 0, 0]) {
   if (!value) return fallback;
@@ -96,6 +106,57 @@ function materialFromVisual(visual) {
   return new THREE.MeshStandardMaterial({ color: 0xaab4bd, roughness: 0.78, metalness: 0.08 });
 }
 
+function placeholderSize(linkName) {
+  const name = String(linkName || "").toLowerCase();
+  if (name.includes("pelvis")) return [0.22, 0.18, 0.2];
+  if (name.includes("torso")) return [0.24, 0.18, 0.34];
+  if (name.includes("hip") || name.includes("shoulder")) return [0.12, 0.12, 0.16];
+  if (name.includes("knee") || name.includes("elbow")) return [0.1, 0.1, 0.24];
+  if (name.includes("ankle") || name.includes("wrist")) return [0.09, 0.09, 0.14];
+  if (name.includes("hand") || /link\d+_[lr]/.test(name)) return [0.045, 0.045, 0.09];
+  return [0.08, 0.08, 0.12];
+}
+
+function addLinkPlaceholder(linkName, linkGroup) {
+  const geometry = new THREE.BoxGeometry(...placeholderSize(linkName));
+  const mesh = new THREE.Mesh(geometry, placeholderMaterial);
+  mesh.name = `${linkName || "link"}_placeholder`;
+  linkGroup.add(mesh);
+  return mesh;
+}
+
+function quickPart(size, position, color = 0x9aa8b4) {
+  const material = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.75,
+    metalness: 0.08,
+    transparent: true,
+    opacity: 0.68,
+  });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
+  mesh.position.set(...position);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function createQuickRobot() {
+  const group = new THREE.Group();
+  group.name = "quick_h1_placeholder";
+  group.add(quickPart([0.28, 0.34, 0.18], [0, -0.35, 0], 0xc3ccd3));
+  group.add(quickPart([0.22, 0.18, 0.2], [0, -0.72, 0], 0x7f8c96));
+  group.add(quickPart([0.12, 0.46, 0.11], [0, -1.08, 0.13], 0x8fa1ad));
+  group.add(quickPart([0.12, 0.46, 0.11], [0, -1.08, -0.13], 0x8fa1ad));
+  group.add(quickPart([0.11, 0.36, 0.1], [0, -1.45, 0.13], 0x6e7e89));
+  group.add(quickPart([0.11, 0.36, 0.1], [0, -1.45, -0.13], 0x6e7e89));
+  group.add(quickPart([0.12, 0.52, 0.1], [0, -0.36, 0.34], 0x8fa1ad));
+  group.add(quickPart([0.12, 0.52, 0.1], [0, -0.36, -0.34], 0x8fa1ad));
+  group.add(quickPart([0.1, 0.36, 0.09], [0, -0.78, 0.34], 0x6e7e89));
+  group.add(quickPart([0.1, 0.36, 0.09], [0, -0.78, -0.34], 0x6e7e89));
+  group.add(quickPart([0.08, 0.08, 0.08], [0, -0.03, 0], 0xe60000));
+  return group;
+}
+
 function resolveMeshPath(filename) {
   if (filename.startsWith("package://")) {
     const parts = filename.split("/");
@@ -109,6 +170,14 @@ function setFields(data) {
   fields.innerHTML = Object.entries(data)
     .map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`)
     .join("");
+}
+
+function showFallback() {
+  fallback?.classList.remove("is-hidden");
+}
+
+function hideFallback() {
+  fallback?.classList.add("is-hidden");
 }
 
 function setJointValue(jointName, value) {
@@ -182,8 +251,13 @@ function applyTelemetry(snapshot) {
   });
 }
 
+function isDeferredMesh(filename) {
+  return /(?:L_|R_|hand|link\d+_[LR])/i.test(filename);
+}
+
 function loadVisualMeshes(linkElement, linkGroup) {
   const loader = new STLLoader();
+  const placeholder = addLinkPlaceholder(linkElement.getAttribute("name"), linkGroup);
   for (const visual of linkElement.querySelectorAll(":scope > visual")) {
     const meshElement = visual.querySelector(":scope > geometry > mesh");
     const filename = meshElement?.getAttribute("filename");
@@ -194,23 +268,27 @@ function loadVisualMeshes(linkElement, linkGroup) {
     applyOrigin(visualGroup, visual);
     linkGroup.add(visualGroup);
 
-    loader.load(
-      resolveMeshPath(filename),
-      (geometry) => {
-        geometry.computeVertexNormals();
-        const mesh = new THREE.Mesh(geometry, materialFromVisual(visual));
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        visualGroup.add(mesh);
-        loadedMeshes += 1;
-        if (latestState) applyTelemetry(latestState);
-      },
-      undefined,
-      () => {
-        failedMeshes += 1;
-        if (latestState) applyTelemetry(latestState);
-      },
-    );
+    const loadMesh = () => {
+      loader.load(
+        resolveMeshPath(filename),
+        (geometry) => {
+          geometry.computeVertexNormals();
+          const mesh = new THREE.Mesh(geometry, materialFromVisual(visual));
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          visualGroup.add(mesh);
+          placeholder.visible = false;
+          loadedMeshes += 1;
+          if (latestState) applyTelemetry(latestState);
+        },
+        undefined,
+        () => {
+          failedMeshes += 1;
+          if (latestState) applyTelemetry(latestState);
+        },
+      );
+    };
+    window.setTimeout(loadMesh, isDeferredMesh(filename) ? 1200 : 0);
   }
 }
 
@@ -280,10 +358,17 @@ function initScene() {
   camera = new THREE.PerspectiveCamera(48, 1, 0.01, 100);
   camera.position.set(2.15, 0.55, 0);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+  } catch (error) {
+    showFallback();
+    console.error("3D viewer unavailable:", error);
+    return false;
+  }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   container.appendChild(renderer.domElement);
+  hideFallback();
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(0, -0.65, 0);
@@ -299,6 +384,9 @@ function initScene() {
   gridHelper = new THREE.GridHelper(3, 30, 0x36424d, 0x242a30);
   gridHelper.position.y = FLOOR_Y;
   scene.add(gridHelper);
+  quickRoot = createQuickRobot();
+  scene.add(quickRoot);
+  return true;
 }
 
 function resize() {
@@ -321,11 +409,14 @@ window.addEventListener("telemetry-state", (event) => applyTelemetry(event.detai
 window.addEventListener("telemetry-tab-change", () => setTimeout(resize, 0));
 window.addEventListener("resize", resize);
 
-initScene();
-bindViewTools();
-setFields({ model: "loading", status: "loading URDF", meshes: "0/0" });
-loadRobot().catch((error) => {
-  console.error(error);
-  setFields({ model: "h1_2.urdf", status: "load failed", error: error.message });
-});
-animate();
+if (initScene()) {
+  bindViewTools();
+  setFields({ model: "loading", status: "loading URDF", meshes: "0/0" });
+  loadRobot().catch((error) => {
+    console.error(error);
+    setFields({ model: "h1_2.urdf", status: "load failed", error: error.message });
+  });
+  animate();
+} else {
+  setFields({ model: "h1_2.urdf", status: "fallback" });
+}

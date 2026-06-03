@@ -1,6 +1,8 @@
 const state = {
   latest: null,
   filter: "",
+  events: null,
+  locoStatusKey: null,
 };
 
 const els = {
@@ -269,11 +271,25 @@ function renderRobotStatus(snapshot) {
   );
 }
 
+function motorTableRows(snapshot) {
+  const bodyRows = (snapshot.motors || []).map((motor) => ({ ...motor, source: "Body" }));
+  const handRows = ((snapshot.hands || {}).joints || []).map((joint) => ({
+    ...joint,
+    index: `F${joint.index}`,
+    source: "Finger",
+  }));
+  return [...bodyRows, ...handRows];
+}
+
 function renderMotors(motors) {
   const query = state.filter.trim().toLowerCase();
   const rows = (motors || []).filter((motor) => {
     if (!query) return true;
-    return String(motor.index).includes(query) || String(motor.name).toLowerCase().includes(query);
+    return (
+      String(motor.index).toLowerCase().includes(query) ||
+      String(motor.name).toLowerCase().includes(query) ||
+      String(motor.source || "").toLowerCase().includes(query)
+    );
   });
 
   els.motorRows.innerHTML = rows
@@ -282,7 +298,7 @@ function renderMotors(motors) {
       return `
         <tr>
           <td>${fmt(motor.index)}</td>
-          <td class="${isExtra ? "extra" : "joint"}">${fmt(motor.name)}</td>
+          <td class="${isExtra ? "extra" : "joint"}">${fmt(motor.name)}${motor.source ? ` <small>${esc(motor.source)}</small>` : ""}</td>
           <td>${fmt(motor.mode)}</td>
           <td>${fmt(motor.q)}</td>
           <td>${fmt(motor.dq)}</td>
@@ -328,9 +344,10 @@ function render(snapshot) {
   renderNetwork(snapshot.network);
 
   renderRobotStatus(snapshot);
-  renderMotors(snapshot.motors);
+  renderMotors(motorTableRows(snapshot));
   renderWristTelemetry(snapshot);
   renderLocoTelemetry(snapshot);
+  if (snapshot.loco) renderLocoStatus(snapshot.loco);
   els.rawJson.textContent = JSON.stringify(snapshot, null, 2);
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));
 }
@@ -413,8 +430,30 @@ function motionOwnerLabel(mode) {
   return mode.name || mode.alias || mode.form || JSON.stringify(mode);
 }
 
-function renderLocoStatus(status) {
+function locoStatusKey(status) {
+  return JSON.stringify([
+    status.available,
+    status.active,
+    status.message,
+    status.updated_at,
+    status.motion_mode,
+    status.motion_check_code,
+    status.last_command,
+    status.history,
+  ]);
+}
+
+function renderLocoStatus(status, force = false) {
   if (!els.locoState) return;
+  const key = locoStatusKey(status);
+  if (!force && key === state.locoStatusKey) {
+    if (status.robot) {
+      els.locoModeMachine.textContent = fmt(status.robot.mode_machine);
+      els.locoModePr.textContent = fmt(status.robot.mode_pr);
+    }
+    return;
+  }
+  state.locoStatusKey = key;
   const active = Boolean(status.active);
   const available = Boolean(status.available);
   els.locoState.textContent = active ? "Sending" : available ? "Ready" : "Unavailable";
@@ -458,7 +497,7 @@ function loadLocoStatus() {
   if (!els.locoState) return;
   fetch("/api/loco/status")
     .then((response) => response.json())
-    .then(renderLocoStatus)
+    .then((status) => renderLocoStatus(status, true))
     .catch((error) => {
       els.locoState.textContent = "Unavailable";
       els.locoState.className = "pill bad";
@@ -512,7 +551,7 @@ function sendLocoCommand(action, overrides = {}) {
         return data;
       }),
     )
-    .then((data) => renderLocoStatus(data.status || data))
+    .then((data) => renderLocoStatus(data.status || data, true))
     .catch((error) => {
       els.locoMessage.textContent = error.message;
       els.locoState.textContent = "Blocked";
@@ -624,7 +663,9 @@ function setupLocoControls() {
   updateLocoSliderLabels();
   setLocoButtons();
   loadLocoStatus();
-  setInterval(loadLocoStatus, 1200);
+  setInterval(() => {
+    if (!document.hidden) loadLocoStatus();
+  }, 15000);
 }
 
 function wristParams(mode = "absolute") {
@@ -902,7 +943,9 @@ function setupWristControls() {
   syncTargetMode();
   setWristButtons();
   loadWristStatus();
-  setInterval(loadWristStatus, 1000);
+  setInterval(() => {
+    if (!document.hidden) loadWristStatus();
+  }, 2000);
 }
 
 function connectCameraPreview() {
@@ -1102,7 +1145,7 @@ function loadRosGraph() {
 
 els.filter.addEventListener("input", () => {
   state.filter = els.filter.value;
-  if (state.latest) renderMotors(state.latest.motors);
+  if (state.latest) renderMotors(motorTableRows(state.latest));
 });
 
 function syncActiveNav() {
@@ -1113,7 +1156,9 @@ function syncActiveNav() {
 }
 
 function connectEvents() {
+  if (state.events) return;
   const events = new EventSource("/events");
+  state.events = events;
   events.onmessage = (event) => {
     try {
       render(JSON.parse(event.data));
@@ -1127,11 +1172,30 @@ function connectEvents() {
   };
 }
 
+function pauseEvents() {
+  state.events?.close();
+  state.events = null;
+}
+
 fetch("/api/state")
   .then((response) => response.json())
   .then(render)
   .catch(() => {});
 window.addEventListener("hashchange", syncActiveNav);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    pauseEvents();
+    stopLocoHold(false);
+    return;
+  }
+  connectEvents();
+  fetch("/api/state")
+    .then((response) => response.json())
+    .then(render)
+    .catch(() => {});
+  loadLocoStatus();
+  loadWristStatus();
+});
 els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 els.chillMotors?.addEventListener("click", chillMotors);
 syncActiveNav();

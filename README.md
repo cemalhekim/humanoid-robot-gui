@@ -145,6 +145,24 @@ http://192.168.1.42:8090
 
 Use a trusted network. The server does not implement authentication.
 
+For the H1-2 setup where the robot PC is reached over Wi-Fi at `10.2.100.142` but body DDS runs on the robot PC's local `eth0` control link, run the server on the robot PC and force DDS to `eth0`:
+
+```bash
+cd /home/unitree/robot_telemetry_web
+MAMBA_ROOT_PREFIX=/home/unitree/.micromamba \
+  /home/unitree/.local/micromamba run -n tv \
+  python -u server.py --host 0.0.0.0 --port 8088 \
+  --robot-host 192.168.123.164 --camera-source eth0
+```
+
+Then open:
+
+```text
+http://10.2.100.142:8088
+```
+
+In this mode the browser uses Wi-Fi, while the server reads `rt/lowstate`, Loco RPC, wrist control, and camera DDS locally on the robot PC.
+
 ## DDS Domain
 
 By default the server initializes Unitree DDS with domain `0`.
@@ -399,6 +417,8 @@ curl -sS http://127.0.0.1:8090/api/state
 ```
 
 Look for the `error` field. The UI displays the same state, but the raw JSON is easier to inspect when debugging.
+
+If the top bar stays at `0 Hz` while the robot is reachable over Wi-Fi, verify where the server is running. Running `server.py` on a laptop connected only to `10.2.100.x` can reach SSH/camera services but may not see body DDS on the robot PC's `192.168.123.x` control link. In that case, run the server on the robot PC with `--camera-source eth0` and open it from the laptop at `http://10.2.100.142:8088`.
 
 ### Hand Panel Shows Disconnected
 

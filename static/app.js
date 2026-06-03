@@ -524,12 +524,12 @@ function sendLocoCommand(action, overrides = {}) {
 
 function applyLocoPreset(name) {
   const presets = {
-    forward: [0.2, 0, 0],
-    back: [-0.15, 0, 0],
-    left: [0, 0.15, 0],
-    right: [0, -0.15, 0],
-    "turn-left": [0, 0, 0.25],
-    "turn-right": [0, 0, -0.25],
+    forward: [0.5, 0, 0],
+    back: [-0.5, 0, 0],
+    left: [0, 0.5, 0],
+    right: [0, -0.5, 0],
+    "turn-left": [0, 0, 0.5],
+    "turn-right": [0, 0, -0.5],
   };
   const values = presets[name];
   if (!values || !els.locoVx) return;

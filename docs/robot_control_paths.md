@@ -50,7 +50,7 @@ These use `unitree_api/msg/Request` and `unitree_api/msg/Response`.
 ### H1 Loco Client
 
 Local SDK file:
-`/home/ch/Workspace/semantic-teleoperation/execution/external/unitree_sdk2_python/unitree_sdk2py/h1/loco/h1_loco_client.py`
+`/home/ch/Workspace/robot_telemetry_web/execution/semantic_teleoperation/external/unitree_sdk2_python/unitree_sdk2py/h1/loco/h1_loco_client.py`
 
 Service name:
 `loco`

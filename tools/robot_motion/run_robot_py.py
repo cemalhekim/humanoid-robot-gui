@@ -9,7 +9,8 @@ import subprocess
 from pathlib import Path
 
 
-DEFAULT_SDK = "/home/ch/Workspace/semantic-teleoperation/execution/external/unitree_sdk2_python"
+REPO_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_SDK = str(REPO_DIR / "execution/semantic_teleoperation/external/unitree_sdk2_python")
 
 
 def run(cmd: list[str]) -> None:

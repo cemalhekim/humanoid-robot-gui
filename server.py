@@ -42,15 +42,16 @@ APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 CAMERA_JPEG_PATH = Path("/tmp/robot_telemetry_front_camera.jpg")
 UNITREE_ROS2_INSTALL = (
-    Path.home()
-    / "Workspace/semantic-teleoperation/execution/external/unitree_ros2/cyclonedds_ws/install"
+    APP_DIR
+    / "execution/semantic_teleoperation/external/unitree_ros2/cyclonedds_ws/install"
 )
 UNITREE_GO_PYTHON = UNITREE_ROS2_INSTALL / "unitree_go/local/lib/python3.10/dist-packages"
 if UNITREE_GO_PYTHON.exists():
     sys.path.insert(0, str(UNITREE_GO_PYTHON))
 
 SDK_PATHS = [
-    Path.home() / "Workspace/semantic-teleoperation/execution/external/unitree_sdk2_python",
+    APP_DIR / "execution/semantic_teleoperation/external/unitree_sdk2_python",
+    APP_DIR / "vendor/unitree_sdk2_python",
     Path.home() / "unitree_sdk2_python",
 ]
 for sdk_path in reversed(SDK_PATHS):

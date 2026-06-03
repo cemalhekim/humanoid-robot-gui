@@ -22,8 +22,10 @@ import time
 from pathlib import Path
 
 
+REPO_DIR = Path(__file__).resolve().parents[2]
 SDK_PATHS = [
-    Path.home() / "Workspace/semantic-teleoperation/execution/external/unitree_sdk2_python",
+    REPO_DIR / "execution/semantic_teleoperation/external/unitree_sdk2_python",
+    REPO_DIR / "vendor/unitree_sdk2_python",
     Path.home() / "unitree_sdk2_python",
 ]
 for sdk_path in SDK_PATHS:

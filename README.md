@@ -163,6 +163,21 @@ http://10.2.100.142:8088
 
 In this mode the browser uses Wi-Fi, while the server reads `rt/lowstate`, Loco RPC, wrist control, and camera DDS locally on the robot PC.
 
+To keep the robot-hosted dashboard running after shell exits, install the user service:
+
+```bash
+mkdir -p /home/unitree/.config/systemd/user
+cp deployment/systemd/robot-telemetry-web.service /home/unitree/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now robot-telemetry-web.service
+```
+
+Check it with:
+
+```bash
+systemctl --user status robot-telemetry-web.service --no-pager
+```
+
 ## DDS Domain
 
 By default the server initializes Unitree DDS with domain `0`.

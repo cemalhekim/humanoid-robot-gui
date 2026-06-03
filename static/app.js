@@ -389,8 +389,12 @@ function setLocoButtons() {
   ].forEach((button) => {
     if (button) button.disabled = !ready;
   });
+  els.locoPresets.forEach((button) => {
+    button.disabled = !ready;
+  });
   if (els.locoStop) els.locoStop.disabled = !ready;
   if (!ready && els.locoMessage) {
+    stopLocoHold(false);
     els.locoMessage.textContent = "Enable both safety checkboxes before sending a loco command.";
   }
 }
@@ -462,7 +466,11 @@ function loadLocoStatus() {
     });
 }
 
-function locoPayload(action) {
+const LOCO_HOLD_INTERVAL_MS = 300;
+const LOCO_HOLD_DURATION_SECONDS = 0.45;
+let locoHold = null;
+
+function locoPayload(action, overrides = {}) {
   return {
     action,
     armed: Boolean(els.locoArm?.checked),
@@ -478,10 +486,12 @@ function locoPayload(action) {
     target_x: Number(els.locoTargetX?.value || 0),
     target_y: Number(els.locoTargetY?.value || 0),
     target_yaw: Number(els.locoTargetYaw?.value || 0),
+    ...overrides,
+    action,
   };
 }
 
-function sendLocoCommand(action) {
+function sendLocoCommand(action, overrides = {}) {
   if (!els.locoState) return;
   if (!locoSafetyReady()) {
     els.locoMessage.textContent = "Command blocked: enable both safety checkboxes first.";
@@ -496,7 +506,7 @@ function sendLocoCommand(action) {
   fetch("/api/loco/command", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(locoPayload(action)),
+    body: JSON.stringify(locoPayload(action, overrides)),
   })
     .then((response) =>
       response.json().then((data) => {
@@ -525,6 +535,32 @@ function applyLocoPreset(name) {
   if (!values || !els.locoVx) return;
   [els.locoVx.value, els.locoVy.value, els.locoVyaw.value] = values.map(String);
   updateLocoSliderLabels();
+}
+
+function sendLocoHoldVelocity(name) {
+  applyLocoPreset(name);
+  sendLocoCommand("velocity", { duration: LOCO_HOLD_DURATION_SECONDS });
+}
+
+function stopLocoHold(sendStop = true) {
+  if (!locoHold) return;
+  window.clearInterval(locoHold.timer);
+  locoHold.button?.classList.remove("is-held");
+  locoHold = null;
+  if (sendStop) sendLocoCommand("stop_move");
+}
+
+function startLocoPresetHold(event, button) {
+  if (!button.dataset.locoPreset || button.disabled || event.button > 0) return;
+  event.preventDefault();
+  stopLocoHold();
+  button.setPointerCapture?.(event.pointerId);
+  button.classList.add("is-held");
+  sendLocoHoldVelocity(button.dataset.locoPreset);
+  locoHold = {
+    button,
+    timer: window.setInterval(() => sendLocoHoldVelocity(button.dataset.locoPreset), LOCO_HOLD_INTERVAL_MS),
+  };
 }
 
 function setupLocoControls() {
@@ -576,7 +612,17 @@ function setupLocoControls() {
   els.locoGetStandHeight?.addEventListener("click", () => sendLocoCommand("get_stand_height"));
   els.locoGetPhase?.addEventListener("click", () => sendLocoCommand("get_phase"));
   els.locoPresets.forEach((button) => {
-    button.addEventListener("click", () => applyLocoPreset(button.dataset.locoPreset));
+    button.addEventListener("pointerdown", (event) => startLocoPresetHold(event, button));
+    button.addEventListener("pointerup", stopLocoHold);
+    button.addEventListener("pointercancel", stopLocoHold);
+    button.addEventListener("lostpointercapture", stopLocoHold);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+    });
+  });
+  window.addEventListener("blur", stopLocoHold);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopLocoHold();
   });
   updateLocoSliderLabels();
   setLocoButtons();

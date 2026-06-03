@@ -724,6 +724,12 @@ h3 {
   font-weight: 850;
 }
 
+.loco-presets button.is-held {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: linear-gradient(135deg, rgba(255, 72, 72, 0.94), rgba(128, 0, 0, 0.94));
+  transform: translateY(1px);
+}
+
 .loco-action-grid button:disabled,
 .loco-presets button:disabled,
 .loco-query-grid button:disabled,

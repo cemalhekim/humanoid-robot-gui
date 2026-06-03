@@ -164,6 +164,26 @@ http://10.2.100.142:8088
 
 In this mode the browser uses Wi-Fi, while the server reads `rt/lowstate`, Loco RPC, wrist control, and camera DDS locally on the robot PC.
 
+To kill every dashboard server process and user service started from this workspace:
+
+```bash
+cd /home/unitree/robot_telemetry_web
+python3 kill_servers.py
+```
+
+To start the robot dashboard from scratch with one Python file:
+
+```bash
+cd /home/unitree/robot_telemetry_web
+python3 run_servers.py
+```
+
+On the robot PC this installs and starts a fresh `robot-telemetry-web.service` user service. For debugging in the current terminal instead of systemd, run:
+
+```bash
+python3 run_servers.py --mode foreground
+```
+
 To keep the robot-hosted dashboard running after shell exits, install the user service:
 
 ```bash

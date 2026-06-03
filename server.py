@@ -1303,8 +1303,6 @@ class TelemetryStore:
                 with contextlib.suppress(Exception):
                     check_code, motion_mode = motion_switcher.CheckMode()
                     command["motion_check_code"] = check_code
-                select_code, _ = motion_switcher.SelectMode("ai")
-                time.sleep(0.15)
 
             result_data = None
             if action in ("ready", "balance_stand"):

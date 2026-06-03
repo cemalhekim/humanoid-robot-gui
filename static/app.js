@@ -466,8 +466,6 @@ function loadLocoStatus() {
     });
 }
 
-const LOCO_HOLD_INTERVAL_MS = 300;
-const LOCO_HOLD_DURATION_SECONDS = 0.45;
 let locoHold = null;
 
 function locoPayload(action, overrides = {}) {
@@ -539,7 +537,7 @@ function applyLocoPreset(name) {
 
 function sendLocoHoldVelocity(name) {
   applyLocoPreset(name);
-  sendLocoCommand("velocity", { duration: LOCO_HOLD_DURATION_SECONDS });
+  sendLocoCommand("move", { continuous_move: true });
 }
 
 function stopLocoHold(sendStop = true) {
@@ -559,7 +557,6 @@ function startLocoPresetHold(event, button) {
   sendLocoHoldVelocity(button.dataset.locoPreset);
   locoHold = {
     button,
-    timer: window.setInterval(() => sendLocoHoldVelocity(button.dataset.locoPreset), LOCO_HOLD_INTERVAL_MS),
   };
 }
 

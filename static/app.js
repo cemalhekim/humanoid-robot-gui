@@ -58,6 +58,35 @@ const els = {
   wristRateValue: document.getElementById("wristRateValue"),
   wristSendAbsolute: document.getElementById("wristSendAbsolute"),
   wristOscillate: document.getElementById("wristOscillate"),
+  locoState: document.getElementById("locoState"),
+  locoStop: document.getElementById("locoStop"),
+  locoModeMachine: document.getElementById("locoModeMachine"),
+  locoModePr: document.getElementById("locoModePr"),
+  locoMotionOwner: document.getElementById("locoMotionOwner"),
+  locoMessage: document.getElementById("locoMessage"),
+  locoLastCommand: document.getElementById("locoLastCommand"),
+  locoArm: document.getElementById("locoArm"),
+  locoRisk: document.getElementById("locoRisk"),
+  locoStandUp: document.getElementById("locoStandUp"),
+  locoStart: document.getElementById("locoStart"),
+  locoDamp: document.getElementById("locoDamp"),
+  locoZeroTorque: document.getElementById("locoZeroTorque"),
+  locoHighStand: document.getElementById("locoHighStand"),
+  locoLowStand: document.getElementById("locoLowStand"),
+  locoVx: document.getElementById("locoVx"),
+  locoVy: document.getElementById("locoVy"),
+  locoVyaw: document.getElementById("locoVyaw"),
+  locoDuration: document.getElementById("locoDuration"),
+  locoStandHeight: document.getElementById("locoStandHeight"),
+  locoVxValue: document.getElementById("locoVxValue"),
+  locoVyValue: document.getElementById("locoVyValue"),
+  locoVyawValue: document.getElementById("locoVyawValue"),
+  locoDurationValue: document.getElementById("locoDurationValue"),
+  locoStandHeightValue: document.getElementById("locoStandHeightValue"),
+  locoSendVelocity: document.getElementById("locoSendVelocity"),
+  locoSetHeight: document.getElementById("locoSetHeight"),
+  locoHistory: document.getElementById("locoHistory"),
+  locoPresets: document.querySelectorAll("[data-loco-preset]"),
 };
 
 function fmt(value, suffix = "") {
@@ -269,8 +298,193 @@ function render(snapshot) {
   renderRobotStatus(snapshot);
   renderMotors(snapshot.motors);
   renderWristTelemetry(snapshot);
+  renderLocoTelemetry(snapshot);
   els.rawJson.textContent = JSON.stringify(snapshot, null, 2);
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));
+}
+
+function locoSafetyReady() {
+  return Boolean(els.locoArm?.checked && els.locoRisk?.checked);
+}
+
+function updateLocoSliderLabels() {
+  if (!els.locoVx) return;
+  els.locoVxValue.textContent = `${Number(els.locoVx.value).toFixed(2)} m/s`;
+  els.locoVyValue.textContent = `${Number(els.locoVy.value).toFixed(2)} m/s`;
+  els.locoVyawValue.textContent = `${Number(els.locoVyaw.value).toFixed(2)} rad/s`;
+  els.locoDurationValue.textContent = `${Number(els.locoDuration.value).toFixed(2)} s`;
+  els.locoStandHeightValue.textContent = Number(els.locoStandHeight.value).toFixed(2);
+}
+
+function setLocoButtons() {
+  if (!els.locoState) return;
+  const ready = locoSafetyReady();
+  [
+    els.locoStandUp,
+    els.locoStart,
+    els.locoDamp,
+    els.locoZeroTorque,
+    els.locoHighStand,
+    els.locoLowStand,
+    els.locoSendVelocity,
+    els.locoSetHeight,
+  ].forEach((button) => {
+    if (button) button.disabled = !ready;
+  });
+  if (els.locoStop) els.locoStop.disabled = !ready;
+  if (!ready && els.locoMessage) {
+    els.locoMessage.textContent = "Enable both safety checkboxes before sending a loco command.";
+  }
+}
+
+function renderLocoTelemetry(snapshot) {
+  if (!els.locoModeMachine) return;
+  const robot = snapshot.robot || {};
+  els.locoModeMachine.textContent = fmt(robot.mode_machine);
+  els.locoModePr.textContent = fmt(robot.mode_pr);
+}
+
+function motionOwnerLabel(mode) {
+  if (!mode) return "--";
+  if (mode.error) return `error: ${mode.error}`;
+  if (typeof mode === "string") return mode;
+  return mode.name || mode.alias || mode.form || JSON.stringify(mode);
+}
+
+function renderLocoStatus(status) {
+  if (!els.locoState) return;
+  const active = Boolean(status.active);
+  const available = Boolean(status.available);
+  els.locoState.textContent = active ? "Sending" : available ? "Ready" : "Unavailable";
+  els.locoState.className = `pill ${available ? "good" : "bad"}`;
+  els.locoMessage.textContent = status.message || "--";
+  els.locoMotionOwner.textContent = motionOwnerLabel(status.motion_mode);
+  if (status.robot) {
+    els.locoModeMachine.textContent = fmt(status.robot.mode_machine);
+    els.locoModePr.textContent = fmt(status.robot.mode_pr);
+  }
+  const last = status.last_command;
+  els.locoLastCommand.textContent = last
+    ? `${last.action} vx ${fmt(last.vx)} vy ${fmt(last.vy)} yaw ${fmt(last.vyaw)}`
+    : "No loco command sent";
+  renderLocoHistory(status.history || []);
+}
+
+function renderLocoHistory(history) {
+  if (!els.locoHistory) return;
+  if (!history.length) {
+    els.locoHistory.innerHTML = `<div class="ros-empty">No loco commands sent.</div>`;
+    return;
+  }
+  els.locoHistory.innerHTML = history
+    .map((item) => {
+      const timeLabel = item.time ? new Date(item.time * 1000).toLocaleTimeString() : "--";
+      const code = item.call_code === undefined || item.call_code === null ? "ok" : item.call_code;
+      return `
+        <div class="loco-history-item">
+          <strong>${esc(item.action)}</strong>
+          <span>${esc(timeLabel)} code ${esc(code)}</span>
+          <small>vx ${fmt(item.vx)} · vy ${fmt(item.vy)} · yaw ${fmt(item.vyaw)} · ${fmt(item.duration)}s</small>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function loadLocoStatus() {
+  if (!els.locoState) return;
+  fetch("/api/loco/status")
+    .then((response) => response.json())
+    .then(renderLocoStatus)
+    .catch((error) => {
+      els.locoState.textContent = "Unavailable";
+      els.locoState.className = "pill bad";
+      els.locoMessage.textContent = error.message;
+    });
+}
+
+function locoPayload(action) {
+  return {
+    action,
+    armed: Boolean(els.locoArm?.checked),
+    i_understand_risk: Boolean(els.locoRisk?.checked),
+    vx: Number(els.locoVx?.value || 0),
+    vy: Number(els.locoVy?.value || 0),
+    vyaw: Number(els.locoVyaw?.value || 0),
+    duration: Number(els.locoDuration?.value || 1),
+    stand_height: Number(els.locoStandHeight?.value || 0.5),
+  };
+}
+
+function sendLocoCommand(action) {
+  if (!els.locoState) return;
+  if (!locoSafetyReady()) {
+    els.locoMessage.textContent = "Command blocked: enable both safety checkboxes first.";
+    els.locoState.textContent = "Blocked";
+    els.locoState.className = "pill bad";
+    setLocoButtons();
+    return;
+  }
+  els.locoMessage.textContent = `Sending ${action}`;
+  els.locoState.textContent = "Sending";
+  els.locoState.className = "pill good";
+  fetch("/api/loco/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(locoPayload(action)),
+  })
+    .then((response) =>
+      response.json().then((data) => {
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+      }),
+    )
+    .then((data) => renderLocoStatus(data.status || data))
+    .catch((error) => {
+      els.locoMessage.textContent = error.message;
+      els.locoState.textContent = "Blocked";
+      els.locoState.className = "pill bad";
+    });
+}
+
+function applyLocoPreset(name) {
+  const presets = {
+    forward: [0.2, 0, 0],
+    back: [-0.15, 0, 0],
+    left: [0, 0.15, 0],
+    right: [0, -0.15, 0],
+    "turn-left": [0, 0, 0.25],
+    "turn-right": [0, 0, -0.25],
+  };
+  const values = presets[name];
+  if (!values || !els.locoVx) return;
+  [els.locoVx.value, els.locoVy.value, els.locoVyaw.value] = values.map(String);
+  updateLocoSliderLabels();
+}
+
+function setupLocoControls() {
+  if (!els.locoState) return;
+  [els.locoVx, els.locoVy, els.locoVyaw, els.locoDuration, els.locoStandHeight].forEach((slider) => {
+    slider?.addEventListener("input", updateLocoSliderLabels);
+  });
+  els.locoArm?.addEventListener("change", setLocoButtons);
+  els.locoRisk?.addEventListener("change", setLocoButtons);
+  els.locoStandUp?.addEventListener("click", () => sendLocoCommand("stand_up"));
+  els.locoStart?.addEventListener("click", () => sendLocoCommand("start"));
+  els.locoStop?.addEventListener("click", () => sendLocoCommand("stop_move"));
+  els.locoDamp?.addEventListener("click", () => sendLocoCommand("damp"));
+  els.locoZeroTorque?.addEventListener("click", () => sendLocoCommand("zero_torque"));
+  els.locoHighStand?.addEventListener("click", () => sendLocoCommand("high_stand"));
+  els.locoLowStand?.addEventListener("click", () => sendLocoCommand("low_stand"));
+  els.locoSendVelocity?.addEventListener("click", () => sendLocoCommand("velocity"));
+  els.locoSetHeight?.addEventListener("click", () => sendLocoCommand("set_height"));
+  els.locoPresets.forEach((button) => {
+    button.addEventListener("click", () => applyLocoPreset(button.dataset.locoPreset));
+  });
+  updateLocoSliderLabels();
+  setLocoButtons();
+  loadLocoStatus();
+  setInterval(loadLocoStatus, 1200);
 }
 
 function wristParams(mode = "absolute") {
@@ -783,5 +997,6 @@ els.chillMotors?.addEventListener("click", chillMotors);
 syncActiveNav();
 connectCameraPreview();
 loadRosGraph();
+setupLocoControls();
 setupWristControls();
 connectEvents();

@@ -1,0 +1,6 @@
+[submodule "external/xr_teleoperate"]
+	path = external/xr_teleoperate
+	url = https://github.com/unitreerobotics/xr_teleoperate.git
+[submodule "external/unitree_sim_isaaclab"]
+	path = external/unitree_sim_isaaclab
+	url = https://github.com/unitreerobotics/unitree_sim_isaaclab.git

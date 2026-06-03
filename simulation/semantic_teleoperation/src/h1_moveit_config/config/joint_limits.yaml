@@ -1,0 +1,24 @@
+default_velocity_scaling_factor: 0.2
+default_acceleration_scaling_factor: 0.2
+joint_limits:
+  left_hip_yaw_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  left_hip_roll_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  left_hip_pitch_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  left_knee_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  left_ankle_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_hip_yaw_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_hip_roll_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_hip_pitch_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_knee_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_ankle_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  torso_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  left_shoulder_pitch_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  left_shoulder_roll_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  left_shoulder_yaw_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  left_elbow_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  left_hand_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_shoulder_pitch_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_shoulder_roll_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_shoulder_yaw_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_elbow_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}
+  right_hand_joint: {has_velocity_limits: true, max_velocity: 2.0, has_acceleration_limits: false}

@@ -1,0 +1,13 @@
+build/
+install/
+log/
+__pycache__/
+*.pyc
+.venv/
+venv/
+external/
+
+# Local ROS packages copied from other repositories.
+# Keep these out of this repo unless they are intentionally vendored.
+src/*_description/
+!src/h1_description/

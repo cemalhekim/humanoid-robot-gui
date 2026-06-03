@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+cert.pem
+key.pem
+rootCA.*
+server.csr
+server_ext.cnf
+

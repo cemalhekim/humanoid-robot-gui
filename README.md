@@ -63,6 +63,19 @@ Important files:
 - `static/vendor/three/*` contains vendored Three.js browser modules so the page can run without a package manager.
 - `static/models/h1_2_description/*` contains the H1-2 robot model assets used by the viewer.
 
+## Consolidated Workspace
+
+Additional robot workspace projects are organized in this repo under:
+
+- `teleoperation/vision_pro_control` for Vision Pro / XR teleoperation control code.
+- `execution/semantic_teleoperation` for real/sim execution dependencies and Unitree integration sources.
+- `simulation/semantic_teleoperation` for H1 simulation, Gazebo, MoveIt, and MuJoCo scripts.
+- `robot_models/unitree_h1_2` for the Unitree H1-2 model source copied from the ROS workspace.
+- `vendor/unitree_sdk2_python` for the Unitree SDK2 Python source snapshot.
+- `tools/rh56` for RH56 hand utility scripts.
+
+See `docs/workspace_inventory.md` for details about what was copied and what generated artifacts were intentionally left out.
+
 ## Requirements
 
 Runtime requirements:

@@ -30,15 +30,30 @@ NEW = """        weight = torch.as_tensor(
         )
 """
 
+OLD_FROM_NUMPY = """        weight = torch.from_numpy(
+            np.concatenate([weight, np.ones(self.num_fingers, dtype=np.float32) * len_proj + self.num_fingers])
+        )
+"""
+
+NEW_FROM_NUMPY = """        weight = torch.as_tensor(
+            np.asarray(
+                np.concatenate([weight, np.ones(self.num_fingers, dtype=np.float32) * len_proj + self.num_fingers]),
+                dtype=np.float32,
+            ),
+            dtype=torch.float32,
+        )
+"""
+
 
 def patch_optimizer(path: Path) -> None:
     if not path.exists():
         return
 
     text = path.read_text(encoding="utf-8")
-    if "weight = torch.from_numpy(" in text:
-        return
     if "dtype=torch.float32,\n        )\n\n        # Compute reference distance vector" in text:
+        return
+    if OLD_FROM_NUMPY in text:
+        path.write_text(text.replace(OLD_FROM_NUMPY, NEW_FROM_NUMPY, 1), encoding="utf-8")
         return
     if OLD not in text:
         print(f"Skipping dex-retargeting dtype patch; weight tensor block changed in {path}")

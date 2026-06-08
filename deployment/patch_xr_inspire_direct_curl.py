@@ -46,11 +46,11 @@ def _direct_inspire_targets(hand_data: np.ndarray) -> np.ndarray:
 
     # WebXR/OpenXR hand joint order:
     # wrist=0, thumb=1..4, index=5..9, middle=10..14, ring=15..19, little=20..24.
-    pinky = _angle_curl(hand_data, 20, 21, 24)
-    ring = _angle_curl(hand_data, 15, 16, 19)
-    middle = _angle_curl(hand_data, 10, 11, 14)
-    index = _angle_curl(hand_data, 5, 6, 9)
-    thumb_bend = _angle_curl(hand_data, 1, 2, 4)
+    pinky = max(_angle_curl(hand_data, 20, 21, 24), _angle_curl(hand_data, 21, 22, 24))
+    ring = max(_angle_curl(hand_data, 15, 16, 19), _angle_curl(hand_data, 16, 17, 19))
+    middle = max(_angle_curl(hand_data, 10, 11, 14), _angle_curl(hand_data, 11, 12, 14))
+    index = max(_angle_curl(hand_data, 5, 6, 9), _angle_curl(hand_data, 6, 7, 9))
+    thumb_bend = max(_angle_curl(hand_data, 1, 2, 4), _angle_curl(hand_data, 2, 3, 4))
 
     palm_width = np.linalg.norm(hand_data[5] - hand_data[17])
     thumb_to_index = np.linalg.norm(hand_data[4] - hand_data[9])
@@ -149,6 +149,19 @@ def patch_file(path: Path) -> None:
         if OLD_BLOCK not in text:
             raise SystemExit(f"Could not find Inspire retargeting block in {path}")
         text = text.replace(OLD_BLOCK, NEW_BLOCK, 1)
+
+    text = text.replace(
+        "    pinky = _angle_curl(hand_data, 20, 21, 24)\n"
+        "    ring = _angle_curl(hand_data, 15, 16, 19)\n"
+        "    middle = _angle_curl(hand_data, 10, 11, 14)\n"
+        "    index = _angle_curl(hand_data, 5, 6, 9)\n"
+        "    thumb_bend = _angle_curl(hand_data, 1, 2, 4)\n",
+        "    pinky = max(_angle_curl(hand_data, 20, 21, 24), _angle_curl(hand_data, 21, 22, 24))\n"
+        "    ring = max(_angle_curl(hand_data, 15, 16, 19), _angle_curl(hand_data, 16, 17, 19))\n"
+        "    middle = max(_angle_curl(hand_data, 10, 11, 14), _angle_curl(hand_data, 11, 12, 14))\n"
+        "    index = max(_angle_curl(hand_data, 5, 6, 9), _angle_curl(hand_data, 6, 7, 9))\n"
+        "    thumb_bend = max(_angle_curl(hand_data, 1, 2, 4), _angle_curl(hand_data, 2, 3, 4))\n",
+    )
 
     path.write_text(text, encoding="utf-8")
 

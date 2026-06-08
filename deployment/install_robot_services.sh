@@ -6,6 +6,12 @@ SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
 
 mkdir -p "$SYSTEMD_USER_DIR" /home/unitree/logs
 
+xr_update_rc=0
+"$REPO_DIR/deployment/update_xr_teleoperate.sh" || xr_update_rc=$?
+if [[ "$xr_update_rc" != "0" && "$xr_update_rc" != "10" ]]; then
+  exit "$xr_update_rc"
+fi
+
 cp "$REPO_DIR/deployment/systemd/robot-telemetry-web.service" "$SYSTEMD_USER_DIR/"
 cp "$REPO_DIR/deployment/systemd/robot-telemetry-web-autoupdate.service" "$SYSTEMD_USER_DIR/"
 cp "$REPO_DIR/deployment/systemd/robot-telemetry-web-autoupdate.timer" "$SYSTEMD_USER_DIR/"

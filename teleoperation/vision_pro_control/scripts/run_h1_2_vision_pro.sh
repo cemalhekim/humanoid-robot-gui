@@ -8,7 +8,7 @@ INPUT_MODE="${INPUT_MODE:-hand}"
 DISPLAY_MODE="${DISPLAY_MODE:-immersive}"
 ARM="${ARM:-H1_2}"
 IMG_SERVER_IP="${IMG_SERVER_IP:-192.168.123.164}"
-NETWORK_INTERFACE="${NETWORK_INTERFACE:-enp0s31f6}"
+NETWORK_INTERFACE="${NETWORK_INTERFACE:-eth0}"
 FREQUENCY="${FREQUENCY:-30.0}"
 MOTION_FLAG="--motion"
 
@@ -34,4 +34,3 @@ exec python teleop_hand_and_arm.py \
   --img-server-ip "$IMG_SERVER_IP" \
   --network-interface "$NETWORK_INTERFACE" \
   $MOTION_FLAG
-

@@ -19,7 +19,7 @@ external/unitree_sim_isaaclab
 - Robot: Unitree H1-2
 - Arm profile: `H1_2`
 - Host/image server IP: `192.168.123.164`
-- DDS network interface: `enp0s31f6`
+- DDS network interface: `eth0`
 - XR input mode: `hand`
 - Display mode: `immersive`
 
@@ -34,7 +34,24 @@ From this repo:
 The script runs Unitree's:
 
 ```bash
-python teleop_hand_and_arm.py --input-mode hand --display-mode immersive --arm H1_2 --img-server-ip 192.168.123.164 --network-interface enp0s31f6 --motion
+python teleop_hand_and_arm.py --input-mode hand --display-mode immersive --arm H1_2 --img-server-ip 192.168.123.164 --network-interface eth0 --motion
+```
+
+For robot-hosted teleoperation, keep DDS on the robot Ethernet interface and set
+the image/Vuer address to the robot's Wi-Fi address. On the current robot this
+means `--network-interface eth0` and `--img-server-ip 10.2.100.142`.
+
+Open Vision Pro Safari to:
+
+```text
+https://10.2.100.142:8013/?ws=wss://10.2.100.142:8013
+```
+
+If the Vuer page loads but the XR session does not stay connected, verify that
+Vision Pro trusts the `televuer` root CA, then retry through:
+
+```text
+https://vuer.ai?ws=wss://10.2.100.142:8013
 ```
 
 Use `--no-motion` if you only want arm control without entering Unitree's motion/debug coexistence path:

@@ -204,6 +204,9 @@
                   <span class="camera-dot"></span>
                   <strong>Waiting for stream</strong>
                 </div>
+                <button id="cameraPermission" class="camera-link-button" type="button">
+                  Allow Permissions
+                </button>
                 <a
                   class="camera-link-button"
                   href="https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012"
@@ -221,11 +224,11 @@
                     id="cameraStream"
                     src="https://10.2.100.142:60001"
                     title="TeleImager WebRTC camera stream"
-                    allow="autoplay; encrypted-media; fullscreen"
+                    allow="autoplay; camera; microphone; encrypted-media; fullscreen; xr-spatial-tracking"
                   ></iframe>
                   <div class="camera-placeholder" id="cameraPlaceholder">
                     <div class="placeholder-mark">Live View</div>
-                    <p>Start the TeleImager WebRTC preview inside the embedded stream page.</p>
+                    <p>TeleImager WebRTC preview starts automatically when this panel opens.</p>
                     <small>If the browser blocks the certificate, open `https://10.2.100.142:60001` once and trust it.</small>
                   </div>
                 </div>
@@ -248,9 +251,9 @@
                   <p>Standalone camera server from Unitree's XR teleoperation workflow.</p>
                 </article>
                 <article class="camera-card">
-                  <span>Fallback</span>
-                  <strong>Direct camera page</strong>
-                  <p>Open `https://10.2.100.142:60001` if the embedded preview does not start.</p>
+                  <span>Permissions</span>
+                  <strong id="cameraPermissionStatus">Not requested</strong>
+                  <p>Use Allow Permissions to request browser camera, microphone, autoplay, and WebXR access from this page.</p>
                 </article>
               </aside>
             </div>

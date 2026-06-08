@@ -132,7 +132,7 @@ INDEX_HTML = """
         text-align: center; 
     }
     button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
-    video { width: 100%; max-width: 1280px; background: #000; margin-top: 10px; }
+    video { width: 100%; max-width: 1920px; background: #000; margin-top: 10px; }
     
     /* Title link style */
     h1 a {
@@ -213,6 +213,10 @@ function negotiate() {
 }
 
 function start() {
+    if (pc) {
+        return;
+    }
+
     var config = {
         sdpSemantics: 'unified-plan'
     };
@@ -242,6 +246,10 @@ function stop() {
         pc = null;
     }
 }
+
+window.addEventListener('DOMContentLoaded', () => {
+    start();
+});
 """
 
 # ========================================================

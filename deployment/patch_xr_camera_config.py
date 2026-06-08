@@ -11,6 +11,7 @@ import yaml
 CONFIGS = [
     Path("/home/unitree/teleimager/cam_config_server.yaml"),
     Path("/home/unitree/teleimager/cam_config_client.yaml"),
+    Path("/home/unitree/xr_teleoperate/teleop/teleimager/cam_config_server.yaml"),
     Path("/home/unitree/xr_teleoperate/teleop/teleimager/cam_config_client.yaml"),
 ]
 
@@ -27,9 +28,9 @@ def patch_config(path: Path) -> None:
     head["webrtc_port"] = int(head.get("webrtc_port", 60001))
     head["webrtc_codec"] = head.get("webrtc_codec", "h264")
     head["type"] = head.get("type", "videohub")
-    head["image_shape"] = [720, 1280]
+    head["image_shape"] = [1080, 1920]
     head["binocular"] = False
-    head["fps"] = 15
+    head["fps"] = 30
     head["network_interface"] = head.get("network_interface", "eth0")
 
     for name in ("left_wrist_camera", "right_wrist_camera"):

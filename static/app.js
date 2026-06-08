@@ -24,6 +24,8 @@ const els = {
   rawJson: document.getElementById("rawJson"),
   cameraStream: document.getElementById("cameraStream"),
   cameraPlaceholder: document.getElementById("cameraPlaceholder"),
+  cameraPermission: document.getElementById("cameraPermission"),
+  cameraPermissionStatus: document.getElementById("cameraPermissionStatus"),
   rosSummary: document.getElementById("rosSummary"),
   rosMap: document.getElementById("rosMap"),
   rosEdges: document.getElementById("rosEdges"),
@@ -958,6 +960,67 @@ function connectCameraPreview() {
   });
 }
 
+async function requestCameraPermissions() {
+  if (!els.cameraPermissionStatus) return;
+
+  const messages = [];
+  if (els.cameraPermission) {
+    els.cameraPermission.disabled = true;
+    els.cameraPermission.classList.add("pending");
+  }
+  els.cameraPermissionStatus.textContent = "Requesting...";
+
+  if (!window.isSecureContext) {
+    messages.push("page is not a secure context");
+  }
+
+  if (navigator.mediaDevices?.getUserMedia) {
+    for (const [label, constraints] of [
+      ["camera", { video: true }],
+      ["mic", { audio: true }],
+    ]) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        stream.getTracks().forEach((track) => track.stop());
+        messages.push(`${label} allowed`);
+      } catch (error) {
+        messages.push(`${label} ${error.name || "blocked"}`);
+      }
+    }
+  } else {
+    messages.push("camera/mic unsupported");
+  }
+
+  if (navigator.xr?.isSessionSupported) {
+    try {
+      const supported = await navigator.xr.isSessionSupported("immersive-vr");
+      if (!supported) {
+        messages.push("WebXR unsupported");
+      } else if (navigator.xr.requestSession) {
+        const session = await navigator.xr.requestSession("immersive-vr", {
+          optionalFeatures: ["hand-tracking", "local-floor", "bounded-floor"],
+        });
+        await session.end();
+        messages.push("WebXR allowed");
+      }
+    } catch (error) {
+      messages.push(`WebXR ${error.name || "blocked"}`);
+    }
+  } else {
+    messages.push("WebXR unavailable");
+  }
+
+  if (els.cameraStream) {
+    els.cameraStream.src = els.cameraStream.src;
+  }
+
+  els.cameraPermissionStatus.textContent = messages.join(" / ");
+  if (els.cameraPermission) {
+    els.cameraPermission.disabled = false;
+    els.cameraPermission.classList.remove("pending");
+  }
+}
+
 function renderRosGraph(graph) {
   if (!els.rosMap || !els.rosEdges || !els.rosSummary) return;
   const nodes = graph.nodes || [];
@@ -1188,6 +1251,7 @@ document.addEventListener("visibilitychange", () => {
 });
 els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 els.chillMotors?.addEventListener("click", chillMotors);
+els.cameraPermission?.addEventListener("click", requestCameraPermissions);
 syncActiveNav();
 connectCameraPreview();
 loadRosGraph();

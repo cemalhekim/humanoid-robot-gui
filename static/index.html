@@ -45,6 +45,7 @@
             ROS Graph
           </a>
           <a class="nav-item" href="#motorPage"><span class="nav-icon">▤</span>Motor Data</a>
+          <a class="nav-item" href="#locoPage"><span class="nav-icon">↕</span>Loco Control</a>
           <a class="nav-item" href="#wristPage"><span class="nav-icon">◌</span>Right Wrist</a>
           <a class="nav-item" href="#rawView"><span class="nav-icon">☷</span>Raw JSON</a>
         </nav>
@@ -269,6 +270,148 @@
               <aside class="ros-details">
                 <h3>Subscription Edges</h3>
                 <div id="rosEdges" class="ros-edge-list"></div>
+              </aside>
+            </div>
+          </section>
+
+          <section id="locoPage" class="loco-page panel">
+            <div class="section-head">
+              <div>
+                <h2>Loco Control</h2>
+                <p class="panel-subtitle">Guarded H1 locomotion API controls through Unitree LocoClient</p>
+              </div>
+              <div class="wrist-actions">
+                <span id="locoState" class="pill bad">Unavailable</span>
+                <button id="locoStop" class="emergency-button compact" type="button">Stop Move</button>
+              </div>
+            </div>
+
+            <div class="loco-layout">
+              <section class="loco-readout">
+                <article class="wrist-meter">
+                  <span>Robot Mode</span>
+                  <strong id="locoModeMachine">--</strong>
+                  <small>mode_machine from rt/lowstate</small>
+                </article>
+                <article class="wrist-meter">
+                  <span>Control Mode</span>
+                  <strong id="locoModePr">--</strong>
+                  <small>mode_pr from rt/lowstate</small>
+                </article>
+                <article class="wrist-meter">
+                  <span>Motion Owner</span>
+                  <strong id="locoMotionOwner">--</strong>
+                  <small>motion_switcher CheckMode</small>
+                </article>
+                <article class="wrist-meter">
+                  <span>Status</span>
+                  <strong id="locoMessage">Waiting</strong>
+                  <small id="locoLastCommand">No loco command sent</small>
+                </article>
+              </section>
+
+              <section class="loco-controls">
+                <div class="control-mode">
+                  <label><input id="locoArm" type="checkbox" checked> Loco command page</label>
+                  <label><input id="locoRisk" type="checkbox" checked> I understand this can move the robot</label>
+                </div>
+
+                <div class="loco-action-grid">
+                  <button id="locoReady" type="button">Ready</button>
+                  <button id="locoStandUp" type="button">Stand Up</button>
+                  <button id="locoStart" type="button">Start</button>
+                  <button id="locoDamp" type="button">Damp</button>
+                  <button id="locoZeroTorque" type="button">Zero Torque</button>
+                  <button id="locoBalanceStand" type="button">Balance Stand</button>
+                  <button id="locoHighStand" type="button">High Stand</button>
+                  <button id="locoLowStand" type="button">Low Stand</button>
+                  <button id="locoGaitOn" type="button">Gait On</button>
+                  <button id="locoGaitOff" type="button">Gait Off</button>
+                  <button id="locoNextFootLeft" type="button">Next Foot L</button>
+                  <button id="locoNextFootRight" type="button">Next Foot R</button>
+                  <button id="locoWaveHand" type="button">Wave Hand</button>
+                  <button id="locoShakeHand" type="button">Shake Hand</button>
+                  <button id="locoShakeStart" type="button">Shake Start</button>
+                  <button id="locoShakeEnd" type="button">Shake End</button>
+                  <button id="locoEnableOdom" type="button">Odom On</button>
+                  <button id="locoDisableOdom" type="button">Odom Off</button>
+                </div>
+
+                <div class="loco-velocity-panel">
+                  <div class="loco-presets">
+                    <button type="button" data-loco-preset="forward">Forward</button>
+                    <button type="button" data-loco-preset="back">Back</button>
+                    <button type="button" data-loco-preset="left">Left</button>
+                    <button type="button" data-loco-preset="right">Right</button>
+                    <button type="button" data-loco-preset="turn-left">Turn Left</button>
+                    <button type="button" data-loco-preset="turn-right">Turn Right</button>
+                  </div>
+
+                  <label class="slider-row">
+                    <span>Forward vx <strong id="locoVxValue">0.50 m/s</strong></span>
+                    <input id="locoVx" type="range" min="-1" max="1" value="0.5" step="0.01">
+                  </label>
+                  <label class="slider-row">
+                    <span>Lateral vy <strong id="locoVyValue">0.50 m/s</strong></span>
+                    <input id="locoVy" type="range" min="-0.5" max="0.5" value="0.5" step="0.01">
+                  </label>
+                  <label class="slider-row">
+                    <span>Yaw vyaw <strong id="locoVyawValue">0.50 rad/s</strong></span>
+                    <input id="locoVyaw" type="range" min="-1" max="1" value="0.5" step="0.01">
+                  </label>
+                  <label class="slider-row">
+                    <span>Duration <strong id="locoDurationValue">1.00 s</strong></span>
+                    <input id="locoDuration" type="range" min="0.1" max="10" value="1" step="0.1">
+                  </label>
+                  <label class="slider-row">
+                    <span>Stand height <strong id="locoStandHeightValue">0.50</strong></span>
+                    <input id="locoStandHeight" type="range" min="0" max="1" value="0.5" step="0.01">
+                  </label>
+                  <label class="slider-row">
+                    <span>Swing height <strong id="locoSwingHeightValue">0.05</strong></span>
+                    <input id="locoSwingHeight" type="range" min="0" max="0.3" value="0.05" step="0.005">
+                  </label>
+
+                  <div class="control-mode compact-mode">
+                    <label><input id="locoContinuousMove" type="checkbox" checked> Continuous move</label>
+                    <label><input id="locoTargetRelative" type="checkbox" checked> Relative target</label>
+                  </div>
+
+                  <label class="slider-row">
+                    <span>Target x <strong id="locoTargetXValue">0.00 m</strong></span>
+                    <input id="locoTargetX" type="range" min="-2" max="2" value="0" step="0.01">
+                  </label>
+                  <label class="slider-row">
+                    <span>Target y <strong id="locoTargetYValue">0.00 m</strong></span>
+                    <input id="locoTargetY" type="range" min="-2" max="2" value="0" step="0.01">
+                  </label>
+                  <label class="slider-row">
+                    <span>Target yaw <strong id="locoTargetYawValue">0.00 rad</strong></span>
+                    <input id="locoTargetYaw" type="range" min="-3.14" max="3.14" value="0" step="0.01">
+                  </label>
+
+                  <div class="wrist-command-row">
+                    <button id="locoSendVelocity" type="button">Send Velocity</button>
+                    <button id="locoMove" type="button">Move</button>
+                    <button id="locoSetHeight" type="button">Set Height</button>
+                    <button id="locoSetSwingHeight" type="button">Set Swing</button>
+                    <button id="locoSetTargetPosition" type="button">Target Position</button>
+                    <button id="locoGetOdom" type="button">Get Odom</button>
+                  </div>
+                </div>
+              </section>
+
+              <aside class="loco-history">
+                <h3>Command History</h3>
+                <div class="loco-query-grid">
+                  <button id="locoGetFsmId" type="button">FSM ID</button>
+                  <button id="locoGetFsmMode" type="button">FSM Mode</button>
+                  <button id="locoGetBalanceMode" type="button">Balance</button>
+                  <button id="locoGetSwingHeight" type="button">Swing</button>
+                  <button id="locoGetStandHeight" type="button">Stand</button>
+                  <button id="locoGetPhase" type="button">Phase</button>
+                </div>
+                <div id="locoHistory" class="loco-history-list"></div>
               </aside>
             </div>
           </section>

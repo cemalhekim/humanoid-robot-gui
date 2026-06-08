@@ -13,6 +13,7 @@ import math
 import mimetypes
 import os
 import queue
+import shutil
 import socket
 import struct
 import subprocess
@@ -57,6 +58,14 @@ SDK_PATHS = [
 for sdk_path in reversed(SDK_PATHS):
     if sdk_path.exists():
         sys.path.insert(0, str(sdk_path))
+
+TELEIMAGER_PATHS = [
+    APP_DIR / "teleoperation/vision_pro_control/external/xr_teleoperate/teleop/teleimager/src",
+    Path.home() / "teleimager/src",
+]
+for teleimager_path in reversed(TELEIMAGER_PATHS):
+    if teleimager_path.exists():
+        sys.path.insert(0, str(teleimager_path))
 
 JOINT_NAMES = {
     0: "LeftHipYaw",
@@ -103,6 +112,50 @@ ARM_SDK_JOINTS = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 12]
 ARM_SDK_KP = [120, 120, 80, 50, 50, 50, 50, 120, 120, 80, 50, 50, 50, 50, 200]
 ARM_SDK_KD = [2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0]
 WRIST_LIMITS = (-1.2, 1.2)
+LOCO_LIMITS = {
+    "vx": [-1.0, 1.0],
+    "vy": [-0.5, 0.5],
+    "vyaw": [-1.0, 1.0],
+    "duration": [0.1, 10.0],
+    "stand_height": [0.0, 1.0],
+    "swing_height": [0.0, 0.3],
+    "target_x": [-2.0, 2.0],
+    "target_y": [-2.0, 2.0],
+    "target_yaw": [-3.14, 3.14],
+}
+LOCO_ACTIONS = [
+    "ready",
+    "balance_stand",
+    "stand_up",
+    "start",
+    "stop_move",
+    "damp",
+    "zero_torque",
+    "high_stand",
+    "low_stand",
+    "set_height",
+    "set_swing_height",
+    "velocity",
+    "move",
+    "continuous_gait_on",
+    "continuous_gait_off",
+    "next_foot_left",
+    "next_foot_right",
+    "wave_hand",
+    "shake_hand",
+    "shake_hand_start",
+    "shake_hand_end",
+    "enable_odom",
+    "disable_odom",
+    "get_odom",
+    "set_target_position",
+    "get_fsm_id",
+    "get_fsm_mode",
+    "get_balance_mode",
+    "get_swing_height",
+    "get_stand_height",
+    "get_phase",
+]
 
 HAND_JOINT_NAMES = {
     0: "RightPinky",
@@ -526,12 +579,51 @@ def configure_ros2_camera_environment(interface: str) -> None:
         )
 
 
+def ros2_command() -> list[str] | None:
+    setup = Path("/opt/ros/humble/setup.bash")
+    if setup.exists():
+        return ["bash", "-lc"]
+    ros2_bin = os.environ.get("ROS2_BIN") or shutil.which("ros2")
+    if ros2_bin:
+        return [ros2_bin]
+    for candidate in (Path("/opt/ros/humble/bin/ros2"), Path("/opt/ros/foxy/bin/ros2")):
+        if candidate.exists():
+            return [str(candidate)]
+    return None
+
+
+def ros2_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    env.setdefault("RMW_IMPLEMENTATION", "rmw_cyclonedds_cpp")
+    ros_python = Path("/opt/ros/humble/lib/python3.10/site-packages")
+    if ros_python.exists():
+        env["PYTHONPATH"] = f"{ros_python}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    ros_local_python = Path("/opt/ros/humble/local/lib/python3.10/dist-packages")
+    if ros_local_python.exists():
+        env["PYTHONPATH"] = f"{ros_local_python}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    ros_bin = Path("/opt/ros/humble/bin")
+    if ros_bin.exists():
+        env["PATH"] = f"{ros_bin}{os.pathsep}{env.get('PATH', '')}".rstrip(os.pathsep)
+    return env
+
+
 def run_ros2_command(args: list[str], timeout: float = 2.5) -> tuple[bool, str]:
+    command = ros2_command()
+    if command is None:
+        return False, "ros2 executable was not found. Install ROS 2 or set ROS2_BIN."
+    if command == ["bash", "-lc"]:
+        import shlex
+
+        shell_args = " ".join(shlex.quote(arg) for arg in args)
+        command = ["bash", "-lc", f"source /opt/ros/humble/setup.bash && exec ros2 {shell_args}"]
+    else:
+        command = [*command, *args]
     try:
         result = subprocess.run(
-            ["ros2", *args],
+            command,
             capture_output=True,
             check=False,
+            env=ros2_environment(),
             text=True,
             timeout=timeout,
         )
@@ -803,9 +895,55 @@ def camera_file_watcher(store: "TelemetryStore", image_path: Path) -> None:
         time.sleep(0.1)
 
 
+def teleimager_camera_worker(store: "TelemetryStore") -> None:
+    host = os.environ.get("TELEIMAGER_HOST", "127.0.0.1")
+    try:
+        from teleimager.image_client import ImageClient
+    except Exception as exc:
+        store.set_camera_error(f"Teleimager client is not available: {exc}")
+        return
+
+    client = None
+    last_error = 0.0
+    last_jpg = None
+    while store.running:
+        try:
+            if client is None:
+                client = ImageClient(host=host, request_bgr=False)
+                store.camera_topic = "teleimager/head"
+            frame = client.get_head_frame()
+            jpg = frame.jpg if frame else None
+            if jpg and jpg is not last_jpg and jpg.startswith(b"\xff\xd8"):
+                last_jpg = jpg
+                store.set_camera_frame(jpg)
+            elif store.camera_frame is None and time.time() - last_error > 2.0:
+                last_error = time.time()
+                store.set_camera_error("Waiting for Teleimager head camera frame.")
+            time.sleep(0.04)
+        except Exception as exc:
+            if client is not None:
+                with contextlib.suppress(Exception):
+                    client.close()
+            client = None
+            last_jpg = None
+            if time.time() - last_error > 2.0:
+                last_error = time.time()
+                store.set_camera_error(f"Teleimager camera failed: {exc}")
+            time.sleep(1.0)
+
+    if client is not None:
+        with contextlib.suppress(Exception):
+            client.close()
+
+
 def start_camera_bridge(store: "TelemetryStore") -> None:
     with contextlib.suppress(FileNotFoundError):
         CAMERA_JPEG_PATH.unlink()
+    backend = (store.camera_backend or "auto").lower()
+    if backend in ("auto", "teleimager"):
+        threading.Thread(target=teleimager_camera_worker, args=(store,), daemon=True).start()
+    if backend != "ros2":
+        return
     cmd = [
         sys.executable,
         str(Path(__file__).resolve()),
@@ -888,6 +1026,7 @@ class TelemetryStore:
         self.camera_timestamp: float | None = None
         self.camera_error: str | None = None
         self.camera_process: subprocess.Popen[bytes] | None = None
+        self.camera_backend = os.environ.get("CAMERA_BACKEND", "auto")
         self.camera_topic = "/frontvideostream"
         self.camera_resolution = int(os.environ.get("CAMERA_RESOLUTION", "360"))
         self.latest: dict[str, Any] = {
@@ -927,6 +1066,15 @@ class TelemetryStore:
             "last_command": None,
             "updated_at": None,
         }
+        self.loco_status: dict[str, Any] = {
+            "available": False,
+            "active": False,
+            "message": "H1 loco client has not started yet.",
+            "last_command": None,
+            "history": [],
+            "motion_mode": None,
+            "updated_at": None,
+        }
 
     def start(self) -> None:
         self.running = True
@@ -935,13 +1083,23 @@ class TelemetryStore:
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
-            return {**self.latest, "network": network_status(self.robot_host)}
+            latest = dict(self.latest)
+        with self.command_lock:
+            loco_status = dict(self.loco_status)
+            loco_available = bool(self.loco_client)
+        robot = latest.get("robot") or {}
+        return {
+            **latest,
+            "network": network_status(self.robot_host),
+            "loco": self._loco_status_payload(loco_status, robot, loco_available, include_metadata=False),
+        }
 
     def camera_snapshot(self) -> dict[str, Any]:
         with self.camera_lock:
             return {
                 "source": self.camera_topic,
                 "interface": self.camera_source or "default",
+                "backend": self.camera_backend,
                 "resolution": self.camera_resolution,
                 "available": self.camera_frame is not None,
                 "timestamp": self.camera_timestamp,
@@ -976,6 +1134,47 @@ class TelemetryStore:
     def _set_wrist_status(self, **updates: Any) -> None:
         with self.command_lock:
             self.wrist_status = {**self.wrist_status, **updates, "updated_at": time.time()}
+
+    def _append_loco_history(self, command: dict[str, Any]) -> None:
+        history = [command, *list(self.loco_status.get("history") or [])]
+        self.loco_status = {**self.loco_status, "history": history[:12]}
+
+    def _set_loco_status(self, **updates: Any) -> None:
+        with self.command_lock:
+            self.loco_status = {**self.loco_status, **updates, "updated_at": time.time()}
+
+    def _loco_status_payload(
+        self, status: dict[str, Any], robot: dict[str, Any], available: bool, include_metadata: bool = True
+    ) -> dict[str, Any]:
+        motion_mode = status.get("motion_mode")
+        check_code = None
+        last = status.get("last_command") or {}
+        if "motion_check_code" in last:
+            check_code = last.get("motion_check_code")
+
+        payload = {
+            **status,
+            "available": available,
+            "motion_mode": motion_mode,
+            "motion_check_code": check_code,
+            "robot": {
+                "mode_pr": robot.get("mode_pr"),
+                "mode_machine": robot.get("mode_machine"),
+                "tick": robot.get("tick"),
+            },
+        }
+        if include_metadata:
+            payload["limits"] = LOCO_LIMITS
+            payload["actions"] = LOCO_ACTIONS
+        return payload
+
+    def loco_snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            robot = dict(self.latest.get("robot") or {})
+        with self.command_lock:
+            status = dict(self.loco_status)
+            loco_available = bool(self.loco_client)
+        return self._loco_status_payload(status, robot, loco_available)
 
     def _build_arm_sdk_cmd(self, msg: Any, target_q: float, kp: float, kd: float, weight: float = 1.0) -> Any:
         if self.lowcmd_factory is None or self.crc is None:
@@ -1115,6 +1314,199 @@ class TelemetryStore:
             "damp_code": damp_code,
             "wrist": wrist_status,
         }
+
+    @staticmethod
+    def _coerce_float(payload: dict[str, Any], name: str, default: float, low: float, high: float) -> float:
+        try:
+            value = float(payload.get(name, default))
+        except (TypeError, ValueError):
+            raise ValueError(f"{name} must be a number")
+        if value < low or value > high:
+            raise ValueError(f"{name} must be between {low} and {high}")
+        return value
+
+    def command_loco(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        if not payload.get("armed") or not payload.get("i_understand_risk"):
+            return 400, {"ok": False, "error": "Loco command requires armed=true and i_understand_risk=true."}
+
+        action = str(payload.get("action", "")).strip()
+        allowed_actions = {
+            "ready",
+            "balance_stand",
+            "stand_up",
+            "start",
+            "stop_move",
+            "damp",
+            "zero_torque",
+            "high_stand",
+            "low_stand",
+            "set_height",
+            "set_swing_height",
+            "velocity",
+            "move",
+            "continuous_gait_on",
+            "continuous_gait_off",
+            "next_foot_left",
+            "next_foot_right",
+            "wave_hand",
+            "shake_hand",
+            "shake_hand_start",
+            "shake_hand_end",
+            "enable_odom",
+            "disable_odom",
+            "get_odom",
+            "set_target_position",
+            "get_fsm_id",
+            "get_fsm_mode",
+            "get_balance_mode",
+            "get_swing_height",
+            "get_stand_height",
+            "get_phase",
+        }
+        if action not in allowed_actions:
+            return 400, {"ok": False, "error": f"Unsupported loco action: {action}"}
+
+        try:
+            vx = self._coerce_float(payload, "vx", 0.0, -1.0, 1.0)
+            vy = self._coerce_float(payload, "vy", 0.0, -0.5, 0.5)
+            vyaw = self._coerce_float(payload, "vyaw", 0.0, -1.0, 1.0)
+            duration = self._coerce_float(payload, "duration", 1.0, 0.1, 10.0)
+            stand_height = self._coerce_float(payload, "stand_height", 0.0, 0.0, 1.0)
+            swing_height = self._coerce_float(payload, "swing_height", 0.05, 0.0, 0.3)
+            target_x = self._coerce_float(payload, "target_x", 0.0, -2.0, 2.0)
+            target_y = self._coerce_float(payload, "target_y", 0.0, -2.0, 2.0)
+            target_yaw = self._coerce_float(payload, "target_yaw", 0.0, -3.14, 3.14)
+        except ValueError as exc:
+            return 400, {"ok": False, "error": str(exc)}
+        continuous = bool(payload.get("continuous_move"))
+        target_relative = bool(payload.get("target_relative", True))
+
+        with self.command_lock:
+            loco_client = self.loco_client
+            motion_switcher = self.motion_switcher
+            cancel = self.wrist_cancel
+        if loco_client is None:
+            return 503, {"ok": False, "error": "H1 loco client is not available."}
+        if cancel is not None:
+            cancel.set()
+
+        command = {
+            "action": action,
+            "vx": round(vx, 4),
+            "vy": round(vy, 4),
+            "vyaw": round(vyaw, 4),
+            "duration": round(duration, 4),
+            "stand_height": round(stand_height, 4),
+            "swing_height": round(swing_height, 4),
+            "target_x": round(target_x, 4),
+            "target_y": round(target_y, 4),
+            "target_yaw": round(target_yaw, 4),
+            "continuous_move": continuous,
+            "target_relative": target_relative,
+            "time": time.time(),
+        }
+
+        self._set_loco_status(active=True, message=f"Sending loco {action}.", last_command=command)
+        select_code = None
+        call_code = None
+        stop_code = None
+        motion_mode = None
+        try:
+            if motion_switcher is not None:
+                with contextlib.suppress(Exception):
+                    check_code, motion_mode = motion_switcher.CheckMode()
+                    command["motion_check_code"] = check_code
+
+            result_data = None
+            if action in ("ready", "balance_stand"):
+                call_code = loco_client.BalanceStand()
+            elif action == "stand_up":
+                call_code = loco_client.StandUp()
+            elif action == "start":
+                call_code = loco_client.Start()
+            elif action == "stop_move":
+                call_code = loco_client.SetVelocity(0.0, 0.0, 0.0, 0.4)
+            elif action == "damp":
+                stop_code = loco_client.SetVelocity(0.0, 0.0, 0.0, 0.2)
+                call_code = loco_client.SetFsmId(1)
+            elif action == "zero_torque":
+                stop_code = loco_client.SetVelocity(0.0, 0.0, 0.0, 0.2)
+                call_code = loco_client.SetFsmId(0)
+            elif action == "high_stand":
+                call_code = loco_client.HighStand()
+            elif action == "low_stand":
+                call_code = loco_client.LowStand()
+            elif action == "set_height":
+                call_code = loco_client.SetStandHeight(stand_height)
+            elif action == "set_swing_height":
+                call_code = loco_client.SetSwingHeight(swing_height)
+            elif action == "velocity":
+                call_code = loco_client.SetVelocity(vx, vy, vyaw, duration)
+            elif action == "move":
+                call_code = loco_client.Move(vx, vy, vyaw, continuous)
+            elif action == "continuous_gait_on":
+                call_code = loco_client.ContinuousGait(True)
+            elif action == "continuous_gait_off":
+                call_code = loco_client.ContinuousGait(False)
+            elif action == "next_foot_left":
+                call_code = loco_client.SetNextFoot(True)
+            elif action == "next_foot_right":
+                call_code = loco_client.SetNextFoot(False)
+            elif action == "wave_hand":
+                call_code = loco_client.WaveHand()
+            elif action == "shake_hand":
+                call_code = loco_client.ShakeHand()
+            elif action == "shake_hand_start":
+                call_code = loco_client.ShakeHand(0)
+            elif action == "shake_hand_end":
+                call_code = loco_client.ShakeHand(1)
+            elif action == "enable_odom":
+                call_code = loco_client.EnableOdom()
+            elif action == "disable_odom":
+                call_code = loco_client.DisableOdom()
+            elif action == "get_odom":
+                call_code, result_data = loco_client.GetOdom()
+            elif action == "set_target_position":
+                call_code = loco_client.SetTargetPos(target_x, target_y, target_yaw, target_relative)
+            elif action == "get_fsm_id":
+                call_code, result_data = loco_client.GetFsmId()
+            elif action == "get_fsm_mode":
+                call_code, result_data = loco_client.GetFsmMode()
+            elif action == "get_balance_mode":
+                call_code, result_data = loco_client.GetBalanceMode()
+            elif action == "get_swing_height":
+                call_code, result_data = loco_client.GetSwingHeight()
+            elif action == "get_stand_height":
+                call_code, result_data = loco_client.GetStandHeight()
+            elif action == "get_phase":
+                call_code, result_data = loco_client.GetPhase()
+
+            command = {
+                **command,
+                "select_mode_code": select_code,
+                "call_code": call_code,
+                "stop_code": stop_code,
+                "motion_mode": motion_mode,
+                "result": result_data,
+            }
+            ok = call_code in (0, None)
+            message = f"Loco {action} accepted." if ok else f"Loco {action} returned code {call_code}."
+            with self.command_lock:
+                self._append_loco_history(command)
+            self._set_loco_status(
+                available=True,
+                active=False,
+                message=message,
+                last_command=command,
+                motion_mode=motion_mode,
+            )
+            return (200 if ok else 502), {"ok": ok, "message": message, "result": result_data, "status": self.loco_snapshot()}
+        except Exception as exc:
+            command = {**command, "select_mode_code": select_code, "call_code": call_code, "error": str(exc)}
+            with self.command_lock:
+                self._append_loco_history(command)
+            self._set_loco_status(active=False, message=f"Loco {action} failed: {exc}", last_command=command)
+            return 500, {"ok": False, "error": str(exc), "status": self.loco_snapshot()}
 
     def command_wrist(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if not payload.get("armed") or not payload.get("i_understand_risk"):
@@ -1285,6 +1677,7 @@ class TelemetryStore:
         hand_msg = None
         hand_samples = 0
         hand_timestamp = None
+        last_snapshot_at = 0.0
 
         def on_hand(msg: Any) -> None:
             nonlocal hand_msg, hand_samples, hand_timestamp
@@ -1296,11 +1689,15 @@ class TelemetryStore:
                 self.latest["hands"] = hands
 
         def on_lowstate(msg: Any) -> None:
+            nonlocal last_snapshot_at
             try:
-                hands = handstate_to_dict(hand_msg, hand_samples, hand_timestamp)
                 now = time.time()
                 self.samples += 1
                 self.sample_times.append(now)
+                if now - last_snapshot_at < 1.0 / 30.0:
+                    return
+                last_snapshot_at = now
+                hands = handstate_to_dict(hand_msg, hand_samples, hand_timestamp)
                 if len(self.sample_times) > 1:
                     elapsed = self.sample_times[-1] - self.sample_times[0]
                     rate = (len(self.sample_times) - 1) / elapsed if elapsed > 0 else 0
@@ -1341,6 +1738,12 @@ class TelemetryStore:
                     "message": "DDS arm_sdk publisher is ready.",
                     "updated_at": time.time(),
                 }
+                self.loco_status = {
+                    **self.loco_status,
+                    "available": True,
+                    "message": "H1 loco client is ready.",
+                    "updated_at": time.time(),
+                }
 
             sub = ChannelSubscriber("rt/lowstate", LowState_)
             sub.Init(on_lowstate, 10)
@@ -1362,7 +1765,13 @@ class TelemetryStore:
                 time.sleep(0.25)
 
 
+class TelemetryHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 64
+
+
 class TelemetryHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
     store: TelemetryStore
 
     def log_message(self, fmt: str, *args: Any) -> None:
@@ -1386,6 +1795,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.ros_graph_snapshot())
         elif request_path == "/api/wrist/status":
             self._send_json(self.store.wrist_snapshot())
+        elif request_path == "/api/loco/status":
+            self._send_json(self.store.loco_snapshot())
         elif request_path == "/camera.mjpg":
             self._send_camera_stream()
         elif request_path == "/events":
@@ -1397,12 +1808,12 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         request_path = urlsplit(self.path).path
-        if request_path not in ("/api/wrist/command", "/api/wrist/stop", "/api/robot/chill"):
+        if request_path not in ("/api/wrist/command", "/api/wrist/stop", "/api/robot/chill", "/api/loco/command"):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
 
         payload: dict[str, Any] = {}
-        if request_path == "/api/wrist/command":
+        if request_path in ("/api/wrist/command", "/api/loco/command"):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(min(length, 4096))
@@ -1417,6 +1828,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/robot/chill":
             status, response = self.store.chill_motors()
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/loco/command":
+            status, response = self.store.command_loco(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 
@@ -1483,7 +1899,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 break
-            time.sleep(0.1)
+            time.sleep(0.2)
 
     def _send_camera_stream(self) -> None:
         self.send_response(HTTPStatus.OK)
@@ -1524,6 +1940,11 @@ def main() -> None:
     parser.add_argument("--camera-source", default=os.environ.get("CAMERA_SOURCE", ""))
     parser.add_argument("--camera-resolution", type=int, default=int(os.environ.get("CAMERA_RESOLUTION", "360")))
     parser.add_argument("--camera-output", default=str(CAMERA_JPEG_PATH))
+    parser.add_argument(
+        "--camera-backend",
+        choices=("auto", "teleimager", "ros2"),
+        default=os.environ.get("CAMERA_BACKEND", "auto"),
+    )
     parser.add_argument("--camera-bridge", action="store_true")
     parser.add_argument("--disable-camera", action="store_true")
     args = parser.parse_args()
@@ -1535,6 +1956,7 @@ def main() -> None:
     store = TelemetryStore(domain=args.domain, robot_host=args.robot_host)
     store.camera_source = args.camera_source or route_interface(args.robot_host) or default_interface() or ""
     store.camera_resolution = args.camera_resolution
+    store.camera_backend = args.camera_backend
     store.start()
     if args.disable_camera:
         store.set_camera_error("Camera worker disabled for this server run.")
@@ -1542,7 +1964,7 @@ def main() -> None:
         start_camera_bridge(store)
 
     TelemetryHandler.store = store
-    server = ThreadingHTTPServer((args.host, args.port), TelemetryHandler)
+    server = TelemetryHTTPServer((args.host, args.port), TelemetryHandler)
 
     print("Unitree telemetry dashboard")
     print(f"Listening on http://{args.host}:{args.port}")

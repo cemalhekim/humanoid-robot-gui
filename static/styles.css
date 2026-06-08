@@ -222,11 +222,13 @@ input {
   min-height: 0;
 }
 
-.workspace:has(.wrist-page:target) {
+.workspace:has(.wrist-page:target),
+.workspace:has(.loco-page:target) {
   grid-template-rows: 82px minmax(0, 1fr) 0;
 }
 
-.workspace:has(.wrist-page:target) .trust-strip {
+.workspace:has(.wrist-page:target) .trust-strip,
+.workspace:has(.loco-page:target) .trust-strip {
   display: none;
 }
 
@@ -453,12 +455,14 @@ h1 {
 .dashboard:has(.motor-page:target) > :not(.motor-page),
 .dashboard:has(.camera-page:target) > :not(.camera-page),
 .dashboard:has(.ros-page:target) > :not(.ros-page),
+.dashboard:has(.loco-page:target) > :not(.loco-page),
 .dashboard:has(.wrist-page:target) > :not(.wrist-page) {
   display: none;
 }
 
 .camera-page,
 .ros-page,
+.loco-page,
 .wrist-page {
   grid-column: 1 / -1;
   grid-row: 1 / -1;
@@ -478,11 +482,13 @@ h1 {
 
 .camera-page:target,
 .ros-page:target,
+.loco-page:target,
 .wrist-page:target {
   display: grid;
 }
 
-.wrist-page {
+.wrist-page,
+.loco-page {
   grid-template-rows: 54px minmax(0, 1fr);
 }
 
@@ -529,17 +535,33 @@ h3 {
   min-height: 0;
 }
 
+.loco-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.38fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+}
+
 .wrist-readout,
-.wrist-controls {
+.wrist-controls,
+.loco-readout,
+.loco-controls,
+.loco-history {
   min-height: 0;
   overflow: auto;
 }
 
-.wrist-readout {
+.wrist-readout,
+.loco-readout {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   align-content: start;
+}
+
+.loco-readout {
+  grid-column: 1 / -1;
 }
 
 .wrist-meter {
@@ -658,6 +680,110 @@ h3 {
   min-height: 42px;
   border-radius: 8px;
   font-weight: 850;
+}
+
+.loco-controls {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.loco-action-grid,
+.loco-presets {
+  display: grid;
+  gap: 8px;
+}
+
+.loco-action-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.loco-presets {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-bottom: 8px;
+}
+
+.loco-query-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.loco-action-grid button,
+.loco-presets button,
+.loco-query-grid button,
+.wrist-command-row button {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(135deg, rgba(230, 0, 0, 0.84), rgba(88, 0, 0, 0.86));
+  color: #fff;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
+  cursor: pointer;
+  min-height: 38px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.loco-presets button.is-held {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: linear-gradient(135deg, rgba(255, 72, 72, 0.94), rgba(128, 0, 0, 0.94));
+  transform: translateY(1px);
+}
+
+.loco-action-grid button:disabled,
+.loco-presets button:disabled,
+.loco-query-grid button:disabled,
+.wrist-command-row button:disabled,
+.loco-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.loco-velocity-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.compact-mode {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.loco-history {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.loco-history-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+}
+
+.loco-history-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.loco-history-item strong {
+  color: #fff;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.loco-history-item span,
+.loco-history-item small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .robot-name {
@@ -934,6 +1060,15 @@ tbody tr:hover {
 .joint {
   color: #ff5b5b;
   font-weight: 750;
+}
+
+.joint small {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .extra {
@@ -1534,6 +1669,18 @@ pre {
   .wrist-layout {
     grid-template-columns: 1fr;
   }
+
+  .loco-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .loco-presets {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .loco-action-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 920px) {
@@ -1585,8 +1732,11 @@ pre {
   }
 
   .wrist-readout,
+  .loco-readout,
   .control-mode,
-  .wrist-command-row {
+  .wrist-command-row,
+  .loco-action-grid,
+  .loco-presets {
     grid-template-columns: 1fr;
   }
 

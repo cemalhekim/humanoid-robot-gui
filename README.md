@@ -152,7 +152,8 @@ cd /home/unitree/robot_telemetry_web
 MAMBA_ROOT_PREFIX=/home/unitree/.micromamba \
   /home/unitree/.local/micromamba run -n tv \
   python -u server.py --host 0.0.0.0 --port 8088 \
-  --robot-host 192.168.123.164 --camera-source eth0
+  --robot-host 192.168.123.164 --camera-source eth0 \
+  --camera-backend teleimager
 ```
 
 Then open:
@@ -181,6 +182,15 @@ On the robot PC this installs and starts a fresh `robot-telemetry-web.service` u
 
 ```bash
 python3 run_servers.py --mode foreground
+```
+
+To keep the robot-hosted dashboard running after shell exits, install the user service:
+
+```bash
+mkdir -p /home/unitree/.config/systemd/user
+cp deployment/systemd/robot-telemetry-web.service /home/unitree/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now robot-telemetry-web.service
 ```
 
 Check it with:
@@ -443,6 +453,8 @@ curl -sS http://127.0.0.1:8090/api/state
 ```
 
 Look for the `error` field. The UI displays the same state, but the raw JSON is easier to inspect when debugging.
+
+If the top bar stays at `0 Hz` while the robot is reachable over Wi-Fi, verify where the server is running. Running `server.py` on a laptop connected only to `10.2.100.x` can reach SSH/camera services but may not see body DDS on the robot PC's `192.168.123.x` control link. In that case, run the server on the robot PC with `--camera-source eth0` and open it from the laptop at `http://10.2.100.142:8088`.
 
 ### Hand Panel Shows Disconnected
 

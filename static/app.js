@@ -950,22 +950,12 @@ function setupWristControls() {
 
 function connectCameraPreview() {
   if (!els.cameraStream || !els.cameraPlaceholder) return;
-  const feed = `/camera.mjpg?ts=${Date.now()}`;
-  els.cameraStream.src = feed;
   els.cameraStream.addEventListener("load", () => {
     els.cameraPlaceholder.classList.add("hidden");
   });
   els.cameraStream.addEventListener("error", () => {
     els.cameraPlaceholder.classList.remove("hidden");
   });
-  fetch("/api/camera")
-    .then((response) => response.json())
-    .then((camera) => {
-      if (camera.available) {
-        els.cameraPlaceholder.classList.add("hidden");
-      }
-    })
-    .catch(() => {});
 }
 
 function renderRosGraph(graph) {

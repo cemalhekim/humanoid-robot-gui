@@ -217,18 +217,23 @@
             <div class="camera-layout">
               <div class="camera-stage">
                 <div class="camera-frame">
-                  <img id="cameraStream" src="" alt="Camera stream">
+                  <iframe
+                    id="cameraStream"
+                    src="https://10.2.100.142:60001"
+                    title="TeleImager WebRTC camera stream"
+                    allow="autoplay; encrypted-media; fullscreen"
+                  ></iframe>
                   <div class="camera-placeholder" id="cameraPlaceholder">
                     <div class="placeholder-mark">Live View</div>
-                    <p>Open the Vision Pro view to use the TeleImager WebRTC camera stream.</p>
-                    <small>Camera signaling runs on `https://10.2.100.142:60001`.</small>
+                    <p>Start the TeleImager WebRTC preview inside the embedded stream page.</p>
+                    <small>If the browser blocks the certificate, open `https://10.2.100.142:60001` once and trust it.</small>
                   </div>
                 </div>
                 <div class="camera-footer">
                   <span>Source</span>
-                  <strong>SDK2 / OpenCV</strong>
+                  <strong>TeleImager WebRTC</strong>
                   <span>Mode</span>
-                  <strong>Browser stream</strong>
+                  <strong>Embedded preview</strong>
                 </div>
               </div>
               <aside class="camera-side">
@@ -239,13 +244,13 @@
                 </article>
                 <article class="camera-card">
                   <span>Example</span>
-                  <strong>camera_opencv.py</strong>
-                  <p>SDK2 example path referenced by Unitree for front camera access.</p>
+                  <strong>teleimager.image_server</strong>
+                  <p>Standalone camera server from Unitree's XR teleoperation workflow.</p>
                 </article>
                 <article class="camera-card">
                   <span>Fallback</span>
-                  <strong>No stream yet</strong>
-                  <p>The panel stays ready even before a stream source is configured.</p>
+                  <strong>Direct camera page</strong>
+                  <p>Open `https://10.2.100.142:60001` if the embedded preview does not start.</p>
                 </article>
               </aside>
             </div>

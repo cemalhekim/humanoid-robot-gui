@@ -204,9 +204,6 @@
                   <span class="camera-dot"></span>
                   <strong>Waiting for stream</strong>
                 </div>
-                <button id="cameraPermission" class="camera-link-button" type="button">
-                  Allow Permissions
-                </button>
                 <a
                   class="camera-link-button"
                   href="https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012"
@@ -224,7 +221,7 @@
                     id="cameraStream"
                     src="https://10.2.100.142:60001"
                     title="TeleImager WebRTC camera stream"
-                    allow="autoplay; camera; microphone; encrypted-media; fullscreen; xr-spatial-tracking"
+                    allow="autoplay; encrypted-media; fullscreen"
                   ></iframe>
                   <div class="camera-placeholder" id="cameraPlaceholder">
                     <div class="placeholder-mark">Live View</div>
@@ -251,9 +248,9 @@
                   <p>Standalone camera server from Unitree's XR teleoperation workflow.</p>
                 </article>
                 <article class="camera-card">
-                  <span>Permissions</span>
-                  <strong id="cameraPermissionStatus">Not requested</strong>
-                  <p>Use Allow Permissions to request browser camera, microphone, autoplay, and WebXR access from this page.</p>
+                  <span>Fallback</span>
+                  <strong>Direct camera page</strong>
+                  <p>Open `https://10.2.100.142:60001` once if the embedded preview is blocked by certificate trust.</p>
                 </article>
               </aside>
             </div>

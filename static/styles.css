@@ -1266,12 +1266,6 @@ pre {
   background: rgba(234, 0, 0, 0.18);
 }
 
-.camera-link-button:disabled,
-.camera-link-button.pending {
-  cursor: progress;
-  opacity: 0.68;
-}
-
 .camera-dot {
   width: 10px;
   height: 10px;

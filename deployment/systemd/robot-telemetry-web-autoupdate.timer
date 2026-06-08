@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically update Robot Telemetry Web Dashboard
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=60s
+Unit=robot-telemetry-web-autoupdate.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Update Robot Telemetry Web Dashboard from origin/main
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/unitree/robot_telemetry_web
+ExecStart=/bin/bash -lc 'set -euo pipefail; git fetch origin main; old=$(git rev-parse HEAD); new=$(git rev-parse origin/main); if [ "$old" != "$new" ]; then git checkout -B main origin/main; git reset --hard origin/main; python3 run_servers.py --mode systemd; fi'

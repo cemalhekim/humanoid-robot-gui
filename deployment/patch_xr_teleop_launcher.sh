@@ -14,43 +14,41 @@ fi
 
 sed -i 's/XR_NETWORK_INTERFACE:-wlx74da387f0099/XR_NETWORK_INTERFACE:-eth0/' "$LAUNCHER"
 
-if ! grep -q 'if \[\[ "${XR_TELEOP_SEND_START}" == "1" \]\]; then' "$LAUNCHER"; then
-  python3 - "$LAUNCHER" <<'PATCH_XR_TELEOP_PY'
+python3 - "$LAUNCHER" <<'PATCH_XR_TELEOP_PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
-text = path.read_text()
-old = '''MAMBA_ROOT_PREFIX=/home/unitree/.micromamba /home/unitree/.local/micromamba run -n tv python - <<'PY'
-import time
-from teleop.utils.ipc import IPC_Client
+lines = path.read_text().splitlines()
+try:
+    start = lines.index('"${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1 &')
+except ValueError:
+    if 'exec "${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1' in lines:
+        raise SystemExit(0)
+    raise SystemExit("Could not find teleop start block in XR launcher")
 
-client = IPC_Client(hb_fps=10.0)
-for _ in range(60):
-    if client.is_online():
-        break
-    time.sleep(0.1)
-print(client.send_data("CMD_START"))
-client.stop()
-PY
-'''
-new = '''if [[ "${XR_TELEOP_SEND_START}" == "1" ]]; then
-  MAMBA_ROOT_PREFIX=/home/unitree/.micromamba /home/unitree/.local/micromamba run -n tv python - <<'PY'
-import time
-from teleop.utils.ipc import IPC_Client
-
-client = IPC_Client(hb_fps=10.0)
-for _ in range(60):
-    if client.is_online():
-        break
-    time.sleep(0.1)
-print(client.send_data("CMD_START"))
-client.stop()
-PY
-fi
-'''
-if old not in text:
-    raise SystemExit("Could not find IPC start block in XR launcher")
-path.write_text(text.replace(old, new))
+replacement = [
+    'if [[ "${XR_TELEOP_SEND_START}" != "1" ]]; then',
+    '  exec "${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1',
+    'fi',
+    '',
+    '"${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1 &',
+    'TELEOP_PID=$!',
+    '',
+    "MAMBA_ROOT_PREFIX=/home/unitree/.micromamba /home/unitree/.local/micromamba run -n tv python - <<'PY'",
+    'import time',
+    'from teleop.utils.ipc import IPC_Client',
+    '',
+    'client = IPC_Client(hb_fps=10.0)',
+    'for _ in range(60):',
+    '    if client.is_online():',
+    '        break',
+    '    time.sleep(0.1)',
+    'print(client.send_data("CMD_START"))',
+    'client.stop()',
+    'PY',
+    '',
+    'wait "$TELEOP_PID"',
+]
+path.write_text("\n".join(lines[:start] + replacement) + "\n")
 PATCH_XR_TELEOP_PY
-fi

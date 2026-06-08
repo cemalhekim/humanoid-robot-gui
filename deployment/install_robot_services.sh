@@ -21,5 +21,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now robot-telemetry-web.service
 systemctl --user enable --now robot-telemetry-web-autoupdate.timer
 systemctl --user enable --now xr-teleop.service
+systemctl --user restart robot-telemetry-web.service
+systemctl --user restart xr-teleop.service
 
 systemctl --user --no-pager --full status robot-telemetry-web.service xr-teleop.service

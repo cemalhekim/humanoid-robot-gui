@@ -5,4 +5,4 @@ After=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/home/unitree/robot_telemetry_web
-ExecStart=/bin/bash -lc 'set -euo pipefail; git fetch origin main || exit 0; old=$(git rev-parse HEAD); new=$(git rev-parse origin/main); if [ "$old" != "$new" ]; then git checkout -B main origin/main; git reset --hard origin/main; python3 run_servers.py --mode systemd; fi'
+ExecStart=/bin/bash /home/unitree/robot_telemetry_web/deployment/robot_autoupdate.sh

@@ -4,6 +4,7 @@ set -euo pipefail
 XR_DIR="${XR_TELEOPERATE_DIR:-/home/unitree/xr_teleoperate}"
 MAMBA="${MAMBA_BIN:-/home/unitree/.local/micromamba}"
 ENV_NAME="${XR_TELEOP_ENV:-tv}"
+export MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-/home/unitree/.micromamba}"
 
 if [[ ! -f "$XR_DIR/requirements.txt" ]]; then
   exit 0

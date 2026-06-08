@@ -1,0 +1,18 @@
+[Unit]
+Description=Unitree TeleImager Image Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/unitree/teleimager
+Environment=MAMBA_ROOT_PREFIX=/home/unitree/.micromamba
+Environment=PYTHONPATH=src
+Environment=XR_TELEOP_CERT=/home/unitree/.config/xr_teleoperate/cert.pem
+Environment=XR_TELEOP_KEY=/home/unitree/.config/xr_teleoperate/key.pem
+ExecStart=/home/unitree/.local/micromamba run -n tv bash -lc 'cd /home/unitree/teleimager && PYTHONPATH=src python -m teleimager.image_server'
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

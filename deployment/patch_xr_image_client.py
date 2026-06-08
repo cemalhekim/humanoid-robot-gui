@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patch TeleImager client decoding for lower-latency XR rendering."""
+"""Patch TeleImager client decoding for reliable XR rendering."""
 
 from __future__ import annotations
 
@@ -9,6 +9,18 @@ from pathlib import Path
 IMAGE_CLIENT = Path("/home/unitree/xr_teleoperate/teleop/teleimager/src/teleimager/image_client.py")
 
 OLD = '''    def _decode_image(self, jpg_bytes):
+        """Decode compressed image bytes to a BGR OpenCV frame."""
+        if jpg_bytes is None:
+            return None
+        try:
+            np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
+            return cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+        except Exception as e:
+            logger_mp.warning(f"[ZMQ_SubscriberThread] Failed to decode image: {e}")
+            return None
+'''
+
+NEW = '''    def _decode_image(self, jpg_bytes):
         """Decode JPEG bytes to BGR numpy image."""
         if jpg_bytes is None:
             return None
@@ -16,18 +28,6 @@ OLD = '''    def _decode_image(self, jpg_bytes):
             with Image.open(BytesIO(jpg_bytes)) as img:
                 rgb = np.asarray(img.convert("RGB"), dtype=np.uint8)
                 return np.ascontiguousarray(rgb[:, :, ::-1])
-        except Exception as e:
-            logger_mp.warning(f"[ZMQ_SubscriberThread] Failed to decode image: {e}")
-            return None
-'''
-
-NEW = '''    def _decode_image(self, jpg_bytes):
-        """Decode compressed image bytes to a BGR OpenCV frame."""
-        if jpg_bytes is None:
-            return None
-        try:
-            np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
-            return cv2.imdecode(np_img, cv2.IMREAD_COLOR)
         except Exception as e:
             logger_mp.warning(f"[ZMQ_SubscriberThread] Failed to decode image: {e}")
             return None

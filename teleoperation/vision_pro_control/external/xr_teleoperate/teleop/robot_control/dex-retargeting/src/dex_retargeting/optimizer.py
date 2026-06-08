@@ -441,7 +441,8 @@ class DexPilotOptimizer(Optimizer):
             np.asarray(
                 np.concatenate([weight, np.ones(self.num_fingers, dtype=np.float32) * len_proj + self.num_fingers]),
                 dtype=np.float32,
-            )
+            ),
+            dtype=torch.float32,
         )
 
         # Compute reference distance vector

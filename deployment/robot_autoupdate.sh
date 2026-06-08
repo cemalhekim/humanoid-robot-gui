@@ -16,4 +16,4 @@ fi
 
 git checkout -B main origin/main
 git reset --hard origin/main
-python3 run_servers.py --mode systemd
+deployment/install_robot_services.sh

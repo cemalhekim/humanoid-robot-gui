@@ -184,19 +184,17 @@ On the robot PC this installs and starts a fresh `robot-telemetry-web.service` u
 python3 run_servers.py --mode foreground
 ```
 
-To keep the robot-hosted dashboard running after shell exits, install the user service:
+To keep the robot-hosted dashboard and Vision Pro/XR teleop server running after shell exits, install the user services:
 
 ```bash
-mkdir -p /home/unitree/.config/systemd/user
-cp deployment/systemd/robot-telemetry-web.service /home/unitree/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now robot-telemetry-web.service
+cd /home/unitree/robot_telemetry_web
+deployment/install_robot_services.sh
 ```
 
-Check it with:
+The XR service opens the Vuer server on port `8013` but does not automatically send the motion start command. Check both services with:
 
 ```bash
-systemctl --user status robot-telemetry-web.service --no-pager
+systemctl --user status robot-telemetry-web.service xr-teleop.service --no-pager
 ```
 
 ## DDS Domain

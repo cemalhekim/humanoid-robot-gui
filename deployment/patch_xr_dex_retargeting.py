@@ -36,10 +36,13 @@ def patch_optimizer(path: Path) -> None:
         return
 
     text = path.read_text(encoding="utf-8")
+    if "weight = torch.from_numpy(" in text:
+        return
     if "dtype=torch.float32,\n        )\n\n        # Compute reference distance vector" in text:
         return
     if OLD not in text:
-        raise SystemExit(f"Could not find dex-retargeting weight tensor block in {path}")
+        print(f"Skipping dex-retargeting dtype patch; weight tensor block changed in {path}")
+        return
     path.write_text(text.replace(OLD, NEW, 1), encoding="utf-8")
 
 

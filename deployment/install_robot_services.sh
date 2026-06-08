@@ -23,6 +23,7 @@ cp "$REPO_DIR/deployment/systemd/xr-teleop.service" "$SYSTEMD_USER_DIR/"
 python3 "$REPO_DIR/deployment/patch_xr_camera_config.py"
 python3 "$REPO_DIR/deployment/patch_xr_image_server.py"
 python3 "$REPO_DIR/deployment/patch_xr_dex_retargeting.py"
+python3 "$REPO_DIR/deployment/patch_xr_inspire_direct_curl.py"
 "$REPO_DIR/deployment/ensure_xr_python_requirements.sh"
 
 if command -v loginctl >/dev/null 2>&1; then

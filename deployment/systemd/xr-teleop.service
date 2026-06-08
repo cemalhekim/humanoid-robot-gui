@@ -11,6 +11,7 @@ Environment=XR_TELEOP_VUER_PORT=8012
 Environment=PYTHONPATH=/home/unitree/xr_teleoperate:/home/unitree/xr_teleoperate/teleop/robot_control/dex-retargeting/src
 Environment=XR_NETWORK_INTERFACE=eth0
 Environment=XR_TELEOP_EE=inspire_dfx
+Environment=XR_INSPIRE_DIRECT_CURL=1
 Environment=XR_TELEOP_SEND_START=1
 Environment=XR_TELEOP_FREQUENCY=30
 ExecStart=/home/unitree/xr_teleoperate/deploy/scripts/start_xr_teleop.sh

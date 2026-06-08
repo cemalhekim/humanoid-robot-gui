@@ -12,6 +12,7 @@ Environment=PYTHONPATH=/home/unitree/xr_teleoperate:/home/unitree/xr_teleoperate
 Environment=XR_TELEOP_EE=inspire_dfx
 Environment=XR_NETWORK_INTERFACE=eth0
 Environment=XR_TELEOP_SEND_START=1
+Environment=XR_TELEOP_FREQUENCY=60
 ExecStart=/home/unitree/xr_teleoperate/deploy/scripts/start_xr_teleop.sh
 Restart=always
 RestartSec=3

@@ -11,8 +11,12 @@ fi
 if ! grep -q 'XR_TELEOP_SEND_START' "$LAUNCHER"; then
   sed -i '/XR_NETWORK_INTERFACE=/a export XR_TELEOP_SEND_START="${XR_TELEOP_SEND_START:-0}"' "$LAUNCHER"
 fi
+if ! grep -q 'XR_TELEOP_FREQUENCY' "$LAUNCHER"; then
+  sed -i '/XR_TELEOP_SEND_START=/a export XR_TELEOP_FREQUENCY="${XR_TELEOP_FREQUENCY:-60}"' "$LAUNCHER"
+fi
 
 sed -i 's/XR_NETWORK_INTERFACE:-wlx74da387f0099/XR_NETWORK_INTERFACE:-eth0/' "$LAUNCHER"
+sed -i 's/--frequency 30/--frequency "$XR_TELEOP_FREQUENCY"/' "$LAUNCHER"
 
 python3 - "$LAUNCHER" <<'PATCH_XR_TELEOP_PY'
 from pathlib import Path

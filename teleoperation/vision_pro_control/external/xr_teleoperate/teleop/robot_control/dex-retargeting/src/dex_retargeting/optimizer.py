@@ -437,8 +437,11 @@ class DexPilotOptimizer(Optimizer):
 
         # We change the weight to 10 instead of 1 here, for vector originate from wrist to fingertips
         # This ensures better intuitive mapping due wrong pose detection
-        weight = torch.from_numpy(
-            np.concatenate([weight, np.ones(self.num_fingers, dtype=np.float32) * len_proj + self.num_fingers])
+        weight = torch.as_tensor(
+            np.asarray(
+                np.concatenate([weight, np.ones(self.num_fingers, dtype=np.float32) * len_proj + self.num_fingers]),
+                dtype=np.float32,
+            )
         )
 
         # Compute reference distance vector

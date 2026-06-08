@@ -12,6 +12,7 @@ cp "$REPO_DIR/deployment/systemd/robot-telemetry-web-autoupdate.timer" "$SYSTEMD
 cp "$REPO_DIR/deployment/systemd/xr-teleop.service" "$SYSTEMD_USER_DIR/"
 
 "$REPO_DIR/deployment/patch_xr_teleop_launcher.sh"
+python3 "$REPO_DIR/deployment/patch_xr_camera_config.py"
 
 if command -v loginctl >/dev/null 2>&1; then
   loginctl enable-linger "${USER}" 2>/dev/null || sudo -n loginctl enable-linger "${USER}" 2>/dev/null || true

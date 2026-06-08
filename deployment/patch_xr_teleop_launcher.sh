@@ -20,15 +20,19 @@ import sys
 
 path = Path(sys.argv[1])
 lines = path.read_text().splitlines()
-try:
-    start = lines.index('"${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1 &')
-except ValueError:
-    if 'exec "${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1' in lines:
-        raise SystemExit(0)
-    raise SystemExit("Could not find teleop start block in XR launcher")
+server_only_line = 'if [[ "${XR_TELEOP_SEND_START}" != "1" ]]; then'
+if server_only_line in lines:
+    start = lines.index(server_only_line)
+else:
+    try:
+        start = lines.index('"${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1 &')
+    except ValueError:
+        if 'exec "${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1' in lines:
+            raise SystemExit(0)
+        raise SystemExit("Could not find teleop start block in XR launcher")
 
 replacement = [
-    'if [[ "${XR_TELEOP_SEND_START}" != "1" ]]; then',
+    server_only_line,
     '  exec "${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1',
     'fi',
     '',

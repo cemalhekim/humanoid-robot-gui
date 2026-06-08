@@ -1,7 +1,7 @@
 [Unit]
 Description=Unitree XR Teleop Server
-After=network-online.target teleimager.service
-Wants=network-online.target teleimager.service
+After=network-online.target teleimager.service inspire-hands.service
+Wants=network-online.target teleimager.service inspire-hands.service
 
 [Service]
 Type=simple
@@ -10,6 +10,7 @@ Environment=MAMBA_ROOT_PREFIX=/home/unitree/.micromamba
 Environment=XR_TELEOP_VUER_PORT=8012
 Environment=PYTHONPATH=/home/unitree/xr_teleoperate:/home/unitree/xr_teleoperate/teleop/robot_control/dex-retargeting/src
 Environment=XR_NETWORK_INTERFACE=eth0
+Environment=XR_TELEOP_EE=inspire_dfx
 Environment=XR_TELEOP_SEND_START=1
 Environment=XR_TELEOP_FREQUENCY=30
 ExecStart=/home/unitree/xr_teleoperate/deploy/scripts/start_xr_teleop.sh

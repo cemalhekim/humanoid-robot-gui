@@ -10,6 +10,7 @@ cp "$REPO_DIR/deployment/systemd/robot-telemetry-web.service" "$SYSTEMD_USER_DIR
 cp "$REPO_DIR/deployment/systemd/robot-telemetry-web-autoupdate.service" "$SYSTEMD_USER_DIR/"
 cp "$REPO_DIR/deployment/systemd/robot-telemetry-web-autoupdate.timer" "$SYSTEMD_USER_DIR/"
 cp "$REPO_DIR/deployment/systemd/teleimager.service" "$SYSTEMD_USER_DIR/"
+cp "$REPO_DIR/deployment/systemd/inspire-hands.service" "$SYSTEMD_USER_DIR/"
 cp "$REPO_DIR/deployment/systemd/xr-teleop.service" "$SYSTEMD_USER_DIR/"
 
 "$REPO_DIR/deployment/patch_xr_teleop_launcher.sh"
@@ -24,9 +25,11 @@ systemctl --user daemon-reload
 systemctl --user enable --now robot-telemetry-web.service
 systemctl --user enable --now robot-telemetry-web-autoupdate.timer
 systemctl --user enable --now teleimager.service
+systemctl --user enable --now inspire-hands.service
 systemctl --user enable --now xr-teleop.service
 systemctl --user restart robot-telemetry-web.service
 systemctl --user restart teleimager.service
+systemctl --user restart inspire-hands.service
 systemctl --user restart xr-teleop.service
 
-systemctl --user --no-pager --full status robot-telemetry-web.service teleimager.service xr-teleop.service
+systemctl --user --no-pager --full status robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service

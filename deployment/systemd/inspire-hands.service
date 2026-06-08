@@ -1,0 +1,17 @@
+[Unit]
+Description=Unitree Inspire Hand Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/unitree/unitree_sdk2_python/example/h1_2
+Environment=XR_INSPIRE_DEVICE=/dev/ttyUSB0
+Environment=XR_INSPIRE_LEFT_DEVICE=/dev/ttyUSB1
+Environment=XR_INSPIRE_NETWORK=eth0
+ExecStart=/home/unitree/xr_teleoperate/deploy/scripts/start_inspire_hands.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,243 @@
+<mxfile host="app.diagrams.net" modified="2026-06-09T00:00:00.000Z" agent="Codex" version="24.7.17" type="device">
+  <diagram id="robot-telemetry-xr-workflow" name="Robot Telemetry XR Workflow">
+    <mxGraphModel dx="2400" dy="1600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2600" pageHeight="1900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Humanoid Robot GUI + XR Teleoperation Repository Workflow" style="text;html=1;strokeColor=none;fillColor=none;fontSize=28;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="520" y="20" width="1560" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Repository: robot_telemetry_web | Robot: Unitree H1-2 | XR: unitreerobotics/xr_teleoperate | Camera: TeleImager WebRTC | Hands: Inspire DFX" style="text;html=1;strokeColor=none;fillColor=none;fontSize=14;align=center;verticalAlign=middle;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="520" y="65" width="1560" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lane_local" value="LOCAL DEVELOPMENT REPOSITORY (/home/ch/Workspace/robot_telemetry_web)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf6ff;strokeColor=#5b9bd5;fontStyle=1;fontSize=16;align=center;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="560" height="680" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_deploy" value="DEPLOYMENT + ROBOT UPDATE FLOW" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7e6;strokeColor=#f0ad4e;fontStyle=1;fontSize=16;align=center;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="640" y="120" width="560" height="680" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_robot" value="ROBOT RUNTIME SERVICES (unitree@10.2.100.142)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eefaf0;strokeColor=#70ad47;fontStyle=1;fontSize=16;align=center;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="120" width="760" height="680" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_external" value="EXTERNAL USERS + DEVICES" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f4efff;strokeColor=#8064a2;fontStyle=1;fontSize=16;align=center;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="2040" y="120" width="500" height="680" as="geometry" />
+        </mxCell>
+
+        <mxCell id="repo_static" value="static/&#xa;index.html, app.js, styles.css&#xa;3D viewer, panels, controls, camera iframe" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#5b9bd5;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="180" width="220" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="repo_server" value="server.py&#xa;HTTP API + static server&#xa;SSE telemetry stream&#xa;Unitree SDK calls&#xa;camera bridge fallback" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#5b9bd5;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="180" width="220" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="repo_deployment" value="deployment/&#xa;systemd units&#xa;XR upstream patchers&#xa;camera config patch&#xa;robot autoupdate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#5b9bd5;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="320" width="220" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="repo_tools" value="tools/&#xa;rh56 finger tests&#xa;robot motion probes&#xa;DDS smoke tests" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#5b9bd5;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="330" width="220" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="repo_vendor" value="vendor/unitree_sdk2_python/&#xa;DDS clients&#xa;H1 loco API&#xa;IDL bindings&#xa;example code" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#5b9bd5;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="470" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="repo_docs" value="docs/&#xa;control-path notes&#xa;workspace inventory&#xa;this .drawio architecture map" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#5b9bd5;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="470" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="repo_commit" value="Change workflow&#xa;1. edit locally&#xa;2. syntax/test&#xa;3. git commit&#xa;4. git push&#xa;5. robot pull/restart" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#70ad47;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="160" y="630" width="320" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="deploy_git" value="GitHub remote&#xa;cemalhekim/humanoid-robot-gui&#xa;main branch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#f0ad4e;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="700" y="180" width="220" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="deploy_robot_repo" value="Robot clone&#xa;/home/unitree/robot_telemetry_web&#xa;git reset --hard origin/main" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#f0ad4e;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="970" y="180" width="220" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="deploy_install" value="deployment/install_robot_services.sh&#xa;updates xr_teleoperate&#xa;copies systemd units&#xa;applies patch scripts&#xa;reloads + restarts services" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#f0ad4e;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="700" y="320" width="250" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="deploy_xr_update" value="update_xr_teleoperate.sh&#xa;keeps /home/unitree/xr_teleoperate&#xa;aligned with Unitree upstream main" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#f0ad4e;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="980" y="330" width="190" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="deploy_patchers" value="Patchers applied into upstream XR repo&#xa;patch_xr_teleop_launcher.sh&#xa;patch_xr_camera_config.py&#xa;patch_xr_image_server.py&#xa;patch_xr_dex_retargeting.py&#xa;patch_xr_inspire_direct_curl.py&#xa;patch_xr_hand_input_swap.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="700" y="500" width="470" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="deploy_systemd" value="Systemd user units copied to&#xa;/home/unitree/.config/systemd/user/&#xa;services are enabled and restarted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#f0ad4e;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="790" y="680" width="330" height="85" as="geometry" />
+        </mxCell>
+
+        <mxCell id="svc_gui" value="robot-telemetry-web.service&#xa;Exec: tv env python server.py&#xa;Port 8088&#xa;serves GUI + API + SSE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="175" width="240" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_teleimager" value="teleimager.service&#xa;Exec: tv env python -m teleimager.image_server&#xa;WebRTC port 60001&#xa;head camera 1080p30 H.264" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1570" y="175" width="270" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_xr" value="xr-teleop.service&#xa;start_xr_teleop.sh&#xa;teleop_hand_and_arm.py&#xa;Port 8012 HTTPS/WSS&#xa;--frequency 30, --ee inspire_dfx&#xa;--motion --headless --ipc" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="340" width="280" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_hands" value="inspire-hands.service&#xa;DFX_inspire_service/build/inspire_h1&#xa;DDS bridge: rt/inspire/cmd + state&#xa;Serial: /dev/ttyUSB0 + left-serial /dev/ttyUSB1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1610" y="350" width="330" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="svc_autoupdate" value="robot-telemetry-web-autoupdate.timer&#xa;periodically pulls latest repo&#xa;keeps robot clone current" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="545" width="270" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="robot_hw" value="Robot hardware + DDS domain&#xa;H1-2 arm + locomotion APIs&#xa;Inspire DFX hand motors&#xa;head camera / VideoHub" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#70ad47;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1610" y="545" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="runtime_note" value="Runtime invariants&#xa;Ports expected open: 8088, 8012, 60001&#xa;CycloneDDS pinned to eth0&#xa;micromamba run avoided; services use tv env python directly" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#70ad47;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="690" width="540" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="user_browser" value="Operator browser&#xa;GUI: http://10.2.100.142:8088&#xa;Camera Stream panel embeds iframe&#xa;https://10.2.100.142:60001" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8064a2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="2090" y="180" width="390" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="xr_headset" value="XR headset / browser&#xa;VR View: https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012&#xa;permissions: camera / hand tracking / WebXR as required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8064a2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="2090" y="350" width="390" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="operator" value="Human operator&#xa;head pose&#xa;hand joints&#xa;controller/gesture input&#xa;visual feedback loop" style="ellipse;whiteSpace=wrap;html=1;fillColor=#eadcf8;strokeColor=#8064a2;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="2180" y="555" width="210" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lane_alg" value="XR TELEOPERATION ALGORITHM + DATA PATHS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f8f8;strokeColor=#999999;fontStyle=1;fontSize=16;align=center;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="840" width="2500" height="820" as="geometry" />
+        </mxCell>
+
+        <mxCell id="alg_xr_input" value="1. XR device samples input&#xa;WebXR/OpenXR hand landmarks&#xa;head pose / controller state&#xa;video display frame timing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eadcf8;strokeColor=#8064a2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="90" y="910" width="230" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_televuer" value="2. TeleVuer / browser transport&#xa;HTTPS page on 8012&#xa;WebSocket WSS for XR telemetry&#xa;IPC command starts motion state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#8064a2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="370" y="910" width="245" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_arrays" value="3. teleop_hand_and_arm.py&#xa;shared arrays for left/right hand + pose&#xa;XR_SWAP_HAND_INPUTS optional&#xa;motion-ready gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ddebf7;strokeColor=#5b9bd5;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="670" y="910" width="250" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_arm" value="4A. Arm control branch&#xa;retarget human wrist/arm pose&#xa;IK / constraints / smoothing&#xa;publish Unitree arm commands over DDS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="980" y="870" width="270" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_hand_direct" value="4B. Inspire direct curl branch&#xa;_direct_inspire_targets(hand_data, side)&#xa;finger curl = angle curl + fingertip distance&#xa;output order: [pinky, ring, middle, index, thumb_bend, thumb_rotation]&#xa;command range: 1=open, 0=closed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="980" y="1040" width="310" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_hand_mapping" value="5. Hand mapping + gains&#xa;side-specific env gains&#xa;XR_INSPIRE_LEFT_PINKY_GAIN&#xa;XR_INSPIRE_LEFT_THUMB_ROT_GAIN&#xa;physical robot index patch currently maps observed left ids 0..5 and right ids 6..11" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1350" y="1040" width="320" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_dds_cmd" value="6. DDS command topics&#xa;rt/inspire/cmd to MotorCmds_ q[12]&#xa;rt/inspire/state from MotorStates_ q[12]&#xa;Unitree SDK2 Python / CycloneDDS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1760" y="1040" width="270" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_motors" value="7. Physical actuation&#xa;Inspire bridge converts DDS q values&#xa;serial packets to DFX hands&#xa;motors move fingers&#xa;state is read back to DDS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="2110" y="1040" width="270" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="alg_camera_cap" value="Camera capture&#xa;head_camera via VideoHub&#xa;TeleImager config: 1920x1080 @ 30 FPS&#xa;H.264 WebRTC enabled" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9ead3;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="90" y="1260" width="270" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_webrtc" value="WebRTC media path&#xa;TeleImager image_server on 60001&#xa;UDP/SRTP media after signaling&#xa;browser video element displays stream&#xa;old /camera.mjpg path removed from primary preview" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9ead3;strokeColor=#70ad47;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="430" y="1260" width="300" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_visual_feedback" value="Visual feedback loop&#xa;operator sees robot POV&#xa;updates hand/head motion&#xa;control loop repeats at XR_TELEOP_FREQUENCY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eadcf8;strokeColor=#8064a2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="800" y="1260" width="275" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="alg_gui_api" value="GUI control path&#xa;static/app.js to HTTP API in server.py&#xa;movement, posture, status, reset, test tools&#xa;server.py uses Unitree SDK clients over DDS/RPC where needed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ddebf7;strokeColor=#5b9bd5;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="1280" width="330" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_diag" value="Diagnostics + tests&#xa;tools/rh56/inspire_left_hand_dds_scan.py&#xa;tools/rh56/inspire_left_pinky_dds_test.py&#xa;tools/rh56/rh56_port_probe.py&#xa;tools/robot_motion/* wrist/control probes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="1280" width="330" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="alg_latency" value="Latency levers&#xa;Measure: WebRTC getStats RTT, jitterBufferDelay, dropped frames&#xa;Control: test XR_TELEOP_FREQUENCY 60 vs 30&#xa;Video: compare 1080p30, 720p60, 720p30&#xa;Queues: latest-frame-only, drop stale data&#xa;Network: eth0 DDS, clean Wi-Fi for headset" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1980" y="1260" width="390" height="165" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend" value="Legend&#xa;Blue = GUI/local repo code&#xa;Orange = deployment/update mechanics&#xa;Green = robot runtime + DDS/video hardware&#xa;Purple = operator/XR device path&#xa;Yellow = Inspire DFX hand algorithm&#xa;Brown = diagnostics/latency work" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=12;align=left;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1480" width="460" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_commit_git" value="commit + push" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#f0ad4e;fontSize=12;" edge="1" parent="1" source="repo_commit" target="deploy_git">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_git_robot" value="fetch/reset" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#f0ad4e;fontSize=12;" edge="1" parent="1" source="deploy_git" target="deploy_robot_repo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_robot_install" value="run install/targeted deploy" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#f0ad4e;fontSize=12;" edge="1" parent="1" source="deploy_robot_repo" target="deploy_install">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_install_update" value="pull upstream XR" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#f0ad4e;fontSize=12;" edge="1" parent="1" source="deploy_install" target="deploy_xr_update">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_install_patchers" value="apply patches" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#f0ad4e;fontSize=12;" edge="1" parent="1" source="deploy_install" target="deploy_patchers">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_patch_systemd" value="copy units + daemon-reload" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#f0ad4e;fontSize=12;" edge="1" parent="1" source="deploy_patchers" target="deploy_systemd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_systemd_gui" value="start/restart" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="deploy_systemd" target="svc_gui">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_systemd_tel" value="start/restart" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="deploy_systemd" target="svc_teleimager">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_systemd_xr" value="start/restart" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="deploy_systemd" target="svc_xr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_systemd_hands" value="start/restart" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="deploy_systemd" target="svc_hands">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_browser_gui" value="HTTP 8088" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#8064a2;fontSize=12;" edge="1" parent="1" source="user_browser" target="svc_gui">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_browser_cam" value="iframe WebRTC page 60001" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#8064a2;fontSize=12;" edge="1" parent="1" source="user_browser" target="svc_teleimager">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_xr_service" value="HTTPS/WSS 8012" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#8064a2;fontSize=12;" edge="1" parent="1" source="xr_headset" target="svc_xr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_operator_xr" value="wears + moves" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#8064a2;fontSize=12;" edge="1" parent="1" source="operator" target="xr_headset">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_tel_hw" value="capture frames" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="robot_hw" target="svc_teleimager">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_hands_hw" value="serial motor commands + state" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="svc_hands" target="robot_hw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_alg_1" value="tracking samples" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#8064a2;fontSize=12;" edge="1" parent="1" source="alg_xr_input" target="alg_televuer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_alg_2" value="WSS data" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#8064a2;fontSize=12;" edge="1" parent="1" source="alg_televuer" target="alg_arrays">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_alg_arm" value="pose branch" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="alg_arrays" target="alg_arm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_alg_hand" value="hand branch" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#d6b656;fontSize=12;" edge="1" parent="1" source="alg_arrays" target="alg_hand_direct">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_hand_map" value="q targets" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#d6b656;fontSize=12;" edge="1" parent="1" source="alg_hand_direct" target="alg_hand_mapping">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_map_dds" value="MotorCmds_" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="alg_hand_mapping" target="alg_dds_cmd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_dds_motors" value="bridge + serial" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="alg_dds_cmd" target="alg_motors">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_camera_webrtc" value="encoded frames" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#70ad47;fontSize=12;" edge="1" parent="1" source="alg_camera_cap" target="alg_webrtc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_webrtc_feedback" value="displayed POV" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#8064a2;fontSize=12;" edge="1" parent="1" source="alg_webrtc" target="alg_visual_feedback">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_feedback_loop" value="operator corrects motion" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#8064a2;fontSize=12;dashed=1;" edge="1" parent="1" source="alg_visual_feedback" target="alg_xr_input">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_gui_api_runtime" value="HTTP API / SSE" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#5b9bd5;fontSize=12;" edge="1" parent="1" source="alg_gui_api" target="svc_gui">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_diag_runtime" value="direct DDS probes" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#c55a11;fontSize=12;" edge="1" parent="1" source="alg_diag" target="alg_dds_cmd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

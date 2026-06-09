@@ -33,7 +33,28 @@ def _angle_curl(hand_data: np.ndarray, mcp: int, pip: int, tip: int) -> float:
     return float(np.clip((np.pi - angle) / (np.pi * 0.55), 0.0, 1.0))
 
 
-def _direct_inspire_targets(hand_data: np.ndarray) -> np.ndarray:
+def _finger_curl(hand_data: np.ndarray, mcp: int, pip: int, dip: int, tip: int) -> float:
+    angle_curl = max(_angle_curl(hand_data, mcp, pip, tip), _angle_curl(hand_data, pip, dip, tip))
+    finger_len = (
+        np.linalg.norm(hand_data[mcp] - hand_data[pip])
+        + np.linalg.norm(hand_data[pip] - hand_data[dip])
+        + np.linalg.norm(hand_data[dip] - hand_data[tip])
+    )
+    if finger_len < 1e-6:
+        return angle_curl
+    tip_ratio = np.linalg.norm(hand_data[tip] - hand_data[mcp]) / finger_len
+    distance_curl = float(np.clip((0.88 - tip_ratio) / 0.42, 0.0, 1.0))
+    return max(angle_curl, distance_curl)
+
+
+def _env_gain(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _direct_inspire_targets(hand_data: np.ndarray, side: str = "") -> np.ndarray:
     """
     Map XR hand landmarks directly to Inspire DFX command order.
     Output order is [pinky, ring, middle, index, thumb_bend, thumb_rotation].
@@ -46,10 +67,10 @@ def _direct_inspire_targets(hand_data: np.ndarray) -> np.ndarray:
 
     # WebXR/OpenXR hand joint order:
     # wrist=0, thumb=1..4, index=5..9, middle=10..14, ring=15..19, little=20..24.
-    pinky = max(_angle_curl(hand_data, 20, 21, 24), _angle_curl(hand_data, 21, 22, 24))
-    ring = max(_angle_curl(hand_data, 15, 16, 19), _angle_curl(hand_data, 16, 17, 19))
-    middle = max(_angle_curl(hand_data, 10, 11, 14), _angle_curl(hand_data, 11, 12, 14))
-    index = max(_angle_curl(hand_data, 5, 6, 9), _angle_curl(hand_data, 6, 7, 9))
+    pinky = _finger_curl(hand_data, 20, 21, 22, 24)
+    ring = _finger_curl(hand_data, 15, 16, 17, 19)
+    middle = _finger_curl(hand_data, 10, 11, 12, 14)
+    index = _finger_curl(hand_data, 5, 6, 7, 9)
     thumb_bend = max(_angle_curl(hand_data, 1, 2, 4), _angle_curl(hand_data, 2, 3, 4))
 
     palm_width = np.linalg.norm(hand_data[5] - hand_data[17])
@@ -57,9 +78,30 @@ def _direct_inspire_targets(hand_data: np.ndarray) -> np.ndarray:
     if palm_width < 1e-6:
         thumb_rotation = thumb_bend
     else:
-        thumb_rotation = float(np.clip(1.0 - thumb_to_index / (palm_width * 1.1), 0.0, 1.0))
+        thumb_tip = hand_data[4]
+        index_mcp = hand_data[5]
+        pinky_mcp = hand_data[17]
+        palm_center = 0.5 * (index_mcp + pinky_mcp)
+        thumb_side = np.linalg.norm(thumb_tip - palm_center) / palm_width
+        pinch_rotation = 1.0 - thumb_to_index / (palm_width * 1.1)
+        side_rotation = 1.0 - thumb_side / 0.95
+        thumb_rotation = float(np.clip(max(pinch_rotation, side_rotation, thumb_bend * 0.55), 0.0, 1.0))
 
     closed = np.array([pinky, ring, middle, index, thumb_bend, thumb_rotation], dtype=float)
+    if side:
+        prefix = f"XR_INSPIRE_{side.upper()}_"
+        gains = np.array(
+            [
+                _env_gain(prefix + "PINKY_GAIN", 1.0),
+                _env_gain(prefix + "RING_GAIN", 1.0),
+                _env_gain(prefix + "MIDDLE_GAIN", 1.0),
+                _env_gain(prefix + "INDEX_GAIN", 1.0),
+                _env_gain(prefix + "THUMB_BEND_GAIN", 1.0),
+                _env_gain(prefix + "THUMB_ROT_GAIN", 1.0),
+            ],
+            dtype=float,
+        )
+        closed = np.clip(closed * gains, 0.0, 1.0)
     return 1.0 - np.clip(closed, 0.0, 1.0)
 
 '''
@@ -98,8 +140,8 @@ OLD_BLOCK = """                if xr_motion_data_ready:
 NEW_BLOCK = """                if xr_motion_data_ready:
                     use_direct_curl = os.getenv("XR_INSPIRE_DIRECT_CURL", "1") != "0"
                     if use_direct_curl:
-                        left_q_target = _direct_inspire_targets(left_hand_data)
-                        right_q_target = _direct_inspire_targets(right_hand_data)
+                        left_q_target = _direct_inspire_targets(left_hand_data, "left")
+                        right_q_target = _direct_inspire_targets(right_hand_data, "right")
                     else:
                         ref_left_value = left_hand_data[self.hand_retargeting.left_indices[1,:]] - left_hand_data[self.hand_retargeting.left_indices[0,:]]
                         ref_right_value = right_hand_data[self.hand_retargeting.right_indices[1,:]] - right_hand_data[self.hand_retargeting.right_indices[0,:]]
@@ -150,17 +192,20 @@ def patch_file(path: Path) -> None:
             raise SystemExit(f"Could not find Inspire retargeting block in {path}")
         text = text.replace(OLD_BLOCK, NEW_BLOCK, 1)
 
+    if "def _finger_curl(" not in text:
+        start = text.index("def _angle_curl(")
+        class_start = text.index("\nclass Inspire_Controller_DFX:\n")
+        text = text[:start] + HELPER.strip() + "\n\n" + text[class_start + 1 :]
+    else:
+        helper_start = text.index("def _angle_curl(")
+        class_start = text.index("\nclass Inspire_Controller_DFX:\n")
+        text = text[:helper_start] + HELPER.strip() + "\n" + text[class_start:]
+
     text = text.replace(
-        "    pinky = _angle_curl(hand_data, 20, 21, 24)\n"
-        "    ring = _angle_curl(hand_data, 15, 16, 19)\n"
-        "    middle = _angle_curl(hand_data, 10, 11, 14)\n"
-        "    index = _angle_curl(hand_data, 5, 6, 9)\n"
-        "    thumb_bend = _angle_curl(hand_data, 1, 2, 4)\n",
-        "    pinky = max(_angle_curl(hand_data, 20, 21, 24), _angle_curl(hand_data, 21, 22, 24))\n"
-        "    ring = max(_angle_curl(hand_data, 15, 16, 19), _angle_curl(hand_data, 16, 17, 19))\n"
-        "    middle = max(_angle_curl(hand_data, 10, 11, 14), _angle_curl(hand_data, 11, 12, 14))\n"
-        "    index = max(_angle_curl(hand_data, 5, 6, 9), _angle_curl(hand_data, 6, 7, 9))\n"
-        "    thumb_bend = max(_angle_curl(hand_data, 1, 2, 4), _angle_curl(hand_data, 2, 3, 4))\n",
+        "left_q_target = _direct_inspire_targets(left_hand_data)\n"
+        "                        right_q_target = _direct_inspire_targets(right_hand_data)",
+        "left_q_target = _direct_inspire_targets(left_hand_data, \"left\")\n"
+        "                        right_q_target = _direct_inspire_targets(right_hand_data, \"right\")",
     )
 
     path.write_text(text, encoding="utf-8")

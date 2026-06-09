@@ -21,6 +21,7 @@ fi
 sed -i 's/XR_NETWORK_INTERFACE:-wlx74da387f0099/XR_NETWORK_INTERFACE:-eth0/' "$LAUNCHER"
 sed -i 's/XR_TELEOP_VUER_PORT=8013/XR_TELEOP_VUER_PORT=8012/' "$LAUNCHER"
 sed -i 's/--frequency 30/--frequency "$XR_TELEOP_FREQUENCY"/' "$LAUNCHER"
+sed -i 's#/home/unitree/.local/micromamba run -n tv python#/home/unitree/.micromamba/envs/tv/bin/python#g' "$LAUNCHER"
 
 python3 - "$LAUNCHER" <<'PATCH_XR_TELEOP_PY'
 from pathlib import Path
@@ -60,7 +61,7 @@ replacement = [
     '"${TELEOP_ARGS[@]}" >"$LOG_FILE" 2>&1 &',
     'TELEOP_PID=$!',
     '',
-    "MAMBA_ROOT_PREFIX=/home/unitree/.micromamba /home/unitree/.local/micromamba run -n tv python - <<'PY'",
+    "/home/unitree/.micromamba/envs/tv/bin/python - <<'PY'",
     'import time',
     'from teleop.utils.ipc import IPC_Client',
     '',

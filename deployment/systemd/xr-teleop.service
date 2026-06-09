@@ -12,7 +12,7 @@ Environment=PYTHONPATH=/home/unitree/xr_teleoperate:/home/unitree/xr_teleoperate
 Environment=XR_NETWORK_INTERFACE=eth0
 Environment=XR_TELEOP_EE=inspire_dfx
 Environment=XR_INSPIRE_DIRECT_CURL=1
-Environment=XR_SWAP_HAND_INPUTS=1
+Environment=XR_SWAP_HAND_INPUTS=0
 Environment=XR_INSPIRE_LEFT_PINKY_GAIN=1.45
 Environment=XR_INSPIRE_LEFT_THUMB_ROT_GAIN=1.35
 Environment=XR_TELEOP_SEND_START=1

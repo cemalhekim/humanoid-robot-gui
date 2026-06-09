@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """DDS smoke test for only the Inspire DFX left pinky motor.
 
-This publishes to rt/inspire/cmd through the DFX Inspire bridge. Command order:
-right hand ids 0..5, left hand ids 6..11. Left pinky is id 6.
+This publishes to rt/inspire/cmd through the DFX Inspire bridge. The robot's
+observed DFX command order is left hand ids 0..5, right hand ids 6..11.
+Left pinky is id 0.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from unitree_sdk2py.idl.unitree_go.msg.dds_ import MotorCmds_, MotorStates_
 
 TOPIC_CMD = "rt/inspire/cmd"
 TOPIC_STATE = "rt/inspire/state"
-LEFT_PINKY_ID = 6
+LEFT_PINKY_ID = 0
 MOTOR_COUNT = 12
 
 

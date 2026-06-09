@@ -171,6 +171,52 @@ NEW_BLOCK = """                if xr_motion_data_ready:
                                 right_q_target[idx] = normalize(right_q_target[idx], -0.1, 1.3)
 """
 
+OLD_DFX_JOINT_INDEX_BLOCK = """# Update hand state, according to the official documentation:
+# 1. https://support.unitree.com/home/en/G1_developer/inspire_dfx_dexterous_hand
+# 2. https://support.unitree.com/home/en/G1_developer/inspire_ftp_dexterity_hand
+# the state sequence is as shown in the table below
+# ┌──────┬───────┬──────┬────────┬────────┬────────────┬────────────────┬───────┬──────┬────────┬────────┬────────────┬────────────────┐
+# │ Id   │   0   │  1   │   2    │   3    │     4      │       5        │   6   │  7   │   8    │   9    │    10      │       11       │
+# ├──────┼───────┼──────┼────────┼────────┼────────────┼────────────────┼───────┼──────┼────────┼────────┼────────────┼────────────────┤
+# │      │                    Right Hand                                │                   Left Hand                                  │
+# │Joint │ pinky │ ring │ middle │ index  │ thumb-bend │ thumb-rotation │ pinky │ ring │ middle │ index  │ thumb-bend │ thumb-rotation │
+# └──────┴───────┴──────┴────────┴────────┴────────────┴────────────────┴───────┴──────┴────────┴────────┴────────────┴────────────────┘
+class Inspire_Right_Hand_JointIndex(IntEnum):
+    kRightHandPinky = 0
+    kRightHandRing = 1
+    kRightHandMiddle = 2
+    kRightHandIndex = 3
+    kRightHandThumbBend = 4
+    kRightHandThumbRotation = 5
+
+class Inspire_Left_Hand_JointIndex(IntEnum):
+    kLeftHandPinky = 6
+    kLeftHandRing = 7
+    kLeftHandMiddle = 8
+    kLeftHandIndex = 9
+    kLeftHandThumbBend = 10
+    kLeftHandThumbRotation = 11
+"""
+
+NEW_DFX_JOINT_INDEX_BLOCK = """# The upstream DFX documentation lists ids 0..5 as right and 6..11 as left.
+# This robot is wired the other way around: id 6 moved the physical right pinky.
+class Inspire_Left_Hand_JointIndex(IntEnum):
+    kLeftHandPinky = 0
+    kLeftHandRing = 1
+    kLeftHandMiddle = 2
+    kLeftHandIndex = 3
+    kLeftHandThumbBend = 4
+    kLeftHandThumbRotation = 5
+
+class Inspire_Right_Hand_JointIndex(IntEnum):
+    kRightHandPinky = 6
+    kRightHandRing = 7
+    kRightHandMiddle = 8
+    kRightHandIndex = 9
+    kRightHandThumbBend = 10
+    kRightHandThumbRotation = 11
+"""
+
 
 def patch_file(path: Path) -> None:
     if not path.exists():
@@ -207,6 +253,11 @@ def patch_file(path: Path) -> None:
         "left_q_target = _direct_inspire_targets(left_hand_data, \"left\")\n"
         "                        right_q_target = _direct_inspire_targets(right_hand_data, \"right\")",
     )
+
+    if NEW_DFX_JOINT_INDEX_BLOCK not in text:
+        if OLD_DFX_JOINT_INDEX_BLOCK not in text:
+            raise SystemExit(f"Could not find Inspire DFX joint index block in {path}")
+        text = text.replace(OLD_DFX_JOINT_INDEX_BLOCK, NEW_DFX_JOINT_INDEX_BLOCK, 1)
 
     path.write_text(text, encoding="utf-8")
 

@@ -5,7 +5,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 XR_DIR="${REPO_DIR}/external/xr_teleoperate/teleop"
 
 INPUT_MODE="${INPUT_MODE:-hand}"
-DISPLAY_MODE="${DISPLAY_MODE:-immersive}"
+DISPLAY_MODE="${DISPLAY_MODE:-pass-through}"
 ARM="${ARM:-H1_2}"
 IMG_SERVER_IP="${IMG_SERVER_IP:-192.168.123.164}"
 NETWORK_INTERFACE="${NETWORK_INTERFACE:-eth0}"

@@ -197,7 +197,7 @@
             <div class="section-head">
               <div>
                 <h2>Camera Stream</h2>
-                <p class="panel-subtitle">Unitree TeleImager WebRTC camera and Vision Pro teleoperation</p>
+                <p class="panel-subtitle">Vision Pro pass-through teleoperation and optional robot camera preview</p>
               </div>
               <div class="camera-actions">
                 <div class="camera-status">
@@ -210,7 +210,7 @@
                   target="_blank"
                   rel="noreferrer"
                 >
-                  VR View
+                  AR Teleop
                 </a>
               </div>
             </div>
@@ -231,21 +231,21 @@
                 </div>
                 <div class="camera-footer">
                   <span>Source</span>
-                  <strong>TeleImager WebRTC</strong>
+                  <strong>TeleImager WebRTC Preview</strong>
                   <span>Mode</span>
-                  <strong>Embedded preview</strong>
+                  <strong>Robot camera only</strong>
                 </div>
               </div>
               <aside class="camera-side">
                 <article class="camera-card">
                   <span>Connection</span>
-                  <strong>Robot PC</strong>
-                  <p>Use the robot-side interface that reaches the front camera topic.</p>
+                  <strong>AR Teleop</strong>
+                  <p>Open the Vuer session on Vision Pro for hand/controller tracking over the headset environment view.</p>
                 </article>
                 <article class="camera-card">
-                  <span>Example</span>
-                  <strong>teleimager.image_server</strong>
-                  <p>Standalone camera server from Unitree's XR teleoperation workflow.</p>
+                  <span>Display</span>
+                  <strong>Pass-through</strong>
+                  <p>The teleop service runs without sending the robot camera image into the headset scene.</p>
                 </article>
                 <article class="camera-card">
                   <span>Fallback</span>

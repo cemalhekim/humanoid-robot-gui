@@ -8,6 +8,7 @@ Type=simple
 WorkingDirectory=/home/unitree/xr_teleoperate/teleop
 Environment=MAMBA_ROOT_PREFIX=/home/unitree/.micromamba
 Environment=XR_TELEOP_VUER_PORT=8012
+Environment=XR_TELEOP_DISPLAY_MODE=pass-through
 Environment=PYTHONPATH=/home/unitree/xr_teleoperate:/home/unitree/xr_teleoperate/teleop/robot_control/dex-retargeting/src
 Environment=XR_NETWORK_INTERFACE=eth0
 Environment=XR_TELEOP_EE=inspire_dfx

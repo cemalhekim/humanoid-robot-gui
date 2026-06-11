@@ -7,7 +7,7 @@ Wants=robot-telemetry-web.service xr-teleop.service
 Type=simple
 WorkingDirectory=/home/unitree/robot_telemetry_web
 Environment=PYTHONPATH=/home/unitree/xr_teleoperate:/home/unitree/xr_teleoperate/teleop/robot_control/dex-retargeting/src
-ExecStart=/home/unitree/.micromamba/envs/tv/bin/python -u /home/unitree/robot_telemetry_web/deployment/xr_home_watchdog.py --xr-port 8012 --lost-seconds 5
+ExecStart=/home/unitree/.micromamba/envs/tv/bin/python -u /home/unitree/robot_telemetry_web/deployment/xr_home_watchdog.py --xr-port 8012 --lost-seconds 1
 Restart=always
 RestartSec=2
 StandardOutput=append:/home/unitree/logs/xr_home_watchdog.log

@@ -67,6 +67,13 @@ for teleimager_path in reversed(TELEIMAGER_PATHS):
     if teleimager_path.exists():
         sys.path.insert(0, str(teleimager_path))
 
+XR_TELEOP_PATHS = [
+    Path("/home/unitree/xr_teleoperate"),
+    Path("/home/unitree/xr_teleoperate/teleop/robot_control/dex-retargeting/src"),
+    APP_DIR / "teleoperation/vision_pro_control/external/xr_teleoperate",
+    APP_DIR / "teleoperation/vision_pro_control/external/xr_teleoperate/teleop/robot_control/dex-retargeting/src",
+]
+
 JOINT_NAMES = {
     0: "LeftHipYaw",
     1: "LeftHipPitch",
@@ -1282,6 +1289,48 @@ class TelemetryStore:
     def chill_motors(self) -> tuple[int, dict[str, Any]]:
         return self.request_chill({"armed": True, "i_understand_risk": True})
 
+    def request_home(self) -> tuple[int, dict[str, Any]]:
+        script = """
+import time
+from teleop.utils.ipc import IPC_Client
+
+client = IPC_Client(hb_fps=10.0)
+try:
+    for _ in range(40):
+        if client.is_online():
+            break
+        time.sleep(0.1)
+    reply = client.send_data("CMD_STOP")
+    print(reply)
+    raise SystemExit(0 if reply.get("status") == "ok" else 2)
+finally:
+    client.stop()
+"""
+        env = os.environ.copy()
+        python_paths = [str(path) for path in XR_TELEOP_PATHS if path.exists()]
+        if env.get("PYTHONPATH"):
+            python_paths.append(env["PYTHONPATH"])
+        env["PYTHONPATH"] = os.pathsep.join(python_paths)
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                check=False,
+                cwd=str(APP_DIR),
+                env=env,
+                text=True,
+                timeout=8.0,
+            )
+        except subprocess.TimeoutExpired:
+            return 504, {"ok": False, "error": "Timed out while sending XR home command."}
+        except OSError as exc:
+            return 500, {"ok": False, "error": f"Could not send XR home command: {exc}"}
+
+        output = (result.stdout or result.stderr).strip()
+        if result.returncode != 0:
+            return 502, {"ok": False, "error": output or "XR home command was rejected."}
+        return 202, {"ok": True, "message": "XR teleop stop requested. Arms should move home during clean shutdown.", "reply": output}
+
     def request_chill(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if not has_risk_ack(payload):
             return 400, {"ok": False, "error": "Chill command requires armed=true and i_understand_risk=true."}
@@ -1830,7 +1879,13 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         request_path = urlsplit(self.path).path
-        if request_path not in ("/api/wrist/command", "/api/wrist/stop", "/api/robot/chill", "/api/loco/command"):
+        if request_path not in (
+            "/api/wrist/command",
+            "/api/wrist/stop",
+            "/api/robot/chill",
+            "/api/robot/home",
+            "/api/loco/command",
+        ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
 
@@ -1859,6 +1914,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/robot/chill":
             status, response = self.store.request_chill(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/robot/home":
+            status, response = self.store.request_home()
             self._send_json_status(response, HTTPStatus(status))
             return
 

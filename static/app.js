@@ -11,6 +11,7 @@ const els = {
   age: document.getElementById("age"),
   rate: document.getElementById("rate"),
   chillMotors: document.getElementById("chillMotors"),
+  homeRobot: document.getElementById("homeRobot"),
   networkType: document.getElementById("networkType"),
   sidebarNetworkType: document.getElementById("sidebarNetworkType"),
   sidebarNetworkQuality: document.getElementById("sidebarNetworkQuality"),
@@ -918,6 +919,36 @@ function chillMotors() {
     });
 }
 
+function sendRobotHome() {
+  if (!els.homeRobot) return;
+  els.homeRobot.disabled = true;
+  els.homeRobot.classList.add("pending");
+  els.homeRobot.textContent = "Homing";
+  fetch("/api/robot/home", { method: "POST" })
+    .then((response) =>
+      response.json().then((data) => {
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+      }),
+    )
+    .then((data) => {
+      els.subtitle.textContent = data.message || "Home command sent.";
+      if (els.wristMessage) els.wristMessage.textContent = data.message || "Home command sent.";
+      if (els.locoMessage) els.locoMessage.textContent = data.message || "Home command sent.";
+    })
+    .catch((error) => {
+      els.subtitle.textContent = `Home failed: ${error.message}`;
+      if (els.wristMessage) els.wristMessage.textContent = error.message;
+    })
+    .finally(() => {
+      els.homeRobot.disabled = false;
+      els.homeRobot.classList.remove("pending");
+      els.homeRobot.textContent = "Home";
+      loadWristStatus();
+      loadLocoStatus();
+    });
+}
+
 let wristLiveTimer = null;
 
 function setupWristControls() {
@@ -1201,6 +1232,7 @@ document.addEventListener("visibilitychange", () => {
 });
 els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 els.chillMotors?.addEventListener("click", chillMotors);
+els.homeRobot?.addEventListener("click", sendRobotHome);
 syncActiveNav();
 connectCameraPreview();
 loadRosGraph();

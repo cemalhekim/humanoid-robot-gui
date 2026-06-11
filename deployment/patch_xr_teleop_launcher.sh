@@ -14,9 +14,6 @@ fi
 if ! grep -q 'XR_TELEOP_FREQUENCY' "$LAUNCHER"; then
   sed -i '/XR_TELEOP_SEND_START=/a export XR_TELEOP_FREQUENCY="${XR_TELEOP_FREQUENCY:-60}"' "$LAUNCHER"
 fi
-if ! grep -q 'XR_TELEOP_DISPLAY_MODE' "$LAUNCHER"; then
-  sed -i '/XR_TELEOP_FREQUENCY=/a export XR_TELEOP_DISPLAY_MODE="${XR_TELEOP_DISPLAY_MODE:-pass-through}"' "$LAUNCHER"
-fi
 if ! grep -q 'XR_TELEOP_EE' "$LAUNCHER"; then
   sed -i '/XR_TELEOP_VUER_PORT=/a export XR_TELEOP_EE="${XR_TELEOP_EE:-}"' "$LAUNCHER"
 fi
@@ -24,8 +21,6 @@ fi
 sed -i 's/XR_NETWORK_INTERFACE:-wlx74da387f0099/XR_NETWORK_INTERFACE:-eth0/' "$LAUNCHER"
 sed -i 's/XR_TELEOP_VUER_PORT=8013/XR_TELEOP_VUER_PORT=8012/' "$LAUNCHER"
 sed -i 's/--frequency 30/--frequency "$XR_TELEOP_FREQUENCY"/' "$LAUNCHER"
-sed -i 's/--display-mode immersive/--display-mode "$XR_TELEOP_DISPLAY_MODE"/' "$LAUNCHER"
-sed -i 's/--display-mode "$DISPLAY_MODE"/--display-mode "$XR_TELEOP_DISPLAY_MODE"/' "$LAUNCHER"
 sed -i 's#/home/unitree/.local/micromamba run -n tv python#/home/unitree/.micromamba/envs/tv/bin/python#g' "$LAUNCHER"
 
 python3 - "$LAUNCHER" <<'PATCH_XR_TELEOP_PY'

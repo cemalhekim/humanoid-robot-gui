@@ -18,6 +18,7 @@ cp "$REPO_DIR/deployment/systemd/robot-telemetry-web-autoupdate.timer" "$SYSTEMD
 cp "$REPO_DIR/deployment/systemd/teleimager.service" "$SYSTEMD_USER_DIR/"
 cp "$REPO_DIR/deployment/systemd/inspire-hands.service" "$SYSTEMD_USER_DIR/"
 cp "$REPO_DIR/deployment/systemd/xr-teleop.service" "$SYSTEMD_USER_DIR/"
+cp "$REPO_DIR/deployment/systemd/xr-home-watchdog.service" "$SYSTEMD_USER_DIR/"
 
 "$REPO_DIR/deployment/patch_xr_teleop_launcher.sh"
 python3 "$REPO_DIR/deployment/patch_xr_camera_config.py"
@@ -37,9 +38,11 @@ systemctl --user enable --now robot-telemetry-web-autoupdate.timer
 systemctl --user enable --now teleimager.service
 systemctl --user enable --now inspire-hands.service
 systemctl --user enable --now xr-teleop.service
+systemctl --user enable --now xr-home-watchdog.service
 systemctl --user restart robot-telemetry-web.service
 systemctl --user restart teleimager.service
 systemctl --user restart inspire-hands.service
 systemctl --user restart xr-teleop.service
+systemctl --user restart xr-home-watchdog.service
 
-systemctl --user --no-pager --full status robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service
+systemctl --user --no-pager --full status robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service

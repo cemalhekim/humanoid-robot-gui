@@ -172,6 +172,12 @@ HAND_JOINT_NAMES = {
     11: "LeftThumbRotation",
 }
 
+MAX_JSON_BODY_BYTES = 4096
+
+
+def has_risk_ack(payload: dict[str, Any]) -> bool:
+    return payload.get("armed") is True and payload.get("i_understand_risk") is True
+
 
 def public_host() -> str:
     try:
@@ -1274,6 +1280,12 @@ class TelemetryStore:
         return self.wrist_snapshot()
 
     def chill_motors(self) -> tuple[int, dict[str, Any]]:
+        return self.request_chill({"armed": True, "i_understand_risk": True})
+
+    def request_chill(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        if not has_risk_ack(payload):
+            return 400, {"ok": False, "error": "Chill command requires armed=true and i_understand_risk=true."}
+
         with self.command_lock:
             cancel = self.wrist_cancel
             motion_switcher = self.motion_switcher
@@ -1321,12 +1333,14 @@ class TelemetryStore:
             value = float(payload.get(name, default))
         except (TypeError, ValueError):
             raise ValueError(f"{name} must be a number")
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be a finite number")
         if value < low or value > high:
             raise ValueError(f"{name} must be between {low} and {high}")
         return value
 
     def command_loco(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        if not payload.get("armed") or not payload.get("i_understand_risk"):
+        if not has_risk_ack(payload):
             return 400, {"ok": False, "error": "Loco command requires armed=true and i_understand_risk=true."}
 
         action = str(payload.get("action", "")).strip()
@@ -1509,7 +1523,7 @@ class TelemetryStore:
             return 500, {"ok": False, "error": str(exc), "status": self.loco_snapshot()}
 
     def command_wrist(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        if not payload.get("armed") or not payload.get("i_understand_risk"):
+        if not has_risk_ack(payload):
             return 400, {"ok": False, "error": "Command requires armed=true and i_understand_risk=true."}
 
         def number(name: str, default: float, low: float, high: float) -> float:
@@ -1517,6 +1531,8 @@ class TelemetryStore:
                 value = float(payload.get(name, default))
             except (TypeError, ValueError):
                 raise ValueError(f"{name} must be a number")
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number")
             if value < low or value > high:
                 raise ValueError(f"{name} must be between {low} and {high}")
             return value
@@ -1524,6 +1540,12 @@ class TelemetryStore:
         try:
             mode = str(payload.get("mode", "absolute"))
             control_path = str(payload.get("control_path", "arm_sdk"))
+            if mode not in {"absolute", "relative", "oscillate"}:
+                raise ValueError("mode must be one of absolute, relative, oscillate")
+            if control_path not in {"arm_sdk", "lowcmd"}:
+                raise ValueError("control_path must be one of arm_sdk, lowcmd")
+            if mode == "oscillate" and control_path != "lowcmd":
+                raise ValueError("oscillate mode requires control_path=lowcmd")
             target = number("target_q", 0.0, WRIST_LIMITS[0], WRIST_LIMITS[1])
             delta = number("delta_q", 0.0, -0.25, 0.25)
             kp = number("kp", 4.0, 0.0, 30.0)
@@ -1813,11 +1835,20 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             return
 
         payload: dict[str, Any] = {}
-        if request_path in ("/api/wrist/command", "/api/loco/command"):
+        if request_path in ("/api/wrist/command", "/api/robot/chill", "/api/loco/command"):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                body = self.rfile.read(min(length, 4096))
-                payload = json.loads(body.decode("utf-8")) if body else {}
+                if length > MAX_JSON_BODY_BYTES:
+                    self._send_json_status(
+                        {"ok": False, "error": f"JSON body must be at most {MAX_JSON_BODY_BYTES} bytes."},
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    )
+                    return
+                body = self.rfile.read(length)
+                decoded = json.loads(body.decode("utf-8")) if body else {}
+                if not isinstance(decoded, dict):
+                    raise ValueError("JSON body must be an object")
+                payload = decoded
             except Exception as exc:
                 self._send_json_status({"ok": False, "error": f"Invalid JSON body: {exc}"}, HTTPStatus.BAD_REQUEST)
                 return
@@ -1827,7 +1858,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             return
 
         if request_path == "/api/robot/chill":
-            status, response = self.store.chill_motors()
+            status, response = self.store.request_chill(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 
@@ -1847,6 +1878,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             return
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -1881,6 +1913,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

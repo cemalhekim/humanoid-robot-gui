@@ -879,10 +879,23 @@ function stopWristCommand() {
 
 function chillMotors() {
   if (!els.chillMotors) return;
+  if (!locoSafetyReady()) {
+    els.subtitle.textContent = "Chill blocked: enable both loco safety checkboxes first.";
+    if (els.locoMessage) els.locoMessage.textContent = "Command blocked: enable both safety checkboxes first.";
+    setLocoButtons();
+    return;
+  }
   els.chillMotors.disabled = true;
   els.chillMotors.classList.add("pending");
   els.chillMotors.textContent = "Chilling";
-  fetch("/api/robot/chill", { method: "POST" })
+  fetch("/api/robot/chill", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      armed: Boolean(els.locoArm?.checked),
+      i_understand_risk: Boolean(els.locoRisk?.checked),
+    }),
+  })
     .then((response) =>
       response.json().then((data) => {
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);

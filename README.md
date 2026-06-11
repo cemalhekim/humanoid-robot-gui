@@ -1,8 +1,8 @@
 # Unitree Telemetry Web Dashboard
 
-A local, read-only web dashboard for monitoring Unitree H1-2 robot telemetry from a browser. The app runs a small Python HTTP server on the robot PC, subscribes to Unitree DDS telemetry topics through the Unitree SDK, and streams the latest robot state to a browser UI with a live motor table, status panels, raw JSON, and a browser-native Three.js URDF viewer.
+A local web dashboard and guarded operator command surface for the Unitree H1-2 robot. The app runs a small Python HTTP server on the robot PC, subscribes to Unitree DDS telemetry topics through the Unitree SDK, streams the latest robot state to a browser UI, and exposes explicitly armed controls for selected wrist and loco actions.
 
-The dashboard is intended for observation, debugging, and operator situational awareness. It does not publish robot commands.
+The dashboard is intended for observation, debugging, operator situational awareness, and carefully gated command experiments by an operator who understands the robot state.
 
 ## What It Shows
 
@@ -20,15 +20,15 @@ The dashboard is intended for observation, debugging, and operator situational a
 
 ## Safety Model
 
-This application is intentionally read-only.
+This application is not purely read-only in its current form.
 
 - It subscribes to telemetry topics.
-- It serves HTTP, JSON, static assets, and Server-Sent Events.
-- It does not send motion commands.
-- It does not write to Unitree DDS command topics.
-- It does not change robot mode, gait, balance state, arm state, hand state, or motor targets.
+- It serves HTTP, JSON, static assets, camera frames, and Server-Sent Events.
+- It can publish guarded wrist commands through the configured DDS command path.
+- It can call guarded H1 loco actions when the loco client is available.
+- Command endpoints are expected to require both `armed=true` and `i_understand_risk=true` before command execution.
 
-Even though the app is read-only, run it only on trusted networks. The dashboard exposes live robot state over HTTP to any client that can reach the configured host and port.
+Run it only on trusted networks. The dashboard exposes live robot state and command endpoints over HTTP to any client that can reach the configured host and port.
 
 ## Repository Layout
 

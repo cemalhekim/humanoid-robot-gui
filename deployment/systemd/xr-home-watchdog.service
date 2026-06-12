@@ -1,7 +1,5 @@
 [Unit]
 Description=XR Teleop Home Watchdog
-After=robot-telemetry-web.service xr-teleop.service
-Wants=robot-telemetry-web.service xr-teleop.service
 
 [Service]
 Type=simple

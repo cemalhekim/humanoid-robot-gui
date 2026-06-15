@@ -24,4 +24,6 @@ then
   exit 0
 fi
 
-"$MAMBA" run -n "$ENV_NAME" python -m pip install -r "$XR_DIR/requirements.txt"
+if ! "$MAMBA" run -n "$ENV_NAME" python -m pip install -r "$XR_DIR/requirements.txt"; then
+  echo "Warning: could not verify or install XR Python requirements; continuing with existing environment." >&2
+fi

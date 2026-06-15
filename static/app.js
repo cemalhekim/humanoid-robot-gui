@@ -1212,6 +1212,13 @@ document.addEventListener("visibilitychange", () => {
 els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 els.chillMotors?.addEventListener("click", chillMotors);
 els.homeRobot?.addEventListener("click", sendRobotHome);
+document.addEventListener("selectstart", (event) => {
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  event.preventDefault();
+});
+document.addEventListener("dragstart", (event) => {
+  event.preventDefault();
+});
 syncActiveNav();
 connectCameraPreview();
 loadRosGraph();

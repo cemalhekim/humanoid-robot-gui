@@ -603,6 +603,8 @@ function startLocoPresetHold(event, button) {
 
 function setupLocoControls() {
   if (!els.locoState) return;
+  if (els.locoArm) els.locoArm.checked = true;
+  if (els.locoRisk) els.locoRisk.checked = true;
   [
     els.locoVx,
     els.locoVy,
@@ -898,8 +900,8 @@ function chillMotors() {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      armed: Boolean(els.locoArm?.checked),
-      i_understand_risk: Boolean(els.locoRisk?.checked),
+      armed: true,
+      i_understand_risk: true,
     }),
   })
     .then((response) =>

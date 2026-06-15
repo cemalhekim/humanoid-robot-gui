@@ -17,6 +17,7 @@ Environment=XR_INSPIRE_LEFT_PINKY_GAIN=1.45
 Environment=XR_INSPIRE_LEFT_THUMB_ROT_GAIN=1.35
 Environment=XR_TELEOP_SEND_START=1
 Environment=XR_TELEOP_FREQUENCY=30
+Environment=XR_SCENE_LOCO_PAD=1
 ExecStart=/home/unitree/xr_teleoperate/deploy/scripts/start_xr_teleop.sh
 Restart=always
 RestartSec=3

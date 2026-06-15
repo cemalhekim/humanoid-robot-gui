@@ -25,6 +25,10 @@ const els = {
   rawJson: document.getElementById("rawJson"),
   cameraStream: document.getElementById("cameraStream"),
   cameraPlaceholder: document.getElementById("cameraPlaceholder"),
+  cameraLocoArm: document.getElementById("cameraLocoArm"),
+  cameraLocoRisk: document.getElementById("cameraLocoRisk"),
+  cameraDriveButtons: document.querySelectorAll("[data-camera-drive]"),
+  cameraDriveStop: document.querySelector("[data-camera-drive-stop]"),
   rosSummary: document.getElementById("rosSummary"),
   rosMap: document.getElementById("rosMap"),
   rosEdges: document.getElementById("rosEdges"),
@@ -354,7 +358,10 @@ function render(snapshot) {
 }
 
 function locoSafetyReady() {
-  return Boolean(els.locoArm?.checked && els.locoRisk?.checked);
+  return Boolean(
+    (els.locoArm?.checked && els.locoRisk?.checked) ||
+      (els.cameraLocoArm?.checked && els.cameraLocoRisk?.checked),
+  );
 }
 
 function updateLocoSliderLabels() {
@@ -410,6 +417,10 @@ function setLocoButtons() {
   els.locoPresets.forEach((button) => {
     button.disabled = !ready;
   });
+  els.cameraDriveButtons.forEach((button) => {
+    button.disabled = !ready;
+  });
+  if (els.cameraDriveStop) els.cameraDriveStop.disabled = !ready;
   if (els.locoStop) els.locoStop.disabled = !ready;
   if (!ready && els.locoMessage) {
     stopLocoHold(false);
@@ -511,8 +522,8 @@ let locoHold = null;
 function locoPayload(action, overrides = {}) {
   return {
     action,
-    armed: Boolean(els.locoArm?.checked),
-    i_understand_risk: Boolean(els.locoRisk?.checked),
+    armed: Boolean(els.locoArm?.checked || els.cameraLocoArm?.checked),
+    i_understand_risk: Boolean(els.locoRisk?.checked || els.cameraLocoRisk?.checked),
     vx: Number(els.locoVx?.value || 0),
     vy: Number(els.locoVy?.value || 0),
     vyaw: Number(els.locoVyaw?.value || 0),
@@ -580,6 +591,28 @@ function sendLocoHoldVelocity(name) {
   sendLocoCommand("move", { continuous_move: true });
 }
 
+function cameraDriveValues(name) {
+  const presets = {
+    forward: { vx: 0.05, vy: 0, vyaw: 0 },
+    back: { vx: -0.04, vy: 0, vyaw: 0 },
+    left: { vx: 0, vy: 0.04, vyaw: 0 },
+    right: { vx: 0, vy: -0.04, vyaw: 0 },
+    "turn-left": { vx: 0, vy: 0, vyaw: 0.16 },
+    "turn-right": { vx: 0, vy: 0, vyaw: -0.16 },
+  };
+  return presets[name] || null;
+}
+
+function sendCameraDriveVelocity(name) {
+  const values = cameraDriveValues(name);
+  if (!values) return;
+  sendLocoCommand("velocity", {
+    ...values,
+    duration: 0.25,
+    continuous_move: false,
+  });
+}
+
 function stopLocoHold(sendStop = true) {
   if (!locoHold) return;
   window.clearInterval(locoHold.timer);
@@ -600,6 +633,20 @@ function startLocoPresetHold(event, button) {
   };
 }
 
+function startCameraDriveHold(event, button) {
+  const name = button.dataset.cameraDrive;
+  if (!name || button.disabled || event.button > 0) return;
+  event.preventDefault();
+  stopLocoHold();
+  button.setPointerCapture?.(event.pointerId);
+  button.classList.add("is-held");
+  sendCameraDriveVelocity(name);
+  locoHold = {
+    button,
+    timer: window.setInterval(() => sendCameraDriveVelocity(name), 180),
+  };
+}
+
 function setupLocoControls() {
   if (!els.locoState) return;
   [
@@ -617,6 +664,8 @@ function setupLocoControls() {
   });
   els.locoArm?.addEventListener("change", setLocoButtons);
   els.locoRisk?.addEventListener("change", setLocoButtons);
+  els.cameraLocoArm?.addEventListener("change", setLocoButtons);
+  els.cameraLocoRisk?.addEventListener("change", setLocoButtons);
   els.locoReady?.addEventListener("click", () => sendLocoCommand("ready"));
   els.locoBalanceStand?.addEventListener("click", () => sendLocoCommand("balance_stand"));
   els.locoStandUp?.addEventListener("click", () => sendLocoCommand("stand_up"));
@@ -656,6 +705,19 @@ function setupLocoControls() {
     button.addEventListener("click", (event) => {
       event.preventDefault();
     });
+  });
+  els.cameraDriveButtons.forEach((button) => {
+    button.addEventListener("pointerdown", (event) => startCameraDriveHold(event, button));
+    button.addEventListener("pointerup", stopLocoHold);
+    button.addEventListener("pointercancel", stopLocoHold);
+    button.addEventListener("lostpointercapture", stopLocoHold);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+    });
+  });
+  els.cameraDriveStop?.addEventListener("click", () => {
+    stopLocoHold(false);
+    sendLocoCommand("stop_move");
   });
   window.addEventListener("blur", stopLocoHold);
   document.addEventListener("visibilitychange", () => {

@@ -30,6 +30,42 @@ This application is not purely read-only in its current form.
 
 Run it only on trusted networks. The dashboard exposes live robot state and command endpoints over HTTP to any client that can reach the configured host and port.
 
+## Vision Pro Walking Options
+
+For H1-2 walking while wearing the Vision Pro, prefer the high-level Unitree
+locomotion service through `LocoClient` or `/api/loco/request`. Do not start by
+publishing leg trajectories to `/lowcmd`; low-level body control can fight the
+onboard locomotion controller unless controller ownership and robot mode are
+explicitly handled.
+
+Possible walking control options:
+
+| Option | Input | Robot path | Notes |
+| --- | --- | --- | --- |
+| Existing XR controller motion | Vision Pro controllers / compatible controller thumbsticks | `teleop_hand_and_arm.py --motion` -> loco `Move(vx, vy, yaw)` | Fastest path when controller inputs are available. Left thumbstick maps forward/sideways, right thumbstick maps yaw, both thumbsticks enter damp mode. |
+| Hand gesture walking | Hand tracking pinch, wrist pose, palm direction | New gesture layer -> H1 `LocoClient.Move` | Best headset-only path. Use a deadman gesture, small velocity caps, smoothing, and stop on lost tracking. |
+| Head or gaze directed walking | Head yaw/gaze direction plus a deadman gesture | New headset input mapper -> H1 `LocoClient.Move` | Natural for VR, but must filter normal head motion so looking around does not accidentally walk the robot. |
+| Vision Pro web joystick | Virtual joystick/button in the Vuer or dashboard page | Browser command -> robot-side loco bridge | Less immersive but easy to test and safer for first trials because release can immediately command stop. |
+| Voice commands | Spoken commands such as forward, stop, turn left | Speech recognizer -> robot-side loco bridge | Useful as secondary control. Avoid relying on voice as the only stop path because recognition latency and false triggers are possible. |
+| Split operator control | Physical remote/gamepad for walking, Vision Pro for hands/arms | Existing robot remote or SDK joystick path | Conservative first demo mode. Keeps locomotion on a known input while headset teleoperates manipulation. |
+| ROS2 teleop node | Any headset/controller source | ROS2 node -> `/api/loco/request` | Good when command logging, replay, ROS tooling, or dashboard integration matter. |
+| Direct SDK2 robot bridge | Dashboard or XR command packets | Robot-side Python service -> `unitree_sdk2py.h1.loco.LocoClient` | Best fit for this repository if we want a supervised service with watchdogs and HTTP/WebSocket controls. |
+| Waypoint or click-to-walk | Gaze selection, map click, or short relative targets | Loco odom/target position APIs | Better after velocity walking and odometry checks work reliably. |
+| Autonomous navigation | Vision Pro selects goals, robot plans path | SLAM/navigation stack -> loco command layer | Long-term direction for cluttered spaces; higher integration cost. |
+| Walking-in-place | Headset body motion estimates | Step detector -> loco velocity | Interesting but noisy. Prototype only after normal velocity walking is stable. |
+| Custom low-level gait | Learned policy or generated joint trajectories | MuJoCo/sim-to-real -> `/lowcmd` | Highest risk. Use simulation first and only try on hardware after motion-switcher/controller ownership is understood. |
+
+Recommended first implementation:
+
+1. Build a robot-side locomotion bridge around H1 `LocoClient` with `stand`,
+   `start`, `move`, `stop`, and `damp` commands.
+2. Add a watchdog that sends `StopMove()` when headset packets stop, tracking is
+   lost, the deadman is released, or command age exceeds a short timeout.
+3. Start with very small live tests, for example `Move(0.05, 0, 0)` for less
+   than one second, then `StopMove()`.
+4. Add the Vision Pro hand-mode gesture mapper only after the bridge and stop
+   behavior are verified on the robot.
+
 ## Repository Layout
 
 ```text

@@ -1422,42 +1422,22 @@ pre {
 
 .camera-drive-grid button.turn::before {
   content: "";
-  width: 31px;
-  height: 31px;
-  border: 8px solid currentColor;
-  border-bottom-color: transparent;
-  border-left-color: transparent;
-  border-radius: 50%;
+  width: 42px;
+  height: 48px;
+  background: center / contain no-repeat;
+  pointer-events: none;
 }
 
 .camera-drive-grid button.turn::after {
-  content: "";
-  position: absolute;
-  top: 11px;
-  width: 0;
-  height: 0;
-  border-top: 11px solid transparent;
-  border-bottom: 11px solid transparent;
+  content: none;
 }
 
 .camera-drive-grid button.turn.left::before {
-  transform: rotate(-46deg);
-}
-
-.camera-drive-grid button.turn.left::after {
-  left: 10px;
-  border-right: 18px solid currentColor;
-  transform: rotate(23deg);
+  background-image: url("/assets/turn-left.png");
 }
 
 .camera-drive-grid button.turn.right::before {
-  transform: scaleX(-1) rotate(-46deg);
-}
-
-.camera-drive-grid button.turn.right::after {
-  right: 10px;
-  border-left: 18px solid currentColor;
-  transform: rotate(-23deg);
+  background-image: url("/assets/turn-right.png");
 }
 
 .camera-drive-stop {

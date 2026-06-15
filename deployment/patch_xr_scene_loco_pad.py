@@ -227,13 +227,24 @@ def patch_teleop() -> None:
         if marker not in text:
             raise SystemExit("Could not find teleop helper insertion point")
         text = text.replace(marker, marker + TELEOP_HELPER, 1)
-    state_marker = "    try:\n        user_input_thread = threading.Thread(target=listen_keyboard, kwargs={\"on_press\": on_press, \"until\": \"esc\"})\n"
+    state_marker = """        head_img = None
+        left_wrist_img = None
+        right_wrist_img = None
+
+        # main loop. robot start to follow VR user's motion
+"""
     if "xr_scene_loco_pad_state = {\"active\": None, \"last\": 0.0}" not in text:
         if state_marker not in text:
             raise SystemExit("Could not find teleop state insertion point")
         text = text.replace(
             state_marker,
-            "    xr_scene_loco_pad_state = {\"active\": None, \"last\": 0.0}\n\n" + state_marker,
+            """        head_img = None
+        left_wrist_img = None
+        right_wrist_img = None
+        xr_scene_loco_pad_state = {"active": None, "last": 0.0}
+
+        # main loop. robot start to follow VR user's motion
+""",
             1,
         )
     call_marker = """            # get current robot state data.

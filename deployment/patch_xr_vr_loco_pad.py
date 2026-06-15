@@ -218,10 +218,36 @@ INDEX_INJECT = f'''{INDEX_START}
     document.body.appendChild(pad);
   }}
 
+  function ensurePad() {{
+    mount();
+    return document.getElementById("rtw-xr-loco-pad") || document.body;
+  }}
+
+  function patchXRDomOverlay() {{
+    const xr = navigator.xr;
+    if (!xr || xr.__rtwLocoDomOverlay) return;
+    const originalRequestSession = xr.requestSession.bind(xr);
+    xr.requestSession = function(mode, init) {{
+      const options = Object.assign({{}}, init || {{}});
+      const optional = new Set(options.optionalFeatures || []);
+      optional.add("dom-overlay");
+      options.optionalFeatures = Array.from(optional);
+      if (!options.domOverlay) {{
+        options.domOverlay = {{ root: ensurePad() }};
+      }}
+      return originalRequestSession(mode, options);
+    }};
+    xr.__rtwLocoDomOverlay = true;
+  }}
+
   if (document.readyState === "loading") {{
-    document.addEventListener("DOMContentLoaded", mount, {{ once: true }});
+    document.addEventListener("DOMContentLoaded", () => {{
+      mount();
+      patchXRDomOverlay();
+    }}, {{ once: true }});
   }} else {{
     mount();
+    patchXRDomOverlay();
   }}
   window.addEventListener("blur", () => stop(true));
   document.addEventListener("visibilitychange", () => {{

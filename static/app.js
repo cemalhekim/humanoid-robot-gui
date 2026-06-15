@@ -25,8 +25,6 @@ const els = {
   rawJson: document.getElementById("rawJson"),
   cameraStream: document.getElementById("cameraStream"),
   cameraPlaceholder: document.getElementById("cameraPlaceholder"),
-  cameraLocoArm: document.getElementById("cameraLocoArm"),
-  cameraLocoRisk: document.getElementById("cameraLocoRisk"),
   cameraDriveButtons: document.querySelectorAll("[data-camera-drive]"),
   cameraDriveStop: document.querySelector("[data-camera-drive-stop]"),
   rosSummary: document.getElementById("rosSummary"),
@@ -358,10 +356,7 @@ function render(snapshot) {
 }
 
 function locoSafetyReady() {
-  return Boolean(
-    (els.locoArm?.checked && els.locoRisk?.checked) ||
-      (els.cameraLocoArm?.checked && els.cameraLocoRisk?.checked),
-  );
+  return Boolean(els.locoArm?.checked && els.locoRisk?.checked);
 }
 
 function updateLocoSliderLabels() {
@@ -417,10 +412,6 @@ function setLocoButtons() {
   els.locoPresets.forEach((button) => {
     button.disabled = !ready;
   });
-  els.cameraDriveButtons.forEach((button) => {
-    button.disabled = !ready;
-  });
-  if (els.cameraDriveStop) els.cameraDriveStop.disabled = !ready;
   if (els.locoStop) els.locoStop.disabled = !ready;
   if (!ready && els.locoMessage) {
     stopLocoHold(false);
@@ -522,8 +513,8 @@ let locoHold = null;
 function locoPayload(action, overrides = {}) {
   return {
     action,
-    armed: Boolean(els.locoArm?.checked || els.cameraLocoArm?.checked),
-    i_understand_risk: Boolean(els.locoRisk?.checked || els.cameraLocoRisk?.checked),
+    armed: Boolean(els.locoArm?.checked),
+    i_understand_risk: Boolean(els.locoRisk?.checked),
     vx: Number(els.locoVx?.value || 0),
     vy: Number(els.locoVy?.value || 0),
     vyaw: Number(els.locoVyaw?.value || 0),
@@ -556,6 +547,33 @@ function sendLocoCommand(action, overrides = {}) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(locoPayload(action, overrides)),
+  })
+    .then((response) =>
+      response.json().then((data) => {
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+      }),
+    )
+    .then((data) => renderLocoStatus(data.status || data, true))
+    .catch((error) => {
+      els.locoMessage.textContent = error.message;
+      els.locoState.textContent = "Blocked";
+      els.locoState.className = "pill bad";
+    });
+}
+
+function sendCameraLocoCommand(action, overrides = {}) {
+  if (!els.locoState) return;
+  fetch("/api/loco/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(
+      locoPayload(action, {
+        armed: true,
+        i_understand_risk: true,
+        ...overrides,
+      }),
+    ),
   })
     .then((response) =>
       response.json().then((data) => {
@@ -606,7 +624,7 @@ function cameraDriveValues(name) {
 function sendCameraDriveVelocity(name) {
   const values = cameraDriveValues(name);
   if (!values) return;
-  sendLocoCommand("velocity", {
+  sendCameraLocoCommand("velocity", {
     ...values,
     duration: 0.25,
     continuous_move: false,
@@ -617,8 +635,15 @@ function stopLocoHold(sendStop = true) {
   if (!locoHold) return;
   window.clearInterval(locoHold.timer);
   locoHold.button?.classList.remove("is-held");
+  const source = locoHold.source;
   locoHold = null;
-  if (sendStop) sendLocoCommand("stop_move");
+  if (sendStop) {
+    if (source === "camera") {
+      sendCameraLocoCommand("stop_move");
+    } else {
+      sendLocoCommand("stop_move");
+    }
+  }
 }
 
 function startLocoPresetHold(event, button) {
@@ -630,6 +655,7 @@ function startLocoPresetHold(event, button) {
   sendLocoHoldVelocity(button.dataset.locoPreset);
   locoHold = {
     button,
+    source: "loco",
   };
 }
 
@@ -643,6 +669,7 @@ function startCameraDriveHold(event, button) {
   sendCameraDriveVelocity(name);
   locoHold = {
     button,
+    source: "camera",
     timer: window.setInterval(() => sendCameraDriveVelocity(name), 180),
   };
 }
@@ -664,8 +691,6 @@ function setupLocoControls() {
   });
   els.locoArm?.addEventListener("change", setLocoButtons);
   els.locoRisk?.addEventListener("change", setLocoButtons);
-  els.cameraLocoArm?.addEventListener("change", setLocoButtons);
-  els.cameraLocoRisk?.addEventListener("change", setLocoButtons);
   els.locoReady?.addEventListener("click", () => sendLocoCommand("ready"));
   els.locoBalanceStand?.addEventListener("click", () => sendLocoCommand("balance_stand"));
   els.locoStandUp?.addEventListener("click", () => sendLocoCommand("stand_up"));
@@ -717,7 +742,7 @@ function setupLocoControls() {
   });
   els.cameraDriveStop?.addEventListener("click", () => {
     stopLocoHold(false);
-    sendLocoCommand("stop_move");
+    sendCameraLocoCommand("stop_move");
   });
   window.addEventListener("blur", stopLocoHold);
   document.addEventListener("visibilitychange", () => {

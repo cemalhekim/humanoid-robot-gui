@@ -1338,34 +1338,14 @@ pre {
 }
 
 .camera-drive-pad {
-  position: absolute;
-  right: 18px;
-  top: 50%;
-  z-index: 3;
   display: grid;
-  gap: 12px;
-  width: min(260px, calc(100% - 36px));
-  padding: 14px;
+  justify-items: center;
+  padding: 18px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 16px;
   background: rgba(5, 5, 5, 0.72);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
-  transform: translateY(-50%);
   backdrop-filter: blur(14px);
-}
-
-.camera-drive-safety {
-  display: grid;
-  gap: 6px;
-  color: rgba(255, 255, 255, 0.84);
-  font-size: 0.78rem;
-  line-height: 1.25;
-}
-
-.camera-drive-safety label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .camera-drive-grid {
@@ -1867,14 +1847,6 @@ pre {
 
   .camera-layout {
     grid-template-columns: 1fr;
-  }
-
-  .camera-drive-pad {
-    top: auto;
-    right: 12px;
-    bottom: 12px;
-    width: min(236px, calc(100% - 24px));
-    transform: none;
   }
 
   .camera-drive-grid {

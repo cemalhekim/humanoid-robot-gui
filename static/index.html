@@ -228,23 +228,6 @@
                     <p>TeleImager WebRTC preview starts automatically when this panel opens.</p>
                     <small>If the browser blocks the certificate, open `https://10.2.100.142:60001` once and trust it.</small>
                   </div>
-                  <div class="camera-drive-pad" aria-label="Vision Pro walking controls">
-                    <div class="camera-drive-safety">
-                      <label><input id="cameraLocoArm" type="checkbox"> Enable walk pad</label>
-                      <label><input id="cameraLocoRisk" type="checkbox"> I understand this can move the robot</label>
-                    </div>
-                    <div class="camera-drive-grid">
-                      <button type="button" class="turn left" data-camera-drive="turn-left" aria-label="Turn left"></button>
-                      <button type="button" class="arrow up" data-camera-drive="forward" aria-label="Walk forward"></button>
-                      <button type="button" class="turn right" data-camera-drive="turn-right" aria-label="Turn right"></button>
-                      <button type="button" class="arrow left" data-camera-drive="left" aria-label="Step left"></button>
-                      <button type="button" class="camera-drive-stop" data-camera-drive-stop aria-label="Stop walking">STOP</button>
-                      <button type="button" class="arrow right" data-camera-drive="right" aria-label="Step right"></button>
-                      <span></span>
-                      <button type="button" class="arrow down" data-camera-drive="back" aria-label="Walk backward"></button>
-                      <span></span>
-                    </div>
-                  </div>
                 </div>
                 <div class="camera-footer">
                   <span>Source</span>
@@ -269,6 +252,19 @@
                   <strong>Direct camera page</strong>
                   <p>Open `https://10.2.100.142:60001` once if the embedded preview is blocked by certificate trust.</p>
                 </article>
+                <div class="camera-drive-pad" aria-label="Vision Pro walking controls">
+                  <div class="camera-drive-grid">
+                    <button type="button" class="turn left" data-camera-drive="turn-left" aria-label="Turn left"></button>
+                    <button type="button" class="arrow up" data-camera-drive="forward" aria-label="Walk forward"></button>
+                    <button type="button" class="turn right" data-camera-drive="turn-right" aria-label="Turn right"></button>
+                    <button type="button" class="arrow left" data-camera-drive="left" aria-label="Step left"></button>
+                    <button type="button" class="camera-drive-stop" data-camera-drive-stop aria-label="Stop walking">STOP</button>
+                    <button type="button" class="arrow right" data-camera-drive="right" aria-label="Step right"></button>
+                    <span></span>
+                    <button type="button" class="arrow down" data-camera-drive="back" aria-label="Walk backward"></button>
+                    <span></span>
+                  </div>
+                </div>
               </aside>
             </div>
           </section>

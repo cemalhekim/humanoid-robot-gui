@@ -69,8 +69,6 @@ const els = {
   locoMotionOwner: document.getElementById("locoMotionOwner"),
   locoMessage: document.getElementById("locoMessage"),
   locoLastCommand: document.getElementById("locoLastCommand"),
-  locoArm: document.getElementById("locoArm"),
-  locoRisk: document.getElementById("locoRisk"),
   locoReady: document.getElementById("locoReady"),
   locoBalanceStand: document.getElementById("locoBalanceStand"),
   locoStandUp: document.getElementById("locoStandUp"),
@@ -354,10 +352,6 @@ function render(snapshot) {
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));
 }
 
-function locoSafetyReady() {
-  return true;
-}
-
 function updateLocoSliderLabels() {
   if (!els.locoVx) return;
   els.locoVxValue.textContent = `${Number(els.locoVx.value).toFixed(2)} m/s`;
@@ -373,7 +367,6 @@ function updateLocoSliderLabels() {
 
 function setLocoButtons() {
   if (!els.locoState) return;
-  const ready = locoSafetyReady();
   [
     els.locoReady,
     els.locoBalanceStand,
@@ -406,16 +399,12 @@ function setLocoButtons() {
     els.locoGetStandHeight,
     els.locoGetPhase,
   ].forEach((button) => {
-    if (button) button.disabled = !ready;
+    if (button) button.disabled = false;
   });
   els.locoPresets.forEach((button) => {
-    button.disabled = !ready;
+    button.disabled = false;
   });
-  if (els.locoStop) els.locoStop.disabled = !ready;
-  if (!ready && els.locoMessage) {
-    stopLocoHold(false);
-    els.locoMessage.textContent = "Enable both safety checkboxes before sending a loco command.";
-  }
+  if (els.locoStop) els.locoStop.disabled = false;
 }
 
 function renderLocoTelemetry(snapshot) {
@@ -532,13 +521,6 @@ function locoPayload(action, overrides = {}) {
 
 function sendLocoCommand(action, overrides = {}) {
   if (!els.locoState) return;
-  if (!locoSafetyReady()) {
-    els.locoMessage.textContent = "Command blocked: enable both safety checkboxes first.";
-    els.locoState.textContent = "Blocked";
-    els.locoState.className = "pill bad";
-    setLocoButtons();
-    return;
-  }
   els.locoMessage.textContent = `Sending ${action}`;
   els.locoState.textContent = "Sending";
   els.locoState.className = "pill good";
@@ -603,8 +585,6 @@ function startLocoPresetHold(event, button) {
 
 function setupLocoControls() {
   if (!els.locoState) return;
-  if (els.locoArm) els.locoArm.checked = true;
-  if (els.locoRisk) els.locoRisk.checked = true;
   [
     els.locoVx,
     els.locoVy,
@@ -618,8 +598,6 @@ function setupLocoControls() {
   ].forEach((slider) => {
     slider?.addEventListener("input", updateLocoSliderLabels);
   });
-  els.locoArm?.addEventListener("change", setLocoButtons);
-  els.locoRisk?.addEventListener("change", setLocoButtons);
   els.locoReady?.addEventListener("click", () => sendLocoCommand("ready"));
   els.locoBalanceStand?.addEventListener("click", () => sendLocoCommand("balance_stand"));
   els.locoStandUp?.addEventListener("click", () => sendLocoCommand("stand_up"));
@@ -887,12 +865,6 @@ function stopWristCommand() {
 
 function chillMotors() {
   if (!els.chillMotors) return;
-  if (!locoSafetyReady()) {
-    els.subtitle.textContent = "Chill blocked: enable both loco safety checkboxes first.";
-    if (els.locoMessage) els.locoMessage.textContent = "Command blocked: enable both safety checkboxes first.";
-    setLocoButtons();
-    return;
-  }
   els.chillMotors.disabled = true;
   els.chillMotors.classList.add("pending");
   els.chillMotors.textContent = "Chilling";

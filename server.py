@@ -1332,9 +1332,6 @@ finally:
         return 202, {"ok": True, "message": "XR teleop stop requested. Arms should move home during clean shutdown.", "reply": output}
 
     def request_chill(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        if not has_risk_ack(payload):
-            return 400, {"ok": False, "error": "Chill command requires armed=true and i_understand_risk=true."}
-
         with self.command_lock:
             cancel = self.wrist_cancel
             motion_switcher = self.motion_switcher
@@ -1389,9 +1386,6 @@ finally:
         return value
 
     def command_loco(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        if not has_risk_ack(payload):
-            return 400, {"ok": False, "error": "Loco command requires armed=true and i_understand_risk=true."}
-
         action = str(payload.get("action", "")).strip()
         allowed_actions = {
             "ready",

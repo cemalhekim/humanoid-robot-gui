@@ -21,7 +21,7 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(server.HAND_JOINT_NAMES[6], "LeftPinky")
         self.assertEqual(server.HAND_JOINT_NAMES[11], "LeftThumbRotation")
 
-    def test_motion_commands_require_explicit_risk_flags_before_availability_checks(self) -> None:
+    def test_wrist_commands_require_explicit_risk_flags(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
 
         wrist_status, wrist_response = store.command_wrist({})
@@ -29,24 +29,18 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertFalse(wrist_response["ok"])
         self.assertIn("armed=true", wrist_response["error"])
 
-        loco_status, loco_response = store.command_loco({"action": "ready"})
-        self.assertEqual(loco_status, 400)
-        self.assertFalse(loco_response["ok"])
-        self.assertIn("armed=true", loco_response["error"])
-
-        chill_status, chill_response = store.request_chill({})
-        self.assertEqual(chill_status, 400)
-        self.assertFalse(chill_response["ok"])
-        self.assertIn("armed=true", chill_response["error"])
-
-    def test_risk_flags_must_be_json_booleans(self) -> None:
+    def test_loco_and_chill_do_not_require_risk_flags(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
 
-        status, response = store.command_loco(
-            {"action": "ready", "armed": "true", "i_understand_risk": "true"}
-        )
-        self.assertEqual(status, 400)
-        self.assertFalse(response["ok"])
+        loco_status, loco_response = store.command_loco({"action": "ready"})
+        self.assertEqual(loco_status, 503)
+        self.assertFalse(loco_response["ok"])
+        self.assertIn("loco client", loco_response["error"])
+
+        chill_status, chill_response = store.request_chill({})
+        self.assertEqual(chill_status, 503)
+        self.assertFalse(chill_response["ok"])
+        self.assertIn("loco client", chill_response["error"])
 
     def test_command_limits_fail_closed(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")

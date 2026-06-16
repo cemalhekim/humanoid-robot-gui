@@ -38,10 +38,26 @@ PATCHED_CALLBACKS = (
     'd==null||d(T)},[d]),rtwDown=y.useCallback(T=>{String(e).startsWith("rtw-loco-")'
     '&&b.publish({ts:Date.now(),etype:"RTW_LOCO_POINTER_DOWN",value:{key:e}})},[e,b]),'
     'rtwUp=y.useCallback(T=>{String(e).startsWith("rtw-loco-")&&b.publish'
+    '({ts:Date.now(),etype:"RTW_LOCO_POINTER_UP",value:{key:e}})},[e,b]),'
+    'rtwHover=y.useCallback(T=>{String(e).startsWith("rtw-loco-")&&b.publish'
+    '({ts:Date.now(),etype:"RTW_LOCO_HOVER",value:{key:e}})},[e,b]),'
+    'rtwLeave=y.useCallback(T=>{String(e).startsWith("rtw-loco-")&&b.publish'
+    '({ts:Date.now(),etype:"RTW_LOCO_HOVER",value:{key:null}})},[e,b]);'
+)
+OLD_SCOPED_CALLBACKS = (
+    'w=y.useCallback(T=>{b.publish({ts:Date.now(),etype:"ON_CLICK",value:{key:e}}),'
+    'd==null||d(T)},[d]),rtwDown=y.useCallback(T=>{String(e).startsWith("rtw-loco-")'
+    '&&b.publish({ts:Date.now(),etype:"RTW_LOCO_POINTER_DOWN",value:{key:e}})},[e,b]),'
+    'rtwUp=y.useCallback(T=>{String(e).startsWith("rtw-loco-")&&b.publish'
     '({ts:Date.now(),etype:"RTW_LOCO_POINTER_UP",value:{key:e}})},[e,b]);'
 )
 TARGET_MESH = CLEAN_MESH
 PATCHED_MESH = (
+    'H.jsxs("mesh",{ref:m,onClick:w,onPointerDown:rtwDown,onPointerUp:rtwUp,'
+    'onPointerCancel:rtwUp,onPointerEnter:rtwHover,onPointerOver:rtwHover,'
+    'onPointerLeave:rtwLeave,onPointerOut:rtwLeave,...h,children:'
+)
+OLD_SCOPED_MESH = (
     'H.jsxs("mesh",{ref:m,onClick:w,onPointerDown:rtwDown,onPointerUp:rtwUp,'
     'onPointerCancel:rtwUp,onPointerOut:rtwUp,...h,children:'
 )
@@ -55,6 +71,9 @@ def patch_text(text: str) -> tuple[str, bool]:
     text = text.replace(OLD_SIGNATURE, NEW_SIGNATURE)
     text = text.replace(OLD_CALLBACKS, CLEAN_CALLBACKS)
     text = text.replace(OLD_MESH, CLEAN_MESH)
+
+    text = text.replace(OLD_SCOPED_CALLBACKS, PATCHED_CALLBACKS)
+    text = text.replace(OLD_SCOPED_MESH, PATCHED_MESH)
 
     if "RTW_LOCO_POINTER_DOWN" not in text:
         text = text.replace(TARGET_CALLBACKS, PATCHED_CALLBACKS)

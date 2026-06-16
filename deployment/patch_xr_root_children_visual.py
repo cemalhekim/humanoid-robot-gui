@@ -43,6 +43,8 @@ def _rtw_loco_payload_for_key(key):
 _rtw_loco_hold_lock = threading.Lock()
 _rtw_loco_hold_stop = None
 _rtw_loco_last_pointer_event_at = 0.0
+_rtw_loco_hover_key = None
+_rtw_loco_select_active = False
 
 
 def _rtw_post_loco(payload):
@@ -112,6 +114,46 @@ def _rtw_handle_loco_pad_pointer_up(key):
         return
     _rtw_loco_last_pointer_event_at = __import__("time").time()
     _rtw_stop_loco_hold()
+
+
+def _rtw_handle_loco_pad_hover(key):
+    global _rtw_loco_hover_key
+    if not _rtw_root_children_visual_enabled():
+        return
+    if key and _rtw_loco_payload_for_key(key) is not None:
+        _rtw_loco_hover_key = str(key).split("-mark-", 1)[0]
+    else:
+        _rtw_loco_hover_key = None
+        if _rtw_loco_select_active:
+            _rtw_stop_loco_hold()
+
+
+def _rtw_handle_loco_controller_state(value):
+    global _rtw_loco_select_active, _rtw_loco_last_pointer_event_at
+    if not _rtw_root_children_visual_enabled():
+        return
+    left = value.get("leftState") or {}
+    right = value.get("rightState") or {}
+    pressed = bool(
+        left.get("trigger")
+        or left.get("squeeze")
+        or right.get("trigger")
+        or right.get("squeeze")
+    )
+    if pressed and not _rtw_loco_select_active:
+        _rtw_loco_select_active = True
+        _rtw_loco_last_pointer_event_at = __import__("time").time()
+        if _rtw_loco_hover_key:
+            _rtw_start_loco_hold(_rtw_loco_hover_key)
+    elif pressed and _rtw_loco_select_active and _rtw_loco_hover_key:
+        with _rtw_loco_hold_lock:
+            running = _rtw_loco_hold_stop is not None
+        if not running:
+            _rtw_start_loco_hold(_rtw_loco_hover_key)
+    elif not pressed and _rtw_loco_select_active:
+        _rtw_loco_select_active = False
+        _rtw_loco_last_pointer_event_at = __import__("time").time()
+        _rtw_stop_loco_hold()
 
 
 def _rtw_send_loco_pulse(key):
@@ -213,6 +255,7 @@ HANDLER_INSERT = """        self.vuer.add_handler("CAMERA_MOVE")(self.on_cam_mov
 """
 HANDLER_REPLACEMENT = """        self.vuer.add_handler("CAMERA_MOVE")(self.on_cam_move)
         self.vuer.add_handler("ON_CLICK")(self.on_rtw_root_loco_click)
+        self.vuer.add_handler("RTW_LOCO_HOVER")(self.on_rtw_root_loco_hover)
         self.vuer.add_handler("RTW_LOCO_POINTER_DOWN")(self.on_rtw_root_loco_pointer_down)
         self.vuer.add_handler("RTW_LOCO_POINTER_UP")(self.on_rtw_root_loco_pointer_up)
 """
@@ -233,6 +276,13 @@ METHOD_BLOCK = """    async def on_rtw_root_loco_pointer_down(self, event, sessi
         except Exception as exc:
             print(f"[rtw loco pad] pointer up handler failed: {exc}")
 
+    async def on_rtw_root_loco_hover(self, event, session):
+        try:
+            value = event.value or {}
+            _rtw_handle_loco_pad_hover(value.get("key"))
+        except Exception as exc:
+            print(f"[rtw loco pad] hover handler failed: {exc}")
+
     async def on_rtw_root_loco_click(self, event, session):
         try:
             value = event.value or {}
@@ -240,6 +290,14 @@ METHOD_BLOCK = """    async def on_rtw_root_loco_pointer_down(self, event, sessi
         except Exception as exc:
             print(f"[rtw loco pad] click handler failed: {exc}")
 
+"""
+
+CONTROLLER_INSERT = """            extract_controllers(left_controller, "left")
+            extract_controllers(right_controller, "right")
+"""
+CONTROLLER_REPLACEMENT = """            extract_controllers(left_controller, "left")
+            extract_controllers(right_controller, "right")
+            _rtw_handle_loco_controller_state(event.value)
 """
 
 
@@ -275,6 +333,9 @@ def main() -> int:
         if METHOD_INSERT not in text:
             raise SystemExit("Could not find TeleVuer on_cam_move method")
         text = text.replace(METHOD_INSERT, METHOD_BLOCK + METHOD_INSERT, 1)
+
+    if CONTROLLER_REPLACEMENT not in text and CONTROLLER_INSERT in text:
+        text = text.replace(CONTROLLER_INSERT, CONTROLLER_REPLACEMENT, 1)
 
     for point in INSERT_POINTS:
         replacement = "        _rtw_upsert_root_children_visual(session)\n\n" + point

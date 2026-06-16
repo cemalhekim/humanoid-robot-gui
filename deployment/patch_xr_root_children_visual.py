@@ -36,13 +36,8 @@ def _rtw_loco_payload_for_key(key):
         "vx": vx,
         "vy": vy,
         "vyaw": vyaw,
-        "duration": 0.45,
+        "duration": 0.35,
     }
-
-
-_rtw_loco_hold_lock = threading.Lock()
-_rtw_loco_hold_stop = None
-_rtw_loco_hold_key = None
 
 
 def _rtw_post_loco(payload):
@@ -60,53 +55,26 @@ def _rtw_post_loco(payload):
         response.read()
 
 
-def _rtw_loco_hold_loop(key, stop_event):
+def _rtw_send_loco_pulse(key):
     payload = _rtw_loco_payload_for_key(key)
     if payload is None:
         return
-    while not stop_event.is_set():
-        try:
-            _rtw_post_loco(payload)
-        except Exception as exc:
-            print(f"[rtw loco pad] command failed for {key}: {exc}")
-            break
-        stop_event.wait(0.22)
-
-
-def _rtw_stop_loco_hold():
-    global _rtw_loco_hold_stop, _rtw_loco_hold_key
-    with _rtw_loco_hold_lock:
-        stop_event = _rtw_loco_hold_stop
-        _rtw_loco_hold_stop = None
-        _rtw_loco_hold_key = None
-    if stop_event is not None:
-        stop_event.set()
     try:
+        _rtw_post_loco(payload)
+    except Exception as exc:
+        print(f"[rtw loco pad] command failed for {key}: {exc}")
+        return
+    try:
+        __import__("time").sleep(0.45)
         _rtw_post_loco({"action": "stop_move"})
     except Exception as exc:
-        print(f"[rtw loco pad] stop failed: {exc}")
+        print(f"[rtw loco pad] stop failed after {key}: {exc}")
 
 
 def _rtw_handle_loco_pad_click(key):
-    global _rtw_loco_hold_stop, _rtw_loco_hold_key
     if not _rtw_root_children_visual_enabled():
         return
-    payload = _rtw_loco_payload_for_key(key)
-    if payload is None:
-        return
-    normalized_key = str(key).split("-mark-", 1)[0]
-    with _rtw_loco_hold_lock:
-        active_key = _rtw_loco_hold_key
-        is_same_active = _rtw_loco_hold_stop is not None and active_key == normalized_key
-    if is_same_active:
-        _rtw_stop_loco_hold()
-        return
-    _rtw_stop_loco_hold()
-    stop_event = threading.Event()
-    with _rtw_loco_hold_lock:
-        _rtw_loco_hold_stop = stop_event
-        _rtw_loco_hold_key = normalized_key
-    thread = threading.Thread(target=_rtw_loco_hold_loop, args=(key, stop_event), daemon=True)
+    thread = threading.Thread(target=_rtw_send_loco_pulse, args=(key,), daemon=True)
     thread.start()
 
 

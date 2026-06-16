@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Patch TeleVuer with an optional root scene children visual test."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+
+TELEVUER = Path("/home/unitree/xr_teleoperate/teleop/televuer/src/televuer/televuer.py")
+
+MARKER = "# robot_telemetry_web root children visual test\n"
+
+HELPER = '''# robot_telemetry_web root children visual test
+def _rtw_root_children_visual_enabled():
+    return os.getenv("XR_ROOT_CHILDREN_VISUAL", "0") == "1"
+
+
+def _rtw_upsert_root_children_visual(session):
+    if not _rtw_root_children_visual_enabled():
+        return
+    session.upsert(
+        [
+            Box(
+                key="rtw-root-visual-center",
+                position=[0.0, 0.0, -1.4],
+                scale=[0.45, 0.18, 0.04],
+                color="#ff1744",
+            ),
+            Box(
+                key="rtw-root-visual-left",
+                position=[-0.55, 0.0, -1.4],
+                scale=[0.18, 0.18, 0.04],
+                color="#ffd400",
+            ),
+            Box(
+                key="rtw-root-visual-right",
+                position=[0.55, 0.0, -1.4],
+                scale=[0.18, 0.18, 0.04],
+                color="#00e5ff",
+            ),
+            Box(
+                key="rtw-root-visual-above",
+                position=[0.0, 0.36, -1.4],
+                scale=[0.22, 0.22, 0.04],
+                color="#39ff14",
+            ),
+            Box(
+                key="rtw-root-visual-alt-forward",
+                position=[0.0, 0.0, 1.4],
+                scale=[0.28, 0.28, 0.04],
+                color="#ffffff",
+            ),
+        ],
+        to="children",
+    )
+
+
+'''
+
+IMPORT_OLD = "from vuer.schemas import ImageBackground, Hands, MotionControllers, WebRTCVideoPlane, WebRTCStereoVideoPlane\n"
+IMPORT_NEW = "from vuer.schemas import ImageBackground, Hands, MotionControllers, WebRTCVideoPlane, WebRTCStereoVideoPlane, Box\n"
+
+INSERT_POINTS = [
+    """        while True:
+            session.upsert(
+                WebRTCStereoVideoPlane(
+""",
+    """        while True:
+            session.upsert(
+                WebRTCVideoPlane(
+""",
+]
+
+
+def main() -> int:
+    if not TELEVUER.exists():
+        return 0
+
+    text = TELEVUER.read_text(encoding="utf-8")
+
+    if IMPORT_NEW not in text:
+        if IMPORT_OLD not in text:
+            raise SystemExit("Could not find TeleVuer schema import line")
+        text = text.replace(IMPORT_OLD, IMPORT_NEW, 1)
+
+    if MARKER not in text:
+        class_index = text.find("class TeleVuer:")
+        if class_index < 0:
+            raise SystemExit("Could not find TeleVuer class")
+        text = text[:class_index] + HELPER + text[class_index:]
+
+    for point in INSERT_POINTS:
+        replacement = "        _rtw_upsert_root_children_visual(session)\n\n" + point
+        if replacement in text:
+            continue
+        if point not in text:
+            raise SystemExit("Could not find WebRTC render loop insertion point")
+        text = text.replace(point, replacement, 1)
+
+    TELEVUER.write_text(text, encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

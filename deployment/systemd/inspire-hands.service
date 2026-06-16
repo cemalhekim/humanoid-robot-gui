@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/unitree/unitree_sdk2_python/example/h1_2
-Environment=XR_INSPIRE_DEVICE=/dev/ttyUSB0
-Environment=XR_INSPIRE_LEFT_DEVICE=/dev/ttyUSB1
+Environment=XR_INSPIRE_DEVICE=/dev/serial/by-path/pci-0000:00:14.0-usb-0:1.1:1.0-port0
+Environment=XR_INSPIRE_LEFT_DEVICE=/dev/serial/by-path/pci-0000:00:14.0-usb-0:1.3:1.0-port0
 Environment=XR_INSPIRE_NETWORK=eth0
 ExecStart=/home/unitree/xr_teleoperate/deploy/scripts/start_inspire_hands.sh
 Restart=always

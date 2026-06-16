@@ -44,6 +44,33 @@ PATCHED_CALLBACKS = (
     'rtwLeave=y.useCallback(T=>{String(e).startsWith("rtw-loco-")&&b.publish'
     '({ts:Date.now(),etype:"RTW_LOCO_HOVER",value:{key:null}})},[e,b]);'
 )
+OLD_XR_HOLD_CALLBACKS = (
+    'w=y.useCallback(T=>{b.publish({ts:Date.now(),etype:"ON_CLICK",value:{key:e}}),'
+    'd==null||d(T)},[d]),rtwDown=y.useCallback(T=>{String(e).startsWith("rtw-loco-")'
+    '&&b.publish({ts:Date.now(),etype:"RTW_LOCO_POINTER_DOWN",value:{key:e}})},[e,b]),'
+    'rtwUp=y.useCallback(T=>{String(e).startsWith("rtw-loco-")&&b.publish'
+    '({ts:Date.now(),etype:"RTW_LOCO_POINTER_UP",value:{key:e}})},[e,b]),'
+    'rtwHover=y.useCallback(T=>{String(e).startsWith("rtw-loco-")&&'
+    '(typeof window!="undefined"&&(window.__rtwLocoHoverKey=e),b.publish'
+    '({ts:Date.now(),etype:"RTW_LOCO_HOVER",value:{key:e}}))},[e,b]),'
+    'rtwLeave=y.useCallback(T=>{String(e).startsWith("rtw-loco-")&&'
+    '(typeof window!="undefined"&&window.__rtwLocoHoverKey===e&&'
+    '(window.__rtwLocoHoverKey=null),b.publish({ts:Date.now(),etype:'
+    '"RTW_LOCO_HOVER",value:{key:null}}))},[e,b]);y.useEffect(()=>{if'
+    '(typeof window=="undefined")return;window.__rtwLocoPublish=T=>b.publish(T);'
+    'if(!window.__rtwLocoXRHoldPatched){window.__rtwLocoXRHoldPatched=!0;'
+    'const T=()=>{const E=window.__rtwLocoHoverKey;E&&window.__rtwLocoPublish&&'
+    'window.__rtwLocoPublish({ts:Date.now(),etype:"RTW_LOCO_POINTER_DOWN",'
+    'value:{key:E}})},E=()=>{window.__rtwLocoPublish&&window.__rtwLocoPublish'
+    '({ts:Date.now(),etype:"RTW_LOCO_POINTER_UP",value:{key:window.__rtwLocoHoverKey'
+    '||null}})};window.addEventListener("pointerdown",T,!0);window.addEventListener'
+    '("pointerup",E,!0);window.addEventListener("blur",E,!0);const N=navigator.xr;'
+    'if(N&&N.requestSession&&!N.__rtwLocoWrapped){const R=N.requestSession.bind(N);'
+    'N.__rtwLocoWrapped=!0;N.requestSession=(...O)=>R(...O).then(S=>{try{'
+    'S.addEventListener("selectstart",T);S.addEventListener("selectend",E);'
+    'S.addEventListener("squeezestart",T);S.addEventListener("squeezeend",E)}'
+    'catch(A){}return S})}}},[b]);'
+)
 OLD_SCOPED_CALLBACKS = (
     'w=y.useCallback(T=>{b.publish({ts:Date.now(),etype:"ON_CLICK",value:{key:e}}),'
     'd==null||d(T)},[d]),rtwDown=y.useCallback(T=>{String(e).startsWith("rtw-loco-")'
@@ -72,6 +99,7 @@ def patch_text(text: str) -> tuple[str, bool]:
     text = text.replace(OLD_CALLBACKS, CLEAN_CALLBACKS)
     text = text.replace(OLD_MESH, CLEAN_MESH)
 
+    text = text.replace(OLD_XR_HOLD_CALLBACKS, PATCHED_CALLBACKS)
     text = text.replace(OLD_SCOPED_CALLBACKS, PATCHED_CALLBACKS)
     text = text.replace(OLD_SCOPED_MESH, PATCHED_MESH)
 

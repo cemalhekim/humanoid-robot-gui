@@ -300,6 +300,14 @@ CONTROLLER_REPLACEMENT = """            extract_controllers(left_controller, "le
             _rtw_handle_loco_controller_state(event.value)
 """
 
+STALE_HAND_REPLACEMENT = """            extract_hands(left_hand, "left")
+            extract_hands(right_hand, "right")
+            _rtw_handle_loco_controller_state(event.value)
+"""
+HAND_INSERT = """            extract_hands(left_hand, "left")
+            extract_hands(right_hand, "right")
+"""
+
 
 def main() -> int:
     if not TELEVUER.exists():
@@ -333,6 +341,8 @@ def main() -> int:
         if METHOD_INSERT not in text:
             raise SystemExit("Could not find TeleVuer on_cam_move method")
         text = text.replace(METHOD_INSERT, METHOD_BLOCK + METHOD_INSERT, 1)
+
+    text = text.replace(STALE_HAND_REPLACEMENT, HAND_INSERT)
 
     if CONTROLLER_REPLACEMENT not in text and CONTROLLER_INSERT in text:
         text = text.replace(CONTROLLER_INSERT, CONTROLLER_REPLACEMENT, 1)

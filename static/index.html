@@ -33,6 +33,17 @@
             </span>
             Camera Stream
           </a>
+          <a class="nav-item" href="#teleoperation">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M6.5 17.5 4 20M17.5 17.5 20 20M8.3 11.7h7.4M8.5 8.5h7"></path>
+                <path d="M7 5.5h10c1.7 0 3 1.3 3 3v5.1c0 1.6-1.2 2.9-2.8 3l-2.6.1-1.1-2.4h-3l-1.1 2.4-2.6-.1c-1.6-.1-2.8-1.4-2.8-3V8.5c0-1.7 1.3-3 3-3Z"></path>
+                <circle cx="8.3" cy="12" r="1.1"></circle>
+                <circle cx="15.7" cy="12" r="1.1"></circle>
+              </svg>
+            </span>
+            Teleoperation
+          </a>
           <a class="nav-item" href="#rosGraph">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
@@ -263,6 +274,51 @@
                   </div>
                 </div>
               </aside>
+            </div>
+          </section>
+
+          <section id="teleoperation" class="teleoperation-page panel">
+            <div class="teleoperation-header">
+              <div>
+                <h2>Select your control method.</h2>
+              </div>
+              <a
+                class="camera-link-button"
+                href="https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012"
+                target="_blank"
+                rel="noreferrer"
+              >
+                VR View
+              </a>
+            </div>
+            <div class="teleoperation-options" aria-label="Teleoperation control methods">
+              <a
+                class="teleoperation-option method-pad"
+                href="https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012"
+                target="_blank"
+                rel="noreferrer"
+                data-teleoperation-method
+              >
+                <span class="method-art" aria-hidden="true"></span>
+                <span class="method-copy">
+                  <strong>Floating VR Control Pad</strong>
+                  <small>Current movement strategy</small>
+                </span>
+              </a>
+              <div class="teleoperation-option method-head disabled-method" aria-disabled="true">
+                <span class="method-art" aria-hidden="true"></span>
+                <span class="method-copy">
+                  <strong>Head Rotation Control</strong>
+                  <small>Coming soon</small>
+                </span>
+              </div>
+              <div class="teleoperation-option method-mimic disabled-method" aria-disabled="true">
+                <span class="method-art" aria-hidden="true"></span>
+                <span class="method-copy">
+                  <strong>Motion Mimic</strong>
+                  <small>Coming soon</small>
+                </span>
+              </div>
             </div>
           </section>
 

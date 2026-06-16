@@ -121,6 +121,7 @@ const els = {
   locoGetPhase: document.getElementById("locoGetPhase"),
   locoHistory: document.getElementById("locoHistory"),
   locoPresets: document.querySelectorAll("[data-loco-preset]"),
+  teleoperationMethods: document.querySelectorAll("[data-teleoperation-method]"),
 };
 
 function fmt(value, suffix = "") {
@@ -1162,6 +1163,8 @@ els.filter.addEventListener("input", () => {
 });
 
 function syncActiveNav() {
+  document.documentElement.scrollLeft = 0;
+  document.body.scrollLeft = 0;
   const activeHash = window.location.hash || "#dashboard";
   els.navItems.forEach((item) => {
     item.classList.toggle("active", item.getAttribute("href") === activeHash);
@@ -1212,6 +1215,15 @@ document.addEventListener("visibilitychange", () => {
 els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 els.chillMotors?.addEventListener("click", chillMotors);
 els.homeRobot?.addEventListener("click", sendRobotHome);
+els.teleoperationMethods.forEach((method) => {
+  method.addEventListener("click", () => {
+    method.classList.remove("click-glow");
+    window.requestAnimationFrame(() => {
+      method.classList.add("click-glow");
+      window.setTimeout(() => method.classList.remove("click-glow"), 520);
+    });
+  });
+});
 document.addEventListener("selectstart", (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
   event.preventDefault();

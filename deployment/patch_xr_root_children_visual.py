@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patch TeleVuer with an optional root scene children visual test."""
+"""Patch TeleVuer with an optional head-locked root scene visual test."""
 
 from __future__ import annotations
 
@@ -15,38 +15,47 @@ def _rtw_root_children_visual_enabled():
     return os.getenv("XR_ROOT_CHILDREN_VISUAL", "0") == "1"
 
 
-def _rtw_upsert_root_children_visual(session):
+def _rtw_matrix_from_head(head_pose, x, y, z):
+    pose = np.array(head_pose, dtype=float).reshape(4, 4, order="F")
+    if not np.isfinite(pose).all() or abs(np.linalg.det(pose[:3, :3])) < 1e-6:
+        pose = np.eye(4)
+    offset = np.eye(4)
+    offset[:3, 3] = [x, y, z]
+    return (pose @ offset).flatten(order="F").tolist()
+
+
+def _rtw_upsert_root_children_visual(session, head_pose):
     if not _rtw_root_children_visual_enabled():
         return
     session.upsert(
         [
             Box(
                 key="rtw-root-visual-center",
-                position=[0.0, 0.0, -1.4],
+                matrix=_rtw_matrix_from_head(head_pose, 0.0, -0.18, -1.15),
                 scale=[0.45, 0.18, 0.04],
                 color="#ff1744",
             ),
             Box(
                 key="rtw-root-visual-left",
-                position=[-0.55, 0.0, -1.4],
+                matrix=_rtw_matrix_from_head(head_pose, -0.55, -0.18, -1.15),
                 scale=[0.18, 0.18, 0.04],
                 color="#ffd400",
             ),
             Box(
                 key="rtw-root-visual-right",
-                position=[0.55, 0.0, -1.4],
+                matrix=_rtw_matrix_from_head(head_pose, 0.55, -0.18, -1.15),
                 scale=[0.18, 0.18, 0.04],
                 color="#00e5ff",
             ),
             Box(
                 key="rtw-root-visual-above",
-                position=[0.0, 0.36, -1.4],
+                matrix=_rtw_matrix_from_head(head_pose, 0.0, 0.18, -1.15),
                 scale=[0.22, 0.22, 0.04],
                 color="#39ff14",
             ),
             Box(
                 key="rtw-root-visual-alt-forward",
-                position=[0.0, 0.0, 1.4],
+                matrix=_rtw_matrix_from_head(head_pose, 0.0, -0.18, 1.15),
                 scale=[0.28, 0.28, 0.04],
                 color="#ffffff",
             ),
@@ -71,6 +80,8 @@ INSERT_POINTS = [
 """,
 ]
 
+OLD_STATIC_CALL = "        _rtw_upsert_root_children_visual(session)\\n\\n"
+
 
 def main() -> int:
     if not TELEVUER.exists():
@@ -88,9 +99,15 @@ def main() -> int:
         if class_index < 0:
             raise SystemExit("Could not find TeleVuer class")
         text = text[:class_index] + HELPER + text[class_index:]
+    elif "def _rtw_upsert_root_children_visual(session):" in text:
+        start = text.index(MARKER)
+        end = text.index("\\n\\nclass TeleVuer:", start)
+        text = text[:start] + HELPER.rstrip() + text[end:]
+
+    text = text.replace(OLD_STATIC_CALL, "")
 
     for point in INSERT_POINTS:
-        replacement = "        _rtw_upsert_root_children_visual(session)\n\n" + point
+        replacement = point.replace("            session.upsert(", "            _rtw_upsert_root_children_visual(session, self.head_pose)\n            session.upsert(", 1)
         if replacement in text:
             continue
         if point not in text:

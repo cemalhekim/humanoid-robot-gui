@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patch TeleVuer with an optional root scene children visual test."""
+"""Patch TeleVuer with an optional root scene loco control pad."""
 
 from __future__ import annotations
 
@@ -8,11 +8,94 @@ from pathlib import Path
 
 TELEVUER = Path("/home/unitree/xr_teleoperate/teleop/televuer/src/televuer/televuer.py")
 
-MARKER = "# robot_telemetry_web root children visual test\n"
+MARKER = "# robot_telemetry_web root children loco pad\n"
+OLD_MARKER = "# robot_telemetry_web root children visual test\n"
 
-HELPER = '''# robot_telemetry_web root children visual test
+HELPER = '''# robot_telemetry_web root children loco pad
 def _rtw_root_children_visual_enabled():
     return os.getenv("XR_ROOT_CHILDREN_VISUAL", "0") == "1"
+
+
+def _rtw_loco_payload_for_key(key):
+    if not key:
+        return None
+    key = str(key).split("-mark-", 1)[0]
+    presets = {
+        "rtw-loco-turn-right": (0.0, 0.0, -0.5),
+        "rtw-loco-forward": (0.5, 0.0, 0.0),
+        "rtw-loco-turn-left": (0.0, 0.0, 0.5),
+        "rtw-loco-left": (0.0, 0.5, 0.0),
+        "rtw-loco-back": (-0.5, 0.0, 0.0),
+        "rtw-loco-right": (0.0, -0.5, 0.0),
+    }
+    if key not in presets:
+        return None
+    vx, vy, vyaw = presets[key]
+    return {
+        "action": "velocity",
+        "vx": vx,
+        "vy": vy,
+        "vyaw": vyaw,
+        "duration": 0.35,
+    }
+
+
+def _rtw_post_loco(payload):
+    import json
+    import urllib.request
+
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        "http://127.0.0.1:8088/api/loco/command",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=0.7) as response:
+        response.read()
+
+
+def _rtw_send_loco_pulse(key):
+    payload = _rtw_loco_payload_for_key(key)
+    if payload is None:
+        return
+    try:
+        _rtw_post_loco(payload)
+    except Exception as exc:
+        print(f"[rtw loco pad] command failed for {key}: {exc}")
+        return
+    try:
+        __import__("time").sleep(0.45)
+        _rtw_post_loco({"action": "stop_move"})
+    except Exception as exc:
+        print(f"[rtw loco pad] stop failed after {key}: {exc}")
+
+
+def _rtw_handle_loco_pad_click(key):
+    if not _rtw_root_children_visual_enabled():
+        return
+    thread = threading.Thread(target=_rtw_send_loco_pulse, args=(key,), daemon=True)
+    thread.start()
+
+
+def _rtw_loco_button(key, x, y, color):
+    return Box(
+        key=key,
+        position=[x, y, -1.35],
+        scale=[0.36, 0.24, 0.04],
+        color=color,
+        onClick=True,
+    )
+
+
+def _rtw_loco_mark(key, x, y, sx, sy, color="#ffffff"):
+    return Box(
+        key=key,
+        position=[x, y, -1.31],
+        scale=[sx, sy, 0.035],
+        color=color,
+        onClick=True,
+    )
 
 
 def _rtw_upsert_root_children_visual(session):
@@ -20,36 +103,28 @@ def _rtw_upsert_root_children_visual(session):
         return
     session.upsert(
         [
-            Box(
-                key="rtw-root-visual-center",
-                position=[0.0, 0.0, -1.4],
-                scale=[0.45, 0.18, 0.04],
-                color="#ff1744",
-            ),
-            Box(
-                key="rtw-root-visual-left",
-                position=[-0.55, 0.0, -1.4],
-                scale=[0.18, 0.18, 0.04],
-                color="#ffd400",
-            ),
-            Box(
-                key="rtw-root-visual-right",
-                position=[0.55, 0.0, -1.4],
-                scale=[0.18, 0.18, 0.04],
-                color="#00e5ff",
-            ),
-            Box(
-                key="rtw-root-visual-above",
-                position=[0.0, 0.36, -1.4],
-                scale=[0.22, 0.22, 0.04],
-                color="#39ff14",
-            ),
-            Box(
-                key="rtw-root-visual-alt-forward",
-                position=[0.0, 0.0, 1.4],
-                scale=[0.28, 0.28, 0.04],
-                color="#ffffff",
-            ),
+            _rtw_loco_button("rtw-loco-turn-right", -0.46, 0.16, "#b8322a"),
+            _rtw_loco_button("rtw-loco-forward", 0.0, 0.16, "#1f8f4d"),
+            _rtw_loco_button("rtw-loco-turn-left", 0.46, 0.16, "#b8322a"),
+            _rtw_loco_button("rtw-loco-left", -0.46, -0.16, "#2457d6"),
+            _rtw_loco_button("rtw-loco-back", 0.0, -0.16, "#7a2fc2"),
+            _rtw_loco_button("rtw-loco-right", 0.46, -0.16, "#2457d6"),
+            _rtw_loco_mark("rtw-loco-turn-right-mark-a", -0.52, 0.18, 0.12, 0.035),
+            _rtw_loco_mark("rtw-loco-turn-right-mark-b", -0.41, 0.11, 0.035, 0.12),
+            _rtw_loco_mark("rtw-loco-forward-mark-a", 0.0, 0.19, 0.055, 0.14),
+            _rtw_loco_mark("rtw-loco-forward-mark-b", -0.045, 0.25, 0.09, 0.035),
+            _rtw_loco_mark("rtw-loco-forward-mark-c", 0.045, 0.25, 0.09, 0.035),
+            _rtw_loco_mark("rtw-loco-turn-left-mark-a", 0.52, 0.18, 0.12, 0.035),
+            _rtw_loco_mark("rtw-loco-turn-left-mark-b", 0.41, 0.11, 0.035, 0.12),
+            _rtw_loco_mark("rtw-loco-left-mark-a", -0.51, -0.16, 0.14, 0.055),
+            _rtw_loco_mark("rtw-loco-left-mark-b", -0.57, -0.115, 0.035, 0.09),
+            _rtw_loco_mark("rtw-loco-left-mark-c", -0.57, -0.205, 0.035, 0.09),
+            _rtw_loco_mark("rtw-loco-back-mark-a", 0.0, -0.19, 0.055, 0.14),
+            _rtw_loco_mark("rtw-loco-back-mark-b", -0.045, -0.25, 0.09, 0.035),
+            _rtw_loco_mark("rtw-loco-back-mark-c", 0.045, -0.25, 0.09, 0.035),
+            _rtw_loco_mark("rtw-loco-right-mark-a", 0.51, -0.16, 0.14, 0.055),
+            _rtw_loco_mark("rtw-loco-right-mark-b", 0.57, -0.115, 0.035, 0.09),
+            _rtw_loco_mark("rtw-loco-right-mark-c", 0.57, -0.205, 0.035, 0.09),
         ],
         to="children",
     )
@@ -71,6 +146,23 @@ INSERT_POINTS = [
 """,
 ]
 
+HANDLER_INSERT = """        self.vuer.add_handler("CAMERA_MOVE")(self.on_cam_move)
+"""
+HANDLER_REPLACEMENT = """        self.vuer.add_handler("CAMERA_MOVE")(self.on_cam_move)
+        self.vuer.add_handler("ON_CLICK")(self.on_rtw_root_loco_click)
+"""
+
+METHOD_INSERT = """    async def on_cam_move(self, event, session, fps=60):
+"""
+METHOD_BLOCK = """    async def on_rtw_root_loco_click(self, event, session):
+        try:
+            value = event.value or {}
+            _rtw_handle_loco_pad_click(value.get("key"))
+        except Exception as exc:
+            print(f"[rtw loco pad] click handler failed: {exc}")
+
+"""
+
 
 def main() -> int:
     if not TELEVUER.exists():
@@ -83,11 +175,27 @@ def main() -> int:
             raise SystemExit("Could not find TeleVuer schema import line")
         text = text.replace(IMPORT_OLD, IMPORT_NEW, 1)
 
-    if MARKER not in text:
+    for marker in (MARKER, OLD_MARKER):
+        if marker in text:
+            start = text.index(marker)
+            end = text.index("\n\nclass TeleVuer:", start)
+            text = text[:start] + HELPER.rstrip() + text[end:]
+            break
+    else:
         class_index = text.find("class TeleVuer:")
         if class_index < 0:
             raise SystemExit("Could not find TeleVuer class")
         text = text[:class_index] + HELPER + text[class_index:]
+
+    if HANDLER_REPLACEMENT not in text:
+        if HANDLER_INSERT not in text:
+            raise SystemExit("Could not find TeleVuer camera handler registration")
+        text = text.replace(HANDLER_INSERT, HANDLER_REPLACEMENT, 1)
+
+    if METHOD_BLOCK not in text:
+        if METHOD_INSERT not in text:
+            raise SystemExit("Could not find TeleVuer on_cam_move method")
+        text = text.replace(METHOD_INSERT, METHOD_BLOCK + METHOD_INSERT, 1)
 
     for point in INSERT_POINTS:
         replacement = "        _rtw_upsert_root_children_visual(session)\n\n" + point

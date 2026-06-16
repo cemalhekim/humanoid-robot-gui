@@ -40,6 +40,11 @@ def _rtw_loco_payload_for_key(key):
     }
 
 
+_rtw_loco_hold_lock = threading.Lock()
+_rtw_loco_hold_stop = None
+_rtw_loco_last_pointer_event_at = 0.0
+
+
 def _rtw_post_loco(payload):
     import json
     import urllib.request
@@ -53,6 +58,60 @@ def _rtw_post_loco(payload):
     )
     with urllib.request.urlopen(request, timeout=0.7) as response:
         response.read()
+
+
+def _rtw_loco_hold_loop(key, stop_event):
+    payload = _rtw_loco_payload_for_key(key)
+    if payload is None:
+        return
+    while not stop_event.is_set():
+        try:
+            _rtw_post_loco(payload)
+        except Exception as exc:
+            print(f"[rtw loco pad] command failed for {key}: {exc}")
+            break
+        stop_event.wait(0.18)
+
+
+def _rtw_stop_loco_hold():
+    global _rtw_loco_hold_stop
+    with _rtw_loco_hold_lock:
+        stop_event = _rtw_loco_hold_stop
+        _rtw_loco_hold_stop = None
+    if stop_event is not None:
+        stop_event.set()
+    try:
+        _rtw_post_loco({"action": "stop_move"})
+    except Exception as exc:
+        print(f"[rtw loco pad] stop failed: {exc}")
+
+
+def _rtw_start_loco_hold(key):
+    global _rtw_loco_hold_stop
+    if _rtw_loco_payload_for_key(key) is None:
+        return
+    _rtw_stop_loco_hold()
+    stop_event = threading.Event()
+    with _rtw_loco_hold_lock:
+        _rtw_loco_hold_stop = stop_event
+    thread = threading.Thread(target=_rtw_loco_hold_loop, args=(key, stop_event), daemon=True)
+    thread.start()
+
+
+def _rtw_handle_loco_pad_pointer_down(key):
+    global _rtw_loco_last_pointer_event_at
+    if not _rtw_root_children_visual_enabled():
+        return
+    _rtw_loco_last_pointer_event_at = __import__("time").time()
+    _rtw_start_loco_hold(key)
+
+
+def _rtw_handle_loco_pad_pointer_up(key):
+    global _rtw_loco_last_pointer_event_at
+    if not _rtw_root_children_visual_enabled():
+        return
+    _rtw_loco_last_pointer_event_at = __import__("time").time()
+    _rtw_stop_loco_hold()
 
 
 def _rtw_send_loco_pulse(key):
@@ -73,6 +132,8 @@ def _rtw_send_loco_pulse(key):
 
 def _rtw_handle_loco_pad_click(key):
     if not _rtw_root_children_visual_enabled():
+        return
+    if __import__("time").time() - _rtw_loco_last_pointer_event_at < 0.35:
         return
     thread = threading.Thread(target=_rtw_send_loco_pulse, args=(key,), daemon=True)
     thread.start()
@@ -152,11 +213,27 @@ HANDLER_INSERT = """        self.vuer.add_handler("CAMERA_MOVE")(self.on_cam_mov
 """
 HANDLER_REPLACEMENT = """        self.vuer.add_handler("CAMERA_MOVE")(self.on_cam_move)
         self.vuer.add_handler("ON_CLICK")(self.on_rtw_root_loco_click)
+        self.vuer.add_handler("RTW_LOCO_POINTER_DOWN")(self.on_rtw_root_loco_pointer_down)
+        self.vuer.add_handler("RTW_LOCO_POINTER_UP")(self.on_rtw_root_loco_pointer_up)
 """
 
 METHOD_INSERT = """    async def on_cam_move(self, event, session, fps=60):
 """
-METHOD_BLOCK = """    async def on_rtw_root_loco_click(self, event, session):
+METHOD_BLOCK = """    async def on_rtw_root_loco_pointer_down(self, event, session):
+        try:
+            value = event.value or {}
+            _rtw_handle_loco_pad_pointer_down(value.get("key"))
+        except Exception as exc:
+            print(f"[rtw loco pad] pointer down handler failed: {exc}")
+
+    async def on_rtw_root_loco_pointer_up(self, event, session):
+        try:
+            value = event.value or {}
+            _rtw_handle_loco_pad_pointer_up(value.get("key"))
+        except Exception as exc:
+            print(f"[rtw loco pad] pointer up handler failed: {exc}")
+
+    async def on_rtw_root_loco_click(self, event, session):
         try:
             value = event.value or {}
             _rtw_handle_loco_pad_click(value.get("key"))

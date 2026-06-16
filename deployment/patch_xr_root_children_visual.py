@@ -128,18 +128,60 @@ def _rtw_handle_loco_pad_hover(key):
             _rtw_stop_loco_hold()
 
 
+def _rtw_loco_state_pressed(*states):
+    bool_fields = (
+        "trigger",
+        "squeeze",
+        "pinch",
+        "select",
+        "pressed",
+        "down",
+        "primaryButton",
+        "aButton",
+        "bButton",
+    )
+    analog_fields = (
+        "triggerValue",
+        "squeezeValue",
+        "pinchValue",
+        "selectValue",
+        "pressValue",
+    )
+    for state in states:
+        if not isinstance(state, dict):
+            continue
+        for field in bool_fields:
+            if bool(state.get(field, False)):
+                return True
+        for field in analog_fields:
+            try:
+                if float(state.get(field, 0.0) or 0.0) > 0.15:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        buttons = state.get("buttons")
+        if isinstance(buttons, (list, tuple)):
+            for button in buttons:
+                if isinstance(button, dict):
+                    if bool(button.get("pressed", False)):
+                        return True
+                    try:
+                        if float(button.get("value", 0.0) or 0.0) > 0.15:
+                            return True
+                    except (TypeError, ValueError):
+                        pass
+                elif bool(button):
+                    return True
+    return False
+
+
 def _rtw_handle_loco_controller_state(value):
     global _rtw_loco_select_active, _rtw_loco_last_pointer_event_at
     if not _rtw_root_children_visual_enabled():
         return
     left = value.get("leftState") or {}
     right = value.get("rightState") or {}
-    pressed = bool(
-        left.get("trigger")
-        or left.get("squeeze")
-        or right.get("trigger")
-        or right.get("squeeze")
-    )
+    pressed = _rtw_loco_state_pressed(left, right)
     if pressed and not _rtw_loco_select_active:
         _rtw_loco_select_active = True
         _rtw_loco_last_pointer_event_at = __import__("time").time()
@@ -181,24 +223,127 @@ def _rtw_handle_loco_pad_click(key):
     thread.start()
 
 
-def _rtw_loco_button(key, x, y, color):
+def _rtw_loco_visual_key(key):
+    return str(key).replace("rtw-loco-", "rtw-pad-", 1)
+
+
+def _rtw_loco_button_visual(key, x, y, color):
     return Box(
-        key=key,
-        position=[x, y, -1.35],
-        scale=[0.36, 0.24, 0.04],
-        color=color,
-        onClick=True,
+        **{
+            "key": f"{_rtw_loco_visual_key(key)}-bg",
+            "position": [x, y, -1.35],
+            "scale": [0.36, 0.24, 0.04],
+            "color": color,
+            "materialType": "basic",
+            "material": {
+                "color": color,
+                "transparent": False,
+                "depthTest": False,
+                "toneMapped": False,
+            },
+            "onClick": False,
+        }
     )
 
 
-def _rtw_loco_mark(key, x, y, sx, sy, color="#ffffff"):
+def _rtw_loco_hitbox(key, x, y):
     return Box(
-        key=key,
-        position=[x, y, -1.31],
-        scale=[sx, sy, 0.035],
-        color=color,
-        onClick=True,
+        **{
+            "key": key,
+            "position": [x, y, -1.27],
+            "scale": [0.42, 0.30, 0.03],
+            "color": "#ffffff",
+            "materialType": "basic",
+            "material": {
+                "color": "#ffffff",
+                "transparent": True,
+                "opacity": 0.01,
+                "depthTest": False,
+                "toneMapped": False,
+            },
+            "onClick": True,
+        }
     )
+
+
+def _rtw_loco_mark(key, x, y, sx, sy, color="#ffffff", rz=0.0):
+    return Box(
+        **{
+            "key": key,
+            "position": [x, y, -1.31],
+            "scale": [sx, sy, 0.035],
+            "rotation": [0, 0, rz],
+            "color": color,
+            "materialType": "basic",
+            "material": {
+                "color": color,
+                "transparent": False,
+                "depthTest": False,
+                "toneMapped": False,
+            },
+            "onClick": False,
+        }
+    )
+
+
+def _rtw_loco_arrow_icon(key, x, y, direction):
+    color = "#f8fbff"
+    if direction == "up":
+        parts = [
+            (0.0, -0.025, 0.055, 0.155, 0.0),
+            (-0.052, 0.055, 0.115, 0.038, 0.72),
+            (0.052, 0.055, 0.115, 0.038, -0.72),
+        ]
+    elif direction == "down":
+        parts = [
+            (0.0, 0.025, 0.055, 0.155, 0.0),
+            (-0.052, -0.055, 0.115, 0.038, -0.72),
+            (0.052, -0.055, 0.115, 0.038, 0.72),
+        ]
+    elif direction == "left":
+        parts = [
+            (0.028, 0.0, 0.17, 0.052, 0.0),
+            (-0.06, 0.052, 0.115, 0.038, -0.72),
+            (-0.06, -0.052, 0.115, 0.038, 0.72),
+        ]
+    else:
+        parts = [
+            (-0.028, 0.0, 0.17, 0.052, 0.0),
+            (0.06, 0.052, 0.115, 0.038, 0.72),
+            (0.06, -0.052, 0.115, 0.038, -0.72),
+        ]
+    return [
+        _rtw_loco_mark(f"{_rtw_loco_visual_key(key)}-mark-{index}", x + dx, y + dy, sx, sy, color, rz)
+        for index, (dx, dy, sx, sy, rz) in enumerate(parts)
+    ]
+
+
+def _rtw_loco_turn_icon(key, x, y, direction):
+    color = "#f8fbff"
+    sign = -1 if direction == "right" else 1
+    parts = [
+        (-0.052 * sign, -0.038, 0.115, 0.04, 0.0),
+        (-0.086 * sign, 0.02, 0.105, 0.04, 0.62 * sign),
+        (-0.044 * sign, 0.078, 0.105, 0.04, 1.18 * sign),
+        (0.045 * sign, 0.09, 0.11, 0.038, -0.38 * sign),
+        (0.075 * sign, 0.03, 0.11, 0.038, 0.88 * sign),
+    ]
+    return [
+        _rtw_loco_mark(f"{_rtw_loco_visual_key(key)}-mark-{index}", x + dx, y + dy, sx, sy, color, rz)
+        for index, (dx, dy, sx, sy, rz) in enumerate(parts)
+    ]
+
+
+def _rtw_loco_control(key, x, y, color, icon, direction):
+    if icon == "turn":
+        marks = _rtw_loco_turn_icon(key, x, y, direction)
+    else:
+        marks = _rtw_loco_arrow_icon(key, x, y, direction)
+    return [
+        _rtw_loco_button_visual(key, x, y, color),
+        *marks,
+        _rtw_loco_hitbox(key, x, y),
+    ]
 
 
 def _rtw_upsert_root_children_visual(session):
@@ -206,30 +351,12 @@ def _rtw_upsert_root_children_visual(session):
         return
     session.upsert(
         [
-            _rtw_loco_button("rtw-loco-turn-right", -0.5, 0.18, "#b8322a"),
-            _rtw_loco_button("rtw-loco-forward", 0.0, 0.18, "#1f8f4d"),
-            _rtw_loco_button("rtw-loco-turn-left", 0.5, 0.18, "#b8322a"),
-            _rtw_loco_button("rtw-loco-left", -0.5, -0.18, "#2457d6"),
-            _rtw_loco_button("rtw-loco-back", 0.0, -0.18, "#7a2fc2"),
-            _rtw_loco_button("rtw-loco-right", 0.5, -0.18, "#2457d6"),
-            _rtw_loco_mark("rtw-loco-turn-right-mark-a", -0.58, 0.21, 0.16, 0.04),
-            _rtw_loco_mark("rtw-loco-turn-right-mark-b", -0.43, 0.13, 0.04, 0.16),
-            _rtw_loco_mark("rtw-loco-turn-right-mark-c", -0.37, 0.08, 0.1, 0.04),
-            _rtw_loco_mark("rtw-loco-forward-mark-a", 0.0, 0.18, 0.06, 0.18),
-            _rtw_loco_mark("rtw-loco-forward-mark-b", -0.055, 0.265, 0.12, 0.04),
-            _rtw_loco_mark("rtw-loco-forward-mark-c", 0.055, 0.265, 0.12, 0.04),
-            _rtw_loco_mark("rtw-loco-turn-left-mark-a", 0.58, 0.21, 0.16, 0.04),
-            _rtw_loco_mark("rtw-loco-turn-left-mark-b", 0.43, 0.13, 0.04, 0.16),
-            _rtw_loco_mark("rtw-loco-turn-left-mark-c", 0.37, 0.08, 0.1, 0.04),
-            _rtw_loco_mark("rtw-loco-left-mark-a", -0.5, -0.18, 0.18, 0.06),
-            _rtw_loco_mark("rtw-loco-left-mark-b", -0.59, -0.12, 0.04, 0.12),
-            _rtw_loco_mark("rtw-loco-left-mark-c", -0.59, -0.24, 0.04, 0.12),
-            _rtw_loco_mark("rtw-loco-back-mark-a", 0.0, -0.18, 0.06, 0.18),
-            _rtw_loco_mark("rtw-loco-back-mark-b", -0.055, -0.265, 0.12, 0.04),
-            _rtw_loco_mark("rtw-loco-back-mark-c", 0.055, -0.265, 0.12, 0.04),
-            _rtw_loco_mark("rtw-loco-right-mark-a", 0.5, -0.18, 0.18, 0.06),
-            _rtw_loco_mark("rtw-loco-right-mark-b", 0.59, -0.12, 0.04, 0.12),
-            _rtw_loco_mark("rtw-loco-right-mark-c", 0.59, -0.24, 0.04, 0.12),
+            *_rtw_loco_control("rtw-loco-turn-right", -0.5, 0.18, "#b8322a", "turn", "right"),
+            *_rtw_loco_control("rtw-loco-forward", 0.0, 0.18, "#1f8f4d", "arrow", "up"),
+            *_rtw_loco_control("rtw-loco-turn-left", 0.5, 0.18, "#b8322a", "turn", "left"),
+            *_rtw_loco_control("rtw-loco-left", -0.5, -0.18, "#2457d6", "arrow", "left"),
+            *_rtw_loco_control("rtw-loco-back", 0.0, -0.18, "#7a2fc2", "arrow", "down"),
+            *_rtw_loco_control("rtw-loco-right", 0.5, -0.18, "#2457d6", "arrow", "right"),
         ],
         to="children",
     )
@@ -300,6 +427,14 @@ CONTROLLER_REPLACEMENT = """            extract_controllers(left_controller, "le
             _rtw_handle_loco_controller_state(event.value)
 """
 
+HAND_INSERT = """            extract_hands(left_hand, "left")
+            extract_hands(right_hand, "right")
+"""
+HAND_REPLACEMENT = """            extract_hands(left_hand, "left")
+            extract_hands(right_hand, "right")
+            _rtw_handle_loco_controller_state(event.value)
+"""
+
 
 def main() -> int:
     if not TELEVUER.exists():
@@ -336,6 +471,9 @@ def main() -> int:
 
     if CONTROLLER_REPLACEMENT not in text and CONTROLLER_INSERT in text:
         text = text.replace(CONTROLLER_INSERT, CONTROLLER_REPLACEMENT, 1)
+
+    if HAND_REPLACEMENT not in text and HAND_INSERT in text:
+        text = text.replace(HAND_INSERT, HAND_REPLACEMENT, 1)
 
     for point in INSERT_POINTS:
         replacement = "        _rtw_upsert_root_children_visual(session)\n\n" + point

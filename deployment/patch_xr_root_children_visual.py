@@ -101,7 +101,7 @@ def main() -> int:
         text = text[:class_index] + HELPER + text[class_index:]
     elif "def _rtw_upsert_root_children_visual(session):" in text:
         start = text.index(MARKER)
-        end = text.index("\\n\\nclass TeleVuer:", start)
+        end = text.index("\n\nclass TeleVuer:", start)
         text = text[:start] + HELPER.rstrip() + text[end:]
 
     text = text.replace(OLD_STATIC_CALL, "")

@@ -27,6 +27,7 @@ python3 "$REPO_DIR/deployment/patch_xr_dex_retargeting.py"
 python3 "$REPO_DIR/deployment/patch_xr_inspire_direct_curl.py"
 python3 "$REPO_DIR/deployment/patch_xr_hand_input_swap.py"
 python3 "$REPO_DIR/deployment/patch_xr_root_children_visual.py"
+python3 "$REPO_DIR/deployment/patch_vuer_scene_pointer_events.py"
 "$REPO_DIR/deployment/ensure_xr_python_requirements.sh"
 
 if command -v loginctl >/dev/null 2>&1; then

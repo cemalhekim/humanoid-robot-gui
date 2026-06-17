@@ -257,7 +257,13 @@ class PositionMatchLocoController(HeadTiltLocoController):
         self.enabled = _rtw_env_bool("XR_POSITION_MATCH_LOCO", False)
         self.neutral_pos = None
         self.neutral_rot = None
-        self.odom0 = None
+        self.estimated_x = 0.0
+        self.estimated_y = 0.0
+        self.estimated_yaw = 0.0
+        self.last_integrated_at = None
+        self.last_cmd_x = 0.0
+        self.last_cmd_y = 0.0
+        self.last_cmd_yaw = 0.0
         self.last_target_log_at = 0.0
         self.scale_x = _rtw_env_float("XR_POSITION_MATCH_SCALE_X", 1.0)
         self.scale_y = _rtw_env_float("XR_POSITION_MATCH_SCALE_Y", 1.0)
@@ -265,8 +271,8 @@ class PositionMatchLocoController(HeadTiltLocoController):
         self.deadband_x = _rtw_env_float("XR_POSITION_MATCH_DEADBAND_X", 0.08)
         self.deadband_y = _rtw_env_float("XR_POSITION_MATCH_DEADBAND_Y", 0.08)
         self.deadband_yaw = math.radians(_rtw_env_float("XR_POSITION_MATCH_DEADBAND_YAW_DEG", 10.0))
-        self.max_target_x = _rtw_env_float("XR_POSITION_MATCH_MAX_TARGET_X", 0.8)
-        self.max_target_y = _rtw_env_float("XR_POSITION_MATCH_MAX_TARGET_Y", 0.5)
+        self.max_target_x = _rtw_env_float("XR_POSITION_MATCH_MAX_TARGET_X", 1.0)
+        self.max_target_y = _rtw_env_float("XR_POSITION_MATCH_MAX_TARGET_Y", 1.0)
         self.max_target_yaw = math.radians(_rtw_env_float("XR_POSITION_MATCH_MAX_TARGET_YAW_DEG", 60.0))
         self.kx = _rtw_env_float("XR_POSITION_MATCH_KX", 0.8)
         self.ky = _rtw_env_float("XR_POSITION_MATCH_KY", 0.8)
@@ -278,7 +284,13 @@ class PositionMatchLocoController(HeadTiltLocoController):
     def _reset_reference(self):
         self.neutral_pos = None
         self.neutral_rot = None
-        self.odom0 = None
+        self.estimated_x = 0.0
+        self.estimated_y = 0.0
+        self.estimated_yaw = 0.0
+        self.last_integrated_at = None
+        self.last_cmd_x = 0.0
+        self.last_cmd_y = 0.0
+        self.last_cmd_yaw = 0.0
         self.calibration_started_at = None
 
     def _handle_no_client(self):
@@ -289,18 +301,6 @@ class PositionMatchLocoController(HeadTiltLocoController):
         super()._handle_stale_pose(age)
         self._reset_reference()
 
-    def _get_odom(self):
-        response = self._request_loco({"action": "get_odom"})
-        result = response.get("result") or {}
-        try:
-            return {
-                "x": float(result.get("x", 0.0) or 0.0),
-                "y": float(result.get("y", 0.0) or 0.0),
-                "yaw": float(result.get("yaw", result.get("z", 0.0)) or 0.0),
-            }
-        except (TypeError, ValueError):
-            return None
-
     def _stop_active(self, message):
         if self.active:
             try:
@@ -309,14 +309,31 @@ class PositionMatchLocoController(HeadTiltLocoController):
                 logger_mp.warning(f"[position match loco] stop failed: {exc}")
             self.active = False
             now = time.time()
+            self.last_integrated_at = now
+            self.last_cmd_x = 0.0
+            self.last_cmd_y = 0.0
+            self.last_cmd_yaw = 0.0
             if now - self.last_log_at > 1.0:
                 logger_mp.info(message)
                 self.last_log_at = now
+
+    def _integrate_estimate(self, now):
+        if self.last_integrated_at is None:
+            self.last_integrated_at = now
+            return
+        dt = _rtw_clamp(now - self.last_integrated_at, 0.0, 0.5)
+        self.estimated_x += self.last_cmd_x * dt
+        self.estimated_y += self.last_cmd_y * dt
+        self.estimated_yaw = _rtw_wrap_angle(self.estimated_yaw + self.last_cmd_yaw * dt)
+        self.last_integrated_at = now
 
     def update(self, tele_data, loco_wrapper=None):
         if not self.enabled:
             return
         try:
+            now = time.time()
+            self._integrate_estimate(now)
+
             if self.require_client:
                 has_client = self._has_xr_client()
                 if not has_client:
@@ -335,28 +352,33 @@ class PositionMatchLocoController(HeadTiltLocoController):
 
             head_rot = tele_data.head_pose[:3, :3]
             head_pos = tele_data.head_pose[:3, 3].copy()
-            odom = self._get_odom()
-            if odom is None:
-                self._stop_active("[position match loco] odom unavailable; stop_move sent")
-                return
 
             if self.calibration_started_at is None:
-                self.calibration_started_at = time.time()
+                self.calibration_started_at = now
                 self.neutral_pos = head_pos
                 self.neutral_rot = head_rot.copy()
-                self.odom0 = odom
-                logger_mp.info("[position match loco] neutral settle started")
+                self.estimated_x = 0.0
+                self.estimated_y = 0.0
+                self.estimated_yaw = 0.0
+                self.last_integrated_at = now
+                logger_mp.info("[position match loco] neutral settle started; using commanded-distance estimate")
                 return
-            if time.time() - self.calibration_started_at < self.calibration_delay:
+            if now - self.calibration_started_at < self.calibration_delay:
                 self.neutral_pos = head_pos
                 self.neutral_rot = head_rot.copy()
-                self.odom0 = odom
+                self.estimated_x = 0.0
+                self.estimated_y = 0.0
+                self.estimated_yaw = 0.0
+                self.last_integrated_at = now
                 return
-            if self.neutral_pos is None or self.neutral_rot is None or self.odom0 is None:
+            if self.neutral_pos is None or self.neutral_rot is None:
                 self.neutral_pos = head_pos
                 self.neutral_rot = head_rot.copy()
-                self.odom0 = odom
-                logger_mp.info("[position match loco] calibrated neutral pose and odom")
+                self.estimated_x = 0.0
+                self.estimated_y = 0.0
+                self.estimated_yaw = 0.0
+                self.last_integrated_at = now
+                logger_mp.info("[position match loco] calibrated neutral pose and command estimate")
                 return
 
             local_delta = self.neutral_rot.T @ (head_pos - self.neutral_pos)
@@ -366,13 +388,10 @@ class PositionMatchLocoController(HeadTiltLocoController):
             target_x = _rtw_clamp(float(local_delta[0]) * self.scale_x, -self.max_target_x, self.max_target_x)
             target_y = _rtw_clamp(float(local_delta[1]) * self.scale_y, -self.max_target_y, self.max_target_y)
             target_yaw = _rtw_clamp(yaw * self.scale_yaw, -self.max_target_yaw, self.max_target_yaw)
-            actual_x = odom["x"] - self.odom0["x"]
-            actual_y = odom["y"] - self.odom0["y"]
-            actual_yaw = _rtw_wrap_angle(odom["yaw"] - self.odom0["yaw"])
 
-            err_x = target_x - actual_x
-            err_y = target_y - actual_y
-            err_yaw = _rtw_wrap_angle(target_yaw - actual_yaw)
+            err_x = target_x - self.estimated_x
+            err_y = target_y - self.estimated_y
+            err_yaw = _rtw_wrap_angle(target_yaw - self.estimated_yaw)
 
             cmd_x = 0.0 if abs(err_x) < self.deadband_x else _rtw_clamp(self.kx * err_x, -self.max_vx, self.max_vx)
             cmd_y = 0.0 if abs(err_y) < self.deadband_y else _rtw_clamp(self.ky * err_y, -self.max_vy, self.max_vy)
@@ -382,7 +401,6 @@ class PositionMatchLocoController(HeadTiltLocoController):
                 self._stop_active("[position match loco] target reached; stop_move sent")
                 return
 
-            now = time.time()
             if now - self.last_command_at < self.command_period:
                 return
             self._post_loco({
@@ -393,12 +411,15 @@ class PositionMatchLocoController(HeadTiltLocoController):
                 "duration": max(self.command_period * 2.0, 0.35),
             })
             self.last_command_at = now
+            self.last_cmd_x = cmd_x
+            self.last_cmd_y = cmd_y
+            self.last_cmd_yaw = cmd_yaw
             self.active = True
             if now - self.last_target_log_at > 1.0:
                 logger_mp.info(
-                    "[position match loco] target=(%.2f, %.2f, %.1fdeg) actual=(%.2f, %.2f, %.1fdeg) velocity=(%.2f, %.2f, %.2f)",
+                    "[position match loco] target=(%.2f, %.2f, %.1fdeg) estimated=(%.2f, %.2f, %.1fdeg) velocity=(%.2f, %.2f, %.2f)",
                     target_x, target_y, math.degrees(target_yaw),
-                    actual_x, actual_y, math.degrees(actual_yaw),
+                    self.estimated_x, self.estimated_y, math.degrees(self.estimated_yaw),
                     cmd_x, cmd_y, cmd_yaw,
                 )
                 self.last_target_log_at = now

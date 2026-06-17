@@ -1573,15 +1573,23 @@ finally:
                 "label": "Floating VR Control Pad",
                 "XR_ROOT_CHILDREN_VISUAL": "1",
                 "XR_HEAD_TILT_LOCO": "0",
+                "XR_POSITION_MATCH_LOCO": "0",
             },
             "head_tilt": {
                 "label": "Head Rotation Control",
                 "XR_ROOT_CHILDREN_VISUAL": "0",
                 "XR_HEAD_TILT_LOCO": "1",
+                "XR_POSITION_MATCH_LOCO": "0",
+            },
+            "position_match": {
+                "label": "Position Matching",
+                "XR_ROOT_CHILDREN_VISUAL": "0",
+                "XR_HEAD_TILT_LOCO": "0",
+                "XR_POSITION_MATCH_LOCO": "1",
             },
         }
         if mode not in modes:
-            return 400, {"ok": False, "error": "mode must be one of: pad, head_tilt"}
+            return 400, {"ok": False, "error": "mode must be one of: pad, head_tilt, position_match"}
 
         env = modes[mode]
         XR_TELEOP_MODE_DROPIN.parent.mkdir(parents=True, exist_ok=True)
@@ -1591,6 +1599,7 @@ finally:
                     "[Service]",
                     f"Environment=XR_ROOT_CHILDREN_VISUAL={env['XR_ROOT_CHILDREN_VISUAL']}",
                     f"Environment=XR_HEAD_TILT_LOCO={env['XR_HEAD_TILT_LOCO']}",
+                    f"Environment=XR_POSITION_MATCH_LOCO={env['XR_POSITION_MATCH_LOCO']}",
                     "",
                 ]
             ),
@@ -1635,6 +1644,7 @@ finally:
             "env": {
                 "XR_ROOT_CHILDREN_VISUAL": env["XR_ROOT_CHILDREN_VISUAL"],
                 "XR_HEAD_TILT_LOCO": env["XR_HEAD_TILT_LOCO"],
+                "XR_POSITION_MATCH_LOCO": env["XR_POSITION_MATCH_LOCO"],
             },
         }
 

@@ -76,6 +76,14 @@ def _rtw_clamp(value, low, high):
     return max(low, min(high, value))
 
 
+def _rtw_wrap_angle(angle):
+    while angle > math.pi:
+        angle -= 2.0 * math.pi
+    while angle < -math.pi:
+        angle += 2.0 * math.pi
+    return angle
+
+
 class HeadTiltLocoController:
     def __init__(self):
         self.enabled = _rtw_env_bool("XR_HEAD_TILT_LOCO", False)
@@ -134,6 +142,21 @@ class HeadTiltLocoController:
         )
         with urllib.request.urlopen(request, timeout=0.7) as response:
             response.read()
+
+    @staticmethod
+    def _request_loco(payload):
+        import json
+        import urllib.request
+
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            "http://127.0.0.1:8088/api/loco/command",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=0.8) as response:
+            return json.loads(response.read().decode("utf-8", errors="replace") or "{}")
 
     def _has_xr_client(self):
         port_hex = f"{self.xr_port:04X}"
@@ -262,6 +285,161 @@ class HeadTiltLocoController:
             logger_mp.warning(f"[head tilt loco] stop failed: {exc}")
         self.active = False
 
+
+class PositionMatchLocoController(HeadTiltLocoController):
+    def __init__(self):
+        super().__init__()
+        self.enabled = _rtw_env_bool("XR_POSITION_MATCH_LOCO", False)
+        self.neutral_pos = None
+        self.neutral_rot = None
+        self.odom0 = None
+        self.last_target_log_at = 0.0
+        self.scale_x = _rtw_env_float("XR_POSITION_MATCH_SCALE_X", 1.0)
+        self.scale_y = _rtw_env_float("XR_POSITION_MATCH_SCALE_Y", 1.0)
+        self.scale_yaw = _rtw_env_float("XR_POSITION_MATCH_SCALE_YAW", 1.0)
+        self.deadband_x = _rtw_env_float("XR_POSITION_MATCH_DEADBAND_X", 0.08)
+        self.deadband_y = _rtw_env_float("XR_POSITION_MATCH_DEADBAND_Y", 0.08)
+        self.deadband_yaw = math.radians(_rtw_env_float("XR_POSITION_MATCH_DEADBAND_YAW_DEG", 10.0))
+        self.max_target_x = _rtw_env_float("XR_POSITION_MATCH_MAX_TARGET_X", 0.8)
+        self.max_target_y = _rtw_env_float("XR_POSITION_MATCH_MAX_TARGET_Y", 0.5)
+        self.max_target_yaw = math.radians(_rtw_env_float("XR_POSITION_MATCH_MAX_TARGET_YAW_DEG", 60.0))
+        self.kx = _rtw_env_float("XR_POSITION_MATCH_KX", 0.8)
+        self.ky = _rtw_env_float("XR_POSITION_MATCH_KY", 0.8)
+        self.kyaw = _rtw_env_float("XR_POSITION_MATCH_KYAW", 0.8)
+        self.max_vx = _rtw_env_float("XR_POSITION_MATCH_MAX_VX", 0.16)
+        self.max_vy = _rtw_env_float("XR_POSITION_MATCH_MAX_VY", 0.16)
+        self.max_vyaw = _rtw_env_float("XR_POSITION_MATCH_MAX_VYAW", 0.25)
+
+    def _reset_reference(self):
+        self.neutral_pos = None
+        self.neutral_rot = None
+        self.odom0 = None
+        self.calibration_started_at = None
+
+    def _handle_no_client(self):
+        super()._handle_no_client()
+        self._reset_reference()
+
+    def _handle_stale_pose(self, age):
+        super()._handle_stale_pose(age)
+        self._reset_reference()
+
+    def _get_odom(self):
+        response = self._request_loco({"action": "get_odom"})
+        result = response.get("result") or {}
+        try:
+            return {
+                "x": float(result.get("x", 0.0) or 0.0),
+                "y": float(result.get("y", 0.0) or 0.0),
+                "yaw": float(result.get("yaw", result.get("z", 0.0)) or 0.0),
+            }
+        except (TypeError, ValueError):
+            return None
+
+    def _stop_active(self, message):
+        if self.active:
+            try:
+                self._post_loco({"action": "stop_move"})
+            except Exception as exc:
+                logger_mp.warning(f"[position match loco] stop failed: {exc}")
+            self.active = False
+            now = time.time()
+            if now - self.last_log_at > 1.0:
+                logger_mp.info(message)
+                self.last_log_at = now
+
+    def update(self, tele_data, loco_wrapper=None):
+        if not self.enabled:
+            return
+        try:
+            if self.require_client:
+                has_client = self._has_xr_client()
+                if not has_client:
+                    self._handle_no_client()
+                    return
+                if not self.client_was_connected:
+                    self._reset_reference()
+                    logger_mp.info("[position match loco] VR client connected; calibrating reference")
+                self.client_was_connected = True
+
+            head_pose_updated_at = float(getattr(tele_data, "head_pose_updated_at", 0.0) or 0.0)
+            pose_age = time.time() - head_pose_updated_at if head_pose_updated_at > 0.0 else float("inf")
+            if pose_age > self.max_pose_age:
+                self._handle_stale_pose(pose_age)
+                return
+
+            head_rot = tele_data.head_pose[:3, :3]
+            head_pos = tele_data.head_pose[:3, 3].copy()
+            odom = self._get_odom()
+            if odom is None:
+                self._stop_active("[position match loco] odom unavailable; stop_move sent")
+                return
+
+            if self.calibration_started_at is None:
+                self.calibration_started_at = time.time()
+                self.neutral_pos = head_pos
+                self.neutral_rot = head_rot.copy()
+                self.odom0 = odom
+                logger_mp.info("[position match loco] neutral settle started")
+                return
+            if time.time() - self.calibration_started_at < self.calibration_delay:
+                self.neutral_pos = head_pos
+                self.neutral_rot = head_rot.copy()
+                self.odom0 = odom
+                return
+            if self.neutral_pos is None or self.neutral_rot is None or self.odom0 is None:
+                self.neutral_pos = head_pos
+                self.neutral_rot = head_rot.copy()
+                self.odom0 = odom
+                logger_mp.info("[position match loco] calibrated neutral pose and odom")
+                return
+
+            local_delta = self.neutral_rot.T @ (head_pos - self.neutral_pos)
+            rel_rot = self.neutral_rot.T @ head_rot
+            yaw, _pitch, _roll = self._relative_ypr(rel_rot)
+
+            target_x = _rtw_clamp(float(local_delta[0]) * self.scale_x, -self.max_target_x, self.max_target_x)
+            target_y = _rtw_clamp(float(local_delta[1]) * self.scale_y, -self.max_target_y, self.max_target_y)
+            target_yaw = _rtw_clamp(yaw * self.scale_yaw, -self.max_target_yaw, self.max_target_yaw)
+            actual_x = odom["x"] - self.odom0["x"]
+            actual_y = odom["y"] - self.odom0["y"]
+            actual_yaw = _rtw_wrap_angle(odom["yaw"] - self.odom0["yaw"])
+
+            err_x = target_x - actual_x
+            err_y = target_y - actual_y
+            err_yaw = _rtw_wrap_angle(target_yaw - actual_yaw)
+
+            cmd_x = 0.0 if abs(err_x) < self.deadband_x else _rtw_clamp(self.kx * err_x, -self.max_vx, self.max_vx)
+            cmd_y = 0.0 if abs(err_y) < self.deadband_y else _rtw_clamp(self.ky * err_y, -self.max_vy, self.max_vy)
+            cmd_yaw = 0.0 if abs(err_yaw) < self.deadband_yaw else _rtw_clamp(self.kyaw * err_yaw, -self.max_vyaw, self.max_vyaw)
+
+            if cmd_x == 0.0 and cmd_y == 0.0 and cmd_yaw == 0.0:
+                self._stop_active("[position match loco] target reached; stop_move sent")
+                return
+
+            now = time.time()
+            if now - self.last_command_at < self.command_period:
+                return
+            self._post_loco({
+                "action": "velocity",
+                "vx": cmd_x,
+                "vy": cmd_y,
+                "vyaw": cmd_yaw,
+                "duration": max(self.command_period * 2.0, 0.35),
+            })
+            self.last_command_at = now
+            self.active = True
+            if now - self.last_target_log_at > 1.0:
+                logger_mp.info(
+                    "[position match loco] target=(%.2f, %.2f, %.1fdeg) actual=(%.2f, %.2f, %.1fdeg) velocity=(%.2f, %.2f, %.2f)",
+                    target_x, target_y, math.degrees(target_yaw),
+                    actual_x, actual_y, math.degrees(actual_yaw),
+                    cmd_x, cmd_y, cmd_yaw,
+                )
+                self.last_target_log_at = now
+        except Exception as exc:
+            logger_mp.warning(f"[position match loco] update failed: {exc}")
+
 def on_press(key):
     global STOP, START, RECORD_TOGGLE
     if key == 'r':
@@ -349,6 +527,7 @@ if __name__ == '__main__':
                                      )
         
         head_tilt_loco = HeadTiltLocoController()
+        position_match_loco = PositionMatchLocoController()
         loco_wrapper = None
 
         # motion mode (G1: Regular mode R1+X, not Running mode R2+A)
@@ -357,10 +536,15 @@ if __name__ == '__main__':
                 loco_wrapper = LocoClientWrapper()
             if head_tilt_loco.enabled:
                 logger_mp.info("[head tilt loco] enabled; commands route through dashboard H1 loco API")
+            if position_match_loco.enabled:
+                logger_mp.info("[position match loco] enabled; Vision Pro displacement routes through dashboard H1 loco API")
         else:
             if head_tilt_loco.enabled:
                 logger_mp.warning("[head tilt loco] disabled because --motion is not enabled")
                 head_tilt_loco.enabled = False
+            if position_match_loco.enabled:
+                logger_mp.warning("[position match loco] disabled because --motion is not enabled")
+                position_match_loco.enabled = False
             motion_switcher = MotionSwitcher()
             status, result = motion_switcher.Enter_Debug_Mode()
             logger_mp.info(f"Enter debug mode: {'Success' if status == 0 else 'Failed'}")
@@ -540,6 +724,8 @@ if __name__ == '__main__':
             # high level control
             if head_tilt_loco.enabled and args.motion:
                 head_tilt_loco.update(tele_data, loco_wrapper)
+            elif position_match_loco.enabled and args.motion:
+                position_match_loco.update(tele_data, loco_wrapper)
             elif args.input_mode == "controller" and args.motion:
                 # quit teleoperate
                 if tele_data.right_ctrl_aButton:
@@ -721,6 +907,11 @@ if __name__ == '__main__':
             head_tilt_loco.stop(loco_wrapper)
         except Exception as e:
             logger_mp.error(f"Failed to stop head tilt loco: {e}")
+
+        try:
+            position_match_loco.stop(loco_wrapper)
+        except Exception as e:
+            logger_mp.error(f"Failed to stop position match loco: {e}")
 
         try:
             arm_ctrl.ctrl_dual_arm_go_home()

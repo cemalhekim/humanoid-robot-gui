@@ -73,10 +73,29 @@ def post_home(url: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def post_json(url: str, payload: dict[str, Any]) -> tuple[bool, str]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=2.0) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            return 200 <= response.status < 300, body
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return False, body or str(exc)
+    except Exception as exc:
+        return False, str(exc)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Watch XR teleop connection and request home on disconnect.")
     parser.add_argument("--xr-port", type=int, default=8012)
     parser.add_argument("--home-url", default="http://127.0.0.1:8088/api/robot/home")
+    parser.add_argument("--loco-url", default="http://127.0.0.1:8088/api/loco/command")
     parser.add_argument("--poll-seconds", type=float, default=0.5)
     parser.add_argument("--lost-seconds", type=float, default=5.0)
     args = parser.parse_args()
@@ -84,6 +103,7 @@ def main() -> int:
     ipc = IpcStatus()
     armed = False
     lost_since: float | None = None
+    last_loco_stop_at = 0.0
     last_log = 0.0
     print(
         f"XR home watchdog listening on port {args.xr_port}; "
@@ -107,7 +127,15 @@ def main() -> int:
                 if lost_since is None:
                     lost_since = now
                     print("XR active session lost; starting home countdown.", flush=True)
-                elif now - lost_since >= args.lost_seconds:
+                if now - last_loco_stop_at >= 0.5:
+                    ok, body = post_json(args.loco_url, {"action": "stop_move"})
+                    print(
+                        "Loco stop requested after XR disconnect: "
+                        + json.dumps({"ok": ok, "response": body[:300]}),
+                        flush=True,
+                    )
+                    last_loco_stop_at = now
+                if now - lost_since >= args.lost_seconds:
                     ok, body = post_home(args.home_url)
                     print(
                         "Home requested after XR disconnect: "

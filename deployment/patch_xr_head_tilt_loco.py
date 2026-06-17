@@ -47,18 +47,27 @@ class HeadTiltLocoController:
         self.neutral_rot = None
         self.active = False
         self.last_log_at = 0.0
-        self.pitch_deadzone = math.radians(_rtw_env_float("XR_HEAD_TILT_PITCH_DEADZONE_DEG", 10.0))
-        self.roll_deadzone = math.radians(_rtw_env_float("XR_HEAD_TILT_ROLL_DEADZONE_DEG", 10.0))
-        self.yaw_deadzone = math.radians(_rtw_env_float("XR_HEAD_TILT_YAW_DEADZONE_DEG", 12.0))
-        self.pitch_full = math.radians(_rtw_env_float("XR_HEAD_TILT_PITCH_FULL_DEG", 28.0))
-        self.roll_full = math.radians(_rtw_env_float("XR_HEAD_TILT_ROLL_FULL_DEG", 28.0))
-        self.yaw_full = math.radians(_rtw_env_float("XR_HEAD_TILT_YAW_FULL_DEG", 35.0))
-        self.max_vx = _rtw_env_float("XR_HEAD_TILT_MAX_VX", 0.25)
-        self.max_vy = _rtw_env_float("XR_HEAD_TILT_MAX_VY", 0.18)
-        self.max_vyaw = _rtw_env_float("XR_HEAD_TILT_MAX_VYAW", 0.35)
+        self.pitch_deadzone = math.radians(_rtw_env_float("XR_HEAD_TILT_PITCH_DEADZONE_DEG", 18.0))
+        self.roll_deadzone = math.radians(_rtw_env_float("XR_HEAD_TILT_ROLL_DEADZONE_DEG", 12.0))
+        self.yaw_deadzone = math.radians(_rtw_env_float("XR_HEAD_TILT_YAW_DEADZONE_DEG", 20.0))
+        self.pitch_full = math.radians(_rtw_env_float("XR_HEAD_TILT_PITCH_FULL_DEG", 42.0))
+        self.roll_full = math.radians(_rtw_env_float("XR_HEAD_TILT_ROLL_FULL_DEG", 30.0))
+        self.yaw_full = math.radians(_rtw_env_float("XR_HEAD_TILT_YAW_FULL_DEG", 50.0))
+        self.max_vx = _rtw_env_float("XR_HEAD_TILT_MAX_VX", 0.14)
+        self.max_vy = _rtw_env_float("XR_HEAD_TILT_MAX_VY", 0.16)
+        self.max_vyaw = _rtw_env_float("XR_HEAD_TILT_MAX_VYAW", 0.20)
         self.pitch_sign = _rtw_env_float("XR_HEAD_TILT_PITCH_SIGN", -1.0)
-        self.roll_sign = _rtw_env_float("XR_HEAD_TILT_ROLL_SIGN", 1.0)
+        self.roll_sign = _rtw_env_float("XR_HEAD_TILT_ROLL_SIGN", -1.0)
         self.yaw_sign = _rtw_env_float("XR_HEAD_TILT_YAW_SIGN", 1.0)
+        self.last_command_at = 0.0
+        self.command_period = _rtw_env_float("XR_HEAD_TILT_COMMAND_PERIOD", 0.18)
+        self.require_client = _rtw_env_bool("XR_HEAD_TILT_REQUIRE_CLIENT", True)
+        self.xr_port = int(_rtw_env_float("XR_TELEOP_VUER_PORT", 8012))
+        self.max_pose_age = _rtw_env_float("XR_HEAD_TILT_MAX_POSE_AGE", 1.0)
+        self.calibration_delay = _rtw_env_float("XR_HEAD_TILT_CALIBRATION_DELAY", 1.5)
+        self.calibration_started_at = None
+        self.client_was_connected = False
+        self.last_no_client_stop_at = 0.0
 
     @staticmethod
     def _relative_ypr(rotation):
@@ -76,11 +85,100 @@ class HeadTiltLocoController:
         scaled = _rtw_clamp((magnitude - deadzone) / span, 0.0, 1.0)
         return math.copysign(scaled, angle)
 
-    def update(self, tele_data, loco_wrapper):
+    @staticmethod
+    def _post_loco(payload):
+        import json
+        import urllib.request
+
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            "http://127.0.0.1:8088/api/loco/command",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=0.7) as response:
+            response.read()
+
+    def _has_xr_client(self):
+        port_hex = f"{self.xr_port:04X}"
+        for proc_path in ("/proc/net/tcp", "/proc/net/tcp6"):
+            try:
+                with open(proc_path, "r", encoding="utf-8") as handle:
+                    rows = handle.readlines()[1:]
+            except OSError:
+                continue
+            for row in rows:
+                fields = row.split()
+                if len(fields) < 4:
+                    continue
+                local = fields[1]
+                state = fields[3]
+                if state == "01" and local.rsplit(":", 1)[-1].upper() == port_hex:
+                    return True
+        return False
+
+    def _handle_no_client(self):
+        now = time.time()
+        self.neutral_rot = None
+        self.calibration_started_at = None
+        should_stop = self.active or self.client_was_connected
+        if should_stop:
+            try:
+                self._post_loco({"action": "stop_move"})
+            except Exception as exc:
+                logger_mp.warning(f"[head tilt loco] no-client stop failed: {exc}")
+            self.last_no_client_stop_at = now
+        if self.client_was_connected and now - self.last_log_at > 1.0:
+            logger_mp.info("[head tilt loco] VR client disconnected; stop_move sent")
+            self.last_log_at = now
+        self.active = False
+        self.client_was_connected = False
+
+    def _handle_stale_pose(self, age):
+        self.neutral_rot = None
+        self.calibration_started_at = None
+        if self.active:
+            try:
+                self._post_loco({"action": "stop_move"})
+            except Exception as exc:
+                logger_mp.warning(f"[head tilt loco] stale-pose stop failed: {exc}")
+            self.active = False
+            now = time.time()
+            if now - self.last_log_at > 1.0:
+                logger_mp.info("[head tilt loco] head pose stale for %.2fs; stop_move sent", age)
+                self.last_log_at = now
+
+    def update(self, tele_data, loco_wrapper=None):
         if not self.enabled:
             return
         try:
+            if self.require_client:
+                has_client = self._has_xr_client()
+                if not has_client:
+                    self._handle_no_client()
+                    return
+                if not self.client_was_connected:
+                    self.neutral_rot = None
+                    self.calibration_started_at = None
+                    logger_mp.info("[head tilt loco] VR client connected; recalibrating neutral pose")
+                self.client_was_connected = True
+
+            head_pose_updated_at = float(getattr(tele_data, "head_pose_updated_at", 0.0) or 0.0)
+            pose_age = time.time() - head_pose_updated_at if head_pose_updated_at > 0.0 else float("inf")
+            if pose_age > self.max_pose_age:
+                self._handle_stale_pose(pose_age)
+                return
+
             head_rot = tele_data.head_pose[:3, :3]
+            if self.calibration_started_at is None:
+                self.calibration_started_at = time.time()
+                self.neutral_rot = head_rot.copy()
+                logger_mp.info("[head tilt loco] neutral settle started")
+                return
+            if time.time() - self.calibration_started_at < self.calibration_delay:
+                self.neutral_rot = head_rot.copy()
+                return
             if self.neutral_rot is None:
                 self.neutral_rot = head_rot.copy()
                 logger_mp.info("[head tilt loco] calibrated neutral head pose")
@@ -95,13 +193,22 @@ class HeadTiltLocoController:
             vyaw = _rtw_clamp(self.yaw_sign * yaw_unit * self.max_vyaw, -self.max_vyaw, self.max_vyaw)
             if vx == 0.0 and vy == 0.0 and vyaw == 0.0:
                 if self.active:
-                    loco_wrapper.Move(0.0, 0.0, 0.0)
+                    self._post_loco({"action": "stop_move"})
                     self.active = False
                     logger_mp.info("[head tilt loco] neutral tolerance reached; stop_move sent")
                 return
-            loco_wrapper.Move(vx, vy, vyaw)
-            self.active = True
             now = time.time()
+            if now - self.last_command_at < self.command_period:
+                return
+            self._post_loco({
+                "action": "velocity",
+                "vx": vx,
+                "vy": vy,
+                "vyaw": vyaw,
+                "duration": max(self.command_period * 2.0, 0.35),
+            })
+            self.last_command_at = now
+            self.active = True
             if now - self.last_log_at > 1.0:
                 logger_mp.info(
                     "[head tilt loco] ypr_deg=(%.1f, %.1f, %.1f) velocity=(%.2f, %.2f, %.2f)",
@@ -111,11 +218,11 @@ class HeadTiltLocoController:
         except Exception as exc:
             logger_mp.warning(f"[head tilt loco] update failed: {exc}")
 
-    def stop(self, loco_wrapper):
-        if not self.enabled or not self.active or loco_wrapper is None:
+    def stop(self, loco_wrapper=None):
+        if not self.enabled or not self.active:
             return
         try:
-            loco_wrapper.Move(0.0, 0.0, 0.0)
+            self._post_loco({"action": "stop_move"})
         except Exception as exc:
             logger_mp.warning(f"[head tilt loco] stop failed: {exc}")
         self.active = False
@@ -132,10 +239,14 @@ def patch_file(path: Path) -> bool:
     if "import math\n" not in text:
         text = text.replace("import time\n", "import time\nimport math\n", 1)
 
-    if HELPER_MARKER not in text:
-        insert = 'def on_press(key):\n'
-        if insert not in text:
-            raise SystemExit(f"Could not find on_press insertion point in {path}")
+    insert = 'def on_press(key):\n'
+    if insert not in text:
+        raise SystemExit(f"Could not find on_press insertion point in {path}")
+    if HELPER_MARKER in text:
+        start = text.index(HELPER_MARKER)
+        end = text.index(insert, start)
+        text = text[:start] + HELPER + text[end:]
+    else:
         text = text.replace(insert, HELPER + insert, 1)
 
     old_motion = '''        # motion mode (G1: Regular mode R1+X, not Running mode R2+A)
@@ -152,10 +263,10 @@ def patch_file(path: Path) -> bool:
 
         # motion mode (G1: Regular mode R1+X, not Running mode R2+A)
         if args.motion:
-            if args.input_mode == "controller" or head_tilt_loco.enabled:
+            if args.input_mode == "controller":
                 loco_wrapper = LocoClientWrapper()
             if head_tilt_loco.enabled:
-                logger_mp.info("[head tilt loco] enabled; VR control pad should be disabled for option 2")
+                logger_mp.info("[head tilt loco] enabled; commands route through dashboard H1 loco API")
         else:
             if head_tilt_loco.enabled:
                 logger_mp.warning("[head tilt loco] disabled because --motion is not enabled")
@@ -166,6 +277,17 @@ def patch_file(path: Path) -> bool:
 '''
     if old_motion in text:
         text = text.replace(old_motion, new_motion, 1)
+    text = text.replace(
+        '            if args.input_mode == "controller" or head_tilt_loco.enabled:\n'
+        '                loco_wrapper = LocoClientWrapper()\n'
+        '            if head_tilt_loco.enabled:\n'
+        '                logger_mp.info("[head tilt loco] enabled; VR control pad should be disabled for option 2")\n',
+        '            if args.input_mode == "controller":\n'
+        '                loco_wrapper = LocoClientWrapper()\n'
+        '            if head_tilt_loco.enabled:\n'
+        '                logger_mp.info("[head tilt loco] enabled; commands route through dashboard H1 loco API")\n',
+        1,
+    )
 
     old_loop = '''            # high level control
             if args.input_mode == "controller" and args.motion:
@@ -202,16 +324,110 @@ def patch_file(path: Path) -> bool:
     return False
 
 
+def patch_televuer(path: Path) -> bool:
+    if not path.exists():
+        return False
+    text = path.read_text(encoding="utf-8")
+    original = text
+
+    if "import time\n" not in text:
+        text = text.replace("import os\n", "import os\nimport time\n", 1)
+
+    if "self.head_pose_updated_at_shared = Value('d', 0.0, lock=True)" not in text:
+        text = text.replace(
+            "        self.head_pose_shared = Array('d', 16, lock=True)\n",
+            "        self.head_pose_shared = Array('d', 16, lock=True)\n"
+            "        self.head_pose_updated_at_shared = Value('d', 0.0, lock=True)\n",
+            1,
+        )
+
+    old_cam = '''    async def on_cam_move(self, event, session, fps=60):
+        try:
+            with self.head_pose_shared.get_lock():
+                self.head_pose_shared[:] = event.value["camera"]["matrix"]
+        except:
+            pass
+'''
+    new_cam = '''    async def on_cam_move(self, event, session, fps=60):
+        try:
+            with self.head_pose_shared.get_lock():
+                self.head_pose_shared[:] = event.value["camera"]["matrix"]
+            with self.head_pose_updated_at_shared.get_lock():
+                self.head_pose_updated_at_shared.value = time.time()
+        except:
+            pass
+'''
+    if old_cam in text:
+        text = text.replace(old_cam, new_cam, 1)
+
+    if "def head_pose_updated_at(self):" not in text:
+        marker = '''    @property
+    def left_arm_pose(self):
+'''
+        addition = '''    @property
+    def head_pose_updated_at(self):
+        """float, wall-clock timestamp of the latest Vuer CAMERA_MOVE event."""
+        with self.head_pose_updated_at_shared.get_lock():
+            return self.head_pose_updated_at_shared.value
+
+'''
+        text = text.replace(marker, addition + marker, 1)
+
+    if text != original:
+        path.write_text(text, encoding="utf-8")
+        return True
+    return False
+
+
+def patch_tv_wrapper(path: Path) -> bool:
+    if not path.exists():
+        return False
+    text = path.read_text(encoding="utf-8")
+    original = text
+
+    text = text.replace(
+        "    head_pose: np.ndarray                  # (4,4) SE(3) pose of head matrix\n"
+        "    head_pose_updated_at: float = 0.0      # wall-clock timestamp of latest CAMERA_MOVE event\n"
+        "    left_wrist_pose: np.ndarray",
+        "    head_pose: np.ndarray                  # (4,4) SE(3) pose of head matrix\n"
+        "    left_wrist_pose: np.ndarray",
+        1,
+    )
+    if "head_pose_updated_at: float = 0.0" not in text:
+        text = text.replace(
+            "    right_wrist_pose: np.ndarray           # (4,4) SE(3) pose of right wrist of arm\n",
+            "    right_wrist_pose: np.ndarray           # (4,4) SE(3) pose of right wrist of arm\n"
+            "    head_pose_updated_at: float = 0.0      # wall-clock timestamp of latest CAMERA_MOVE event\n",
+            1,
+        )
+
+    if "head_pose_updated_at=self.tvuer.head_pose_updated_at" not in text:
+        text = text.replace(
+            "                head_pose=Brobot_world_head,\n",
+            "                head_pose=Brobot_world_head,\n"
+            "                head_pose_updated_at=self.tvuer.head_pose_updated_at,\n",
+        )
+
+    if text != original:
+        path.write_text(text, encoding="utf-8")
+        return True
+    return False
+
+
 def main() -> int:
     changed = []
     seen = set()
     for root in ROOTS:
-        path = root / "teleop/teleop_hand_and_arm.py"
-        if path in seen:
-            continue
-        seen.add(path)
-        if patch_file(path):
-            changed.append(str(path))
+        for path, patcher in (
+            (root / "teleop/teleop_hand_and_arm.py", patch_file),
+            (root / "teleop/televuer/src/televuer/televuer.py", patch_televuer),
+            (root / "teleop/televuer/src/televuer/tv_wrapper.py", patch_tv_wrapper),
+        ):
+            if path in seen:
+                continue
+            seen.add(path)
+            if patcher(path):
+                changed.append(str(path))
     if changed:
         print("Patched head tilt loco in:")
         for path in changed:

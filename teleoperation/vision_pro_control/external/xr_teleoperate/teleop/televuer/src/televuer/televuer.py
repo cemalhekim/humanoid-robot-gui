@@ -6,6 +6,7 @@ import asyncio
 import threading
 import cv2
 import os
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -136,6 +137,7 @@ class TeleVuer:
         self.vuer.spawn(start=False)(fn)
 
         self.head_pose_shared = Array('d', 16, lock=True)
+        self.head_pose_updated_at_shared = Value('d', 0.0, lock=True)
         self.left_arm_pose_shared = Array('d', 16, lock=True)
         self.right_arm_pose_shared = Array('d', 16, lock=True)
         if self.use_hand_tracking:
@@ -222,6 +224,8 @@ class TeleVuer:
         try:
             with self.head_pose_shared.get_lock():
                 self.head_pose_shared[:] = event.value["camera"]["matrix"]
+            with self.head_pose_updated_at_shared.get_lock():
+                self.head_pose_updated_at_shared.value = time.time()
         except:
             pass
 
@@ -681,6 +685,12 @@ class TeleVuer:
         """np.ndarray, shape (4, 4), head SE(3) pose matrix from Vuer (basis OpenXR Convention)."""
         with self.head_pose_shared.get_lock():
             return np.array(self.head_pose_shared[:]).reshape(4, 4, order="F")
+
+    @property
+    def head_pose_updated_at(self):
+        """float, wall-clock timestamp of the latest Vuer CAMERA_MOVE event."""
+        with self.head_pose_updated_at_shared.get_lock():
+            return self.head_pose_updated_at_shared.value
 
     @property
     def left_arm_pose(self):

@@ -1560,6 +1560,7 @@ pre {
 }
 
 .teleoperation-option {
+  appearance: none;
   position: relative;
   display: grid;
   grid-template-rows: minmax(260px, 1fr) auto;
@@ -1570,8 +1571,15 @@ pre {
   border-radius: 14px;
   background: rgba(0, 0, 0, 0.44);
   color: var(--text);
+  cursor: pointer;
+  font: inherit;
   text-decoration: none;
   box-shadow: 0 20px 54px rgba(0, 0, 0, 0.42);
+}
+
+.teleoperation-option:disabled {
+  cursor: progress;
+  opacity: 0.72;
 }
 
 .teleoperation-option::before {

@@ -292,11 +292,10 @@
               </a>
             </div>
             <div class="teleoperation-options" aria-label="Teleoperation control methods">
-              <a
+              <button
                 class="teleoperation-option method-pad"
-                href="https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012"
-                target="_blank"
-                rel="noreferrer"
+                type="button"
+                data-teleoperation-mode="pad"
                 data-teleoperation-method
               >
                 <span class="method-art" aria-hidden="true"></span>
@@ -304,14 +303,19 @@
                   <strong>Floating VR Control Pad</strong>
                   <small>Current movement strategy</small>
                 </span>
-              </a>
-              <div class="teleoperation-option method-head disabled-method" aria-disabled="true">
+              </button>
+              <button
+                class="teleoperation-option method-head"
+                type="button"
+                data-teleoperation-mode="head_tilt"
+                data-teleoperation-method
+              >
                 <span class="method-art" aria-hidden="true"></span>
                 <span class="method-copy">
                   <strong>Head Rotation Control</strong>
-                  <small>Coming soon</small>
+                  <small>Tilt and rotate for locomotion</small>
                 </span>
-              </div>
+              </button>
               <div class="teleoperation-option method-mimic disabled-method" aria-disabled="true">
                 <span class="method-art" aria-hidden="true"></span>
                 <span class="method-copy">

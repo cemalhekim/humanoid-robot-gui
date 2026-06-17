@@ -5,6 +5,8 @@ const state = {
   locoStatusKey: null,
 };
 
+const vrViewUrl = "https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012";
+
 const els = {
   subtitle: document.getElementById("subtitle"),
   connection: document.getElementById("connection"),
@@ -1216,12 +1218,36 @@ els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 els.chillMotors?.addEventListener("click", chillMotors);
 els.homeRobot?.addEventListener("click", sendRobotHome);
 els.teleoperationMethods.forEach((method) => {
-  method.addEventListener("click", () => {
+  method.addEventListener("click", async () => {
     method.classList.remove("click-glow");
     window.requestAnimationFrame(() => {
       method.classList.add("click-glow");
       window.setTimeout(() => method.classList.remove("click-glow"), 520);
     });
+    const mode = method.dataset.teleoperationMode;
+    if (!mode) return;
+    const allMethods = Array.from(els.teleoperationMethods);
+    allMethods.forEach((item) => {
+      if (item instanceof HTMLButtonElement) item.disabled = true;
+    });
+    try {
+      const response = await fetch("/api/xr/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "XR mode switch failed.");
+      window.open(vrViewUrl, "_blank", "noreferrer");
+    } catch (error) {
+      if (els.locoMessage) {
+        els.locoMessage.textContent = error instanceof Error ? error.message : "XR mode switch failed.";
+      }
+    } finally {
+      allMethods.forEach((item) => {
+        if (item instanceof HTMLButtonElement) item.disabled = false;
+      });
+    }
   });
 });
 document.addEventListener("selectstart", (event) => {

@@ -42,6 +42,7 @@ except Exception:  # pragma: no cover
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 CAMERA_JPEG_PATH = Path("/tmp/robot_telemetry_front_camera.jpg")
+XR_TELEOP_MODE_DROPIN = Path.home() / ".config/systemd/user/xr-teleop.service.d/10-control-mode.conf"
 UNITREE_ROS2_INSTALL = (
     APP_DIR
     / "execution/semantic_teleoperation/external/unitree_ros2/cyclonedds_ws/install"
@@ -1565,6 +1566,78 @@ finally:
             self._set_loco_status(active=False, message=f"Loco {action} failed: {exc}", last_command=command)
             return 500, {"ok": False, "error": str(exc), "status": self.loco_snapshot()}
 
+    def switch_xr_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        mode = str(payload.get("mode", "")).strip()
+        modes = {
+            "pad": {
+                "label": "Floating VR Control Pad",
+                "XR_ROOT_CHILDREN_VISUAL": "1",
+                "XR_HEAD_TILT_LOCO": "0",
+            },
+            "head_tilt": {
+                "label": "Head Rotation Control",
+                "XR_ROOT_CHILDREN_VISUAL": "0",
+                "XR_HEAD_TILT_LOCO": "1",
+            },
+        }
+        if mode not in modes:
+            return 400, {"ok": False, "error": "mode must be one of: pad, head_tilt"}
+
+        env = modes[mode]
+        XR_TELEOP_MODE_DROPIN.parent.mkdir(parents=True, exist_ok=True)
+        XR_TELEOP_MODE_DROPIN.write_text(
+            "\n".join(
+                [
+                    "[Service]",
+                    f"Environment=XR_ROOT_CHILDREN_VISUAL={env['XR_ROOT_CHILDREN_VISUAL']}",
+                    f"Environment=XR_HEAD_TILT_LOCO={env['XR_HEAD_TILT_LOCO']}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        try:
+            subprocess.run(
+                ["systemctl", "--user", "daemon-reload"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            subprocess.run(
+                ["systemctl", "--user", "kill", "--kill-who=all", "--signal=KILL", "xr-teleop.service"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            subprocess.run(
+                ["systemctl", "--user", "restart", "--no-block", "xr-teleop.service"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except subprocess.CalledProcessError as exc:
+            return 500, {
+                "ok": False,
+                "error": f"Could not switch XR mode: {exc.stderr.strip() or exc.stdout.strip() or exc}",
+                "mode": mode,
+            }
+        except Exception as exc:
+            return 500, {"ok": False, "error": f"Could not switch XR mode: {exc}", "mode": mode}
+
+        return 200, {
+            "ok": True,
+            "mode": mode,
+            "message": f"XR teleop switched to {env['label']}.",
+            "env": {
+                "XR_ROOT_CHILDREN_VISUAL": env["XR_ROOT_CHILDREN_VISUAL"],
+                "XR_HEAD_TILT_LOCO": env["XR_HEAD_TILT_LOCO"],
+            },
+        }
+
     def command_wrist(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if not has_risk_ack(payload):
             return 400, {"ok": False, "error": "Command requires armed=true and i_understand_risk=true."}
@@ -1879,12 +1952,13 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/robot/chill",
             "/api/robot/home",
             "/api/loco/command",
+            "/api/xr/mode",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
 
         payload: dict[str, Any] = {}
-        if request_path in ("/api/wrist/command", "/api/robot/chill", "/api/loco/command"):
+        if request_path in ("/api/wrist/command", "/api/robot/chill", "/api/loco/command", "/api/xr/mode"):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length > MAX_JSON_BODY_BYTES:
@@ -1918,6 +1992,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/loco/command":
             status, response = self.store.command_loco(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/xr/mode":
+            status, response = self.store.switch_xr_mode(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

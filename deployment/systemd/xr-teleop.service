@@ -18,6 +18,7 @@ Environment=XR_INSPIRE_LEFT_THUMB_ROT_GAIN=1.35
 Environment=XR_TELEOP_SEND_START=1
 Environment=XR_TELEOP_FREQUENCY=30
 Environment=XR_ROOT_CHILDREN_VISUAL=1
+Environment=XR_HEAD_TILT_LOCO=0
 ExecStart=/home/unitree/xr_teleoperate/deploy/scripts/start_xr_teleop.sh
 Restart=always
 RestartSec=3

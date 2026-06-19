@@ -15,6 +15,22 @@ sys.path.append(parent2_dir)
 
 from teleop.utils.weighted_moving_filter import WeightedMovingFilter
 
+
+def _rtw_env_weights(name, default):
+    raw = os.getenv(name)
+    if not raw:
+        return np.array(default, dtype=float)
+    try:
+        weights = np.array([float(part.strip()) for part in raw.split(",") if part.strip()], dtype=float)
+    except ValueError:
+        logger_mp.warning(f"[arm snappy] invalid {name}={raw!r}; using {default}")
+        return np.array(default, dtype=float)
+    if weights.size == 0 or not np.all(np.isfinite(weights)) or np.sum(weights) <= 0.0:
+        logger_mp.warning(f"[arm snappy] invalid {name}={raw!r}; using {default}")
+        return np.array(default, dtype=float)
+    return weights / np.sum(weights)
+
+
 class G1_29_ArmIK:
     def __init__(self, Unit_Test = False, Visualization = False):
         np.set_printoptions(precision=5, suppress=True, linewidth=200)
@@ -760,7 +776,7 @@ class H1_2_ArmIK:
         self.opti.solver("ipopt", opts)
 
         self.init_data = np.zeros(self.reduced_robot.model.nq)
-        self.smooth_filter = WeightedMovingFilter(np.array([0.4, 0.3, 0.2, 0.1]), 14)
+        self.smooth_filter = WeightedMovingFilter(_rtw_env_weights("XR_H1_2_IK_SMOOTH_WEIGHTS", [0.75, 0.25]), 14)
         self.vis = None
 
         if self.Visualization:

@@ -686,7 +686,12 @@ if __name__ == '__main__':
                     tv_wrapper.render_to_xr(head_img.bgr)
 
         logger_mp.info("---------------------🚀start Tracking🚀-------------------------")
-        arm_ctrl.speed_gradual_max()
+        if _rtw_env_bool("XR_ARM_SPEED_INSTANT", True):
+            arm_ctrl.speed_instant_max()
+            logger_mp.info("[arm snappy] instant max arm velocity enabled")
+        else:
+            arm_ctrl.speed_gradual_max()
+            logger_mp.info("[arm snappy] gradual arm velocity ramp enabled")
 
         head_img = None
         left_wrist_img = None

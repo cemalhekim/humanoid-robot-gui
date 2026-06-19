@@ -1066,6 +1066,9 @@ class TelemetryStore:
         self.command_lock = threading.Lock()
         self.wrist_publisher: Any | None = None
         self.lowcmd_publisher: Any | None = None
+        self.hand_cmd_publisher: Any | None = None
+        self.hand_cmd_factory: Any | None = None
+        self.hand_cmd_type: Any | None = None
         self.motion_switcher: Any | None = None
         self.loco_client: Any | None = None
         self.lowcmd_factory: Any | None = None
@@ -1566,6 +1569,37 @@ finally:
             self._set_loco_status(active=False, message=f"Loco {action} failed: {exc}", last_command=command)
             return 500, {"ok": False, "error": str(exc), "status": self.loco_snapshot()}
 
+    def refresh_inspire_hands_open(self, hold: float = 0.45, rate: float = 30.0) -> dict[str, Any]:
+        with self.command_lock:
+            publisher = self.hand_cmd_publisher
+            cmd_factory = self.hand_cmd_factory
+            msg_type = self.hand_cmd_type
+        if publisher is None or cmd_factory is None or msg_type is None:
+            return {"ok": False, "message": "Inspire hand command publisher is not ready."}
+
+        try:
+            msg = msg_type()
+            msg.cmds = [cmd_factory() for _ in range(len(HAND_JOINT_NAMES))]
+            for cmd in msg.cmds:
+                cmd.q = 1.0
+
+            interval = 1.0 / max(rate, 1.0)
+            deadline = time.time() + max(hold, 0.05)
+            writes = 0
+            while time.time() < deadline:
+                publisher.Write(msg)
+                writes += 1
+                time.sleep(interval)
+            return {
+                "ok": True,
+                "message": "Sent Inspire open-all refresh command.",
+                "q": 1.0,
+                "motors": len(msg.cmds),
+                "writes": writes,
+            }
+        except Exception as exc:
+            return {"ok": False, "message": f"Could not send Inspire open-all refresh command: {exc}"}
+
     def switch_xr_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         mode = str(payload.get("mode", "")).strip()
         modes = {
@@ -1592,6 +1626,7 @@ finally:
             return 400, {"ok": False, "error": "mode must be one of: pad, head_tilt, position_match"}
 
         env = modes[mode]
+        hand_refresh = self.refresh_inspire_hands_open()
         XR_TELEOP_MODE_DROPIN.parent.mkdir(parents=True, exist_ok=True)
         XR_TELEOP_MODE_DROPIN.write_text(
             "\n".join(
@@ -1641,6 +1676,7 @@ finally:
             "ok": True,
             "mode": mode,
             "message": f"XR teleop switched to {env['label']}.",
+            "hand_refresh": hand_refresh,
             "env": {
                 "XR_ROOT_CHILDREN_VISUAL": env["XR_ROOT_CHILDREN_VISUAL"],
                 "XR_HEAD_TILT_LOCO": env["XR_HEAD_TILT_LOCO"],
@@ -1814,8 +1850,10 @@ finally:
             from unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
             from unitree_sdk2py.h1.loco.h1_loco_client import LocoClient
             from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
+            from unitree_sdk2py.idl.default import unitree_go_msg_dds__MotorCmd_
             from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_
             from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
+            from unitree_sdk2py.idl.unitree_go.msg.dds_ import MotorCmds_
             from unitree_sdk2py.idl.unitree_go.msg.dds_ import MotorStates_
             from unitree_sdk2py.utils.crc import CRC
         except Exception as exc:
@@ -1866,6 +1904,8 @@ finally:
             wrist_pub.Init()
             lowcmd_pub = ChannelPublisher("rt/lowcmd", LowCmd_)
             lowcmd_pub.Init()
+            hand_cmd_pub = ChannelPublisher("rt/inspire/cmd", MotorCmds_)
+            hand_cmd_pub.Init()
             motion_switcher = MotionSwitcherClient()
             motion_switcher.SetTimeout(5.0)
             motion_switcher.Init()
@@ -1875,6 +1915,9 @@ finally:
             with self.command_lock:
                 self.wrist_publisher = wrist_pub
                 self.lowcmd_publisher = lowcmd_pub
+                self.hand_cmd_publisher = hand_cmd_pub
+                self.hand_cmd_factory = unitree_go_msg_dds__MotorCmd_
+                self.hand_cmd_type = MotorCmds_
                 self.motion_switcher = motion_switcher
                 self.loco_client = loco_client
                 self.lowcmd_factory = unitree_hg_msg_dds__LowCmd_

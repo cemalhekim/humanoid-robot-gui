@@ -39,6 +39,15 @@ STRAIGHT       = False  # Hold arms straight down while keeping arm SDK active
 READY          = False  # Ready to (1) enter START state, (2) enter RECORD_RUNNING state
 RECORD_RUNNING = False  # True if [Recording]
 RECORD_TOGGLE  = False  # Toggle recording state
+
+# H1-2 straight-down calibration, in H1_2_JointArmIndex order.
+# With a zero target and Inspire hands installed, the live joints settled around
+# -4.8 deg shoulder pitch and +5.4 deg elbow pitch. This counters that static
+# droop so the physical arms land closer to vertical.
+H1_2_STRAIGHT_ARM_Q = np.array([
+   -0.0390,  0.0154,  0.0025, -0.0513, -0.0133, -0.0279, -0.0116,
+   -0.0460, -0.0059, -0.0068, -0.0565,  0.0122, -0.0240,  0.0162,
+], dtype=np.float32)
 #  -------        ---------                -----------                -----------            ---------
 #   state          [Ready]      ==>        [Recording]     ==>         [AutoSave]     -->     [Ready]
 #  -------        ---------      |         -----------      |         -----------      |     ---------
@@ -491,6 +500,12 @@ def get_state() -> dict:
         "RECORD_RUNNING": RECORD_RUNNING,
     }
 
+def get_straight_arm_target(current_lr_arm_q):
+    """Return a calibrated straight-down arm target for the active robot."""
+    if len(current_lr_arm_q) == len(H1_2_STRAIGHT_ARM_Q):
+        return H1_2_STRAIGHT_ARM_Q.copy()
+    return np.zeros_like(current_lr_arm_q)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # basic control parameters
@@ -780,7 +795,7 @@ if __name__ == '__main__':
             # solve ik using motor data and wrist pose, then use ik results to control arms.
             time_ik_start = time.time()
             if STRAIGHT:
-                sol_q = np.zeros_like(current_lr_arm_q)
+                sol_q = get_straight_arm_target(current_lr_arm_q)
                 sol_tauff = np.zeros_like(current_lr_arm_q)
             else:
                 sol_q, sol_tauff  = arm_ik.solve_ik(tele_data.left_wrist_pose, tele_data.right_wrist_pose, current_lr_arm_q, current_lr_arm_dq)

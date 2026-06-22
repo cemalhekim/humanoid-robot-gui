@@ -13,6 +13,7 @@ const els = {
   age: document.getElementById("age"),
   rate: document.getElementById("rate"),
   chillMotors: document.getElementById("chillMotors"),
+  straightRobot: document.getElementById("straightRobot"),
   homeRobot: document.getElementById("homeRobot"),
   networkType: document.getElementById("networkType"),
   sidebarNetworkType: document.getElementById("sidebarNetworkType"),
@@ -931,6 +932,36 @@ function sendRobotHome() {
     });
 }
 
+function sendRobotStraight() {
+  if (!els.straightRobot) return;
+  els.straightRobot.disabled = true;
+  els.straightRobot.classList.add("pending");
+  els.straightRobot.textContent = "Straightening";
+  fetch("/api/robot/straight", { method: "POST" })
+    .then((response) =>
+      response.json().then((data) => {
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+      }),
+    )
+    .then((data) => {
+      els.subtitle.textContent = data.message || "Straight command sent.";
+      if (els.wristMessage) els.wristMessage.textContent = data.message || "Straight command sent.";
+      if (els.locoMessage) els.locoMessage.textContent = data.message || "Straight command sent.";
+    })
+    .catch((error) => {
+      els.subtitle.textContent = `Straight failed: ${error.message}`;
+      if (els.wristMessage) els.wristMessage.textContent = error.message;
+    })
+    .finally(() => {
+      els.straightRobot.disabled = false;
+      els.straightRobot.classList.remove("pending");
+      els.straightRobot.textContent = "Straight";
+      loadWristStatus();
+      loadLocoStatus();
+    });
+}
+
 let wristLiveTimer = null;
 
 function setupWristControls() {
@@ -1216,6 +1247,7 @@ document.addEventListener("visibilitychange", () => {
 });
 els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 els.chillMotors?.addEventListener("click", chillMotors);
+els.straightRobot?.addEventListener("click", sendRobotStraight);
 els.homeRobot?.addEventListener("click", sendRobotHome);
 els.teleoperationMethods.forEach((method) => {
   method.addEventListener("click", async () => {

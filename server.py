@@ -1291,17 +1291,25 @@ class TelemetryStore:
         return self.request_chill({"armed": True, "i_understand_risk": True})
 
     def request_home(self) -> tuple[int, dict[str, Any]]:
+        return self._request_xr_ipc("CMD_STOP", "XR teleop stop requested. Arms should move home during clean shutdown.")
+
+    def request_straight(self) -> tuple[int, dict[str, Any]]:
+        return self._request_xr_ipc("CMD_STRAIGHT", "Straight arm hold requested. XR arm tracking is paused.")
+
+    def _request_xr_ipc(self, command: str, success_message: str) -> tuple[int, dict[str, Any]]:
         script = """
 import time
+import os
 from teleop.utils.ipc import IPC_Client
 
+command = os.environ["RTW_XR_IPC_COMMAND"]
 client = IPC_Client(hb_fps=10.0)
 try:
     for _ in range(40):
         if client.is_online():
             break
         time.sleep(0.1)
-    reply = client.send_data("CMD_STOP")
+    reply = client.send_data(command)
     print(reply)
     raise SystemExit(0 if reply.get("status") == "ok" else 2)
 finally:
@@ -1312,6 +1320,7 @@ finally:
         if env.get("PYTHONPATH"):
             python_paths.append(env["PYTHONPATH"])
         env["PYTHONPATH"] = os.pathsep.join(python_paths)
+        env["RTW_XR_IPC_COMMAND"] = command
         try:
             result = subprocess.run(
                 [sys.executable, "-c", script],
@@ -1330,7 +1339,7 @@ finally:
         output = (result.stdout or result.stderr).strip()
         if result.returncode != 0:
             return 502, {"ok": False, "error": output or "XR home command was rejected."}
-        return 202, {"ok": True, "message": "XR teleop stop requested. Arms should move home during clean shutdown.", "reply": output}
+        return 202, {"ok": True, "message": success_message, "reply": output}
 
     def request_chill(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         with self.command_lock:
@@ -1961,6 +1970,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/wrist/stop",
             "/api/robot/chill",
             "/api/robot/home",
+            "/api/robot/straight",
             "/api/loco/command",
             "/api/xr/mode",
         ):
@@ -1997,6 +2007,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/robot/home":
             status, response = self.store.request_home()
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/robot/straight":
+            status, response = self.store.request_straight()
             self._send_json_status(response, HTTPStatus(status))
             return
 

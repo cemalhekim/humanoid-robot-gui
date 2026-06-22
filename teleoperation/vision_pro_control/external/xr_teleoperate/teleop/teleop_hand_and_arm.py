@@ -3,6 +3,7 @@ import math
 import argparse
 from multiprocessing import Value, Array, Lock
 import threading
+import numpy as np
 import logging_mp
 logging_mp.basicConfig(level=logging_mp.INFO)
 logger_mp = logging_mp.getLogger(__name__)
@@ -34,6 +35,7 @@ def publish_reset_category(category: int, publisher): # Scene Reset signal
 # state transition
 START          = False  # Enable to start robot following VR user motion
 STOP           = False  # Enable to begin system exit procedure
+STRAIGHT       = False  # Hold arms straight down while keeping arm SDK active
 READY          = False  # Ready to (1) enter START state, (2) enter RECORD_RUNNING state
 RECORD_RUNNING = False  # True if [Recording]
 RECORD_TOGGLE  = False  # Toggle recording state
@@ -462,12 +464,17 @@ class PositionMatchLocoController(HeadTiltLocoController):
             logger_mp.warning(f"[position match loco] update failed: {exc}")
 
 def on_press(key):
-    global STOP, START, RECORD_TOGGLE
+    global STOP, START, STRAIGHT, RECORD_TOGGLE
     if key == 'r':
+        STRAIGHT = False
         START = True
     elif key == 'q':
         START = False
+        STRAIGHT = False
         STOP = True
+    elif key == 't':
+        STRAIGHT = True
+        START = True
     elif key == 's' and START == True:
         RECORD_TOGGLE = True
     else:
@@ -475,10 +482,11 @@ def on_press(key):
 
 def get_state() -> dict:
     """Return current heartbeat state"""
-    global START, STOP, RECORD_RUNNING, READY
+    global START, STOP, STRAIGHT, RECORD_RUNNING, READY
     return {
         "START": START,
         "STOP": STOP,
+        "STRAIGHT": STRAIGHT,
         "READY": READY,
         "RECORD_RUNNING": RECORD_RUNNING,
     }
@@ -771,7 +779,11 @@ if __name__ == '__main__':
 
             # solve ik using motor data and wrist pose, then use ik results to control arms.
             time_ik_start = time.time()
-            sol_q, sol_tauff  = arm_ik.solve_ik(tele_data.left_wrist_pose, tele_data.right_wrist_pose, current_lr_arm_q, current_lr_arm_dq)
+            if STRAIGHT:
+                sol_q = np.zeros_like(current_lr_arm_q)
+                sol_tauff = np.zeros_like(current_lr_arm_q)
+            else:
+                sol_q, sol_tauff  = arm_ik.solve_ik(tele_data.left_wrist_pose, tele_data.right_wrist_pose, current_lr_arm_q, current_lr_arm_dq)
             time_ik_end = time.time()
             logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
             arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)

@@ -25,6 +25,12 @@ logger_mp = logging_mp.getLogger(__name__)
         "cmd": "CMD_RECORD_TOGGLE"
     }
 
+4) hold arms straight down
+    {
+        "reqid": unique id,
+        "cmd": "CMD_STRAIGHT"
+    }
+
 # Server → Client (Reply)
 1) if ok
     {
@@ -64,6 +70,7 @@ class IPC_Server:
         "CMD_START": "r",          # launch
         "CMD_STOP": "q",           # exit
         "CMD_RECORD_TOGGLE": "s",  # start & stop (toggle record)
+        "CMD_STRAIGHT": "t",       # hold arms straight down
     }
 
     def __init__(self, on_press=None, get_state=None, hb_fps=10.0):

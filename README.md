@@ -200,6 +200,157 @@ http://10.2.100.142:8088
 
 In this mode the browser uses Wi-Fi, while the server reads `rt/lowstate`, Loco RPC, wrist control, and camera DDS locally on the robot PC.
 
+## Robot Operator User Journey
+
+Use this section as the end-to-end checklist for bringing up the dashboard and
+XR services from a laptop, confirming what is live, and knowing where to look
+when the dashboard shows a disconnected robot.
+
+### 1. Confirm The Machine You Are On
+
+The dashboard can be launched from a development laptop, but full robot
+telemetry, camera, hands, and XR teleoperation should run on the robot PC.
+
+- Local development checkout: `/Users/vodafone/Workspace/humanoid-robot-gui`
+- Robot runtime checkout: `/home/unitree/robot_telemetry_web`
+- Robot Wi-Fi host: `10.2.100.142`
+- Robot SSH user: `unitree`
+- Robot body DDS target from the robot PC: `192.168.123.164`
+- Robot DDS and camera interface on the robot PC: `eth0`
+
+Do not commit robot passwords, API keys, private keys, or other secrets to this
+repository. Store the robot SSH password in an operator password manager or set
+up an SSH key. The repository may document the SSH username and host, but not
+the password.
+
+### 2. Start The Full Robot Service Set
+
+SSH into the robot PC, then run the service installer from the robot checkout:
+
+```bash
+ssh unitree@10.2.100.142
+cd /home/unitree/robot_telemetry_web
+deployment/install_robot_services.sh
+```
+
+The installer updates the XR teleoperation checkout when possible, copies user
+systemd units into `~/.config/systemd/user`, applies repository patch scripts,
+installs required Python packages, reloads systemd, and starts the robot
+services.
+
+If the installer exits early because an XR patch no longer matches the current
+upstream file, restart the already-installed services directly:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service
+systemctl --user restart robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service
+```
+
+### 3. Open The Operator Surfaces
+
+After the robot services are active, open these from a laptop on the robot Wi-Fi
+network:
+
+```text
+Dashboard: http://10.2.100.142:8088
+XR / Vuer: https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012
+Camera:    https://10.2.100.142:60001
+```
+
+The dashboard is the first place to check the robot state. It shows telemetry
+connection status, sample rate, motor state, IMU, hands, camera stream, loco
+state, command history, and raw JSON.
+
+### 4. Verify Services
+
+On the robot PC:
+
+```bash
+systemctl --user --no-pager --full status \
+  robot-telemetry-web.service \
+  teleimager.service \
+  inspire-hands.service \
+  xr-teleop.service \
+  xr-home-watchdog.service
+```
+
+Expected services:
+
+| Service | Purpose | Main port/path |
+| --- | --- | --- |
+| `robot-telemetry-web.service` | Dashboard HTTP server, DDS telemetry, guarded loco and wrist endpoints | `http://10.2.100.142:8088` |
+| `teleimager.service` | TeleImager WebRTC camera image server | `https://10.2.100.142:60001` |
+| `inspire-hands.service` | Inspire DFX/RH56 hand bridge | DDS hand topics |
+| `xr-teleop.service` | Vision Pro / XR Vuer teleoperation server | `https://10.2.100.142:8012` |
+| `xr-home-watchdog.service` | Safety watchdog for lost XR home/pose packets | Watches XR port `8012` |
+
+Check dashboard JSON from a laptop:
+
+```bash
+curl -sS http://10.2.100.142:8088/api/state
+```
+
+Healthy robot telemetry should show `connected: true`, a non-zero
+`sample_rate_hz`, populated motor data, and no Unitree SDK import error.
+
+### 5. Local Development Server
+
+When working only on the dashboard UI or static assets from a Mac development
+checkout, start a local dashboard server:
+
+```bash
+cd /Users/vodafone/Workspace/humanoid-robot-gui
+python3 run_servers.py --mode foreground --host 0.0.0.0 --port 8088 --no-kill-first
+```
+
+Open:
+
+```text
+http://127.0.0.1:8088
+```
+
+This confirms the web UI loads, but it does not prove robot telemetry is live.
+If the local Python environment does not include the Unitree SDK and CycloneDDS,
+`/api/state` will show a disconnected state such as:
+
+```text
+connected: false
+sample_rate_hz: 0
+Could not import Unitree SDK: No module named 'cyclonedds'
+```
+
+For live robot operation, run the dashboard on the robot PC.
+
+### 6. What We Verified During Bring-Up
+
+During the current repository bring-up:
+
+- The local checkout was found at `/Users/vodafone/Workspace/humanoid-robot-gui`.
+- The local dashboard server started successfully on `0.0.0.0:8088`.
+- The local dashboard API responded at `http://127.0.0.1:8088/api/state`.
+- The local dashboard reported disconnected telemetry because the Mac Python
+  environment was missing `cyclonedds`.
+- SSH to `unitree@10.2.100.142` was reachable after interactive authentication.
+- `deployment/install_robot_services.sh` reached the robot and fetched
+  `unitreerobotics/xr_teleoperate`, but stopped because
+  `patch_xr_hand_input_swap.py` could not find the expected hand input block in
+  `/home/unitree/xr_teleoperate/teleop/teleop_hand_and_arm.py`.
+- Because the installer stopped before its final status block, service status
+  should be rechecked on the robot with `systemctl --user status`.
+
+### 7. Sync This Repository
+
+Commit only intentional repository changes. Do not include generated artifacts,
+robot credentials, or unrelated local modifications.
+
+```bash
+git status --short --branch
+git add README.md
+git commit -m "Document robot dashboard operator journey"
+git push origin main
+```
+
 To kill every dashboard server process and user service started from this workspace:
 
 ```bash
@@ -227,7 +378,8 @@ cd /home/unitree/robot_telemetry_web
 deployment/install_robot_services.sh
 ```
 
-The XR service opens the Vuer server on port `8013` but does not automatically send the motion start command. Check both services with:
+The XR service opens the Vuer server on port `8012` and the configured service
+sets `XR_TELEOP_SEND_START=1`. Check the robot services with:
 
 ```bash
 systemctl --user status robot-telemetry-web.service xr-teleop.service --no-pager

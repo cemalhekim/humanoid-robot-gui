@@ -1,12 +1,16 @@
 # Unitree H1-2 Robot Telemetry, XR Control, and Digital Twin Platform
 
-Initial executive presentation draft
+Initial visual executive presentation draft
 
 Prepared for leadership review
+
+Visual source: repository robot, model, teleoperation, and Vodafone assets.
 
 ---
 
 ## 1. Executive Summary
+
+Visual: humanoid robot operator platform hero.
 
 This repository is a working operator platform for the Unitree H1-2 humanoid robot.
 
@@ -17,6 +21,8 @@ The current system is already useful for supervised robot operation, operator de
 ---
 
 ## 2. What The Platform Delivers
+
+Visual: platform capability map.
 
 - Live browser dashboard for robot state and supervision.
 - Unitree DDS telemetry ingestion from `rt/lowstate`.
@@ -34,6 +40,8 @@ The current system is already useful for supervised robot operation, operator de
 ---
 
 ## 3. Repository Scope
+
+Visual: consolidated repository workspace.
 
 The repository is more than a frontend project.
 
@@ -54,6 +62,8 @@ This gives the team one operational workspace for dashboard development, robot-s
 ---
 
 ## 4. High-Level Architecture
+
+Visual: browser, robot server, DDS, camera, XR, and services architecture.
 
 Operator browser:
 
@@ -81,6 +91,8 @@ Robot services:
 ---
 
 ## 5. Dashboard Pages
+
+Visual: dashboard navigation map.
 
 The current dashboard includes these operator pages:
 
@@ -153,6 +165,8 @@ The dashboard treats body telemetry and hand telemetry as independent streams, s
 
 ## 9. 3D Digital Twin Viewer
 
+Visual: H1-2 model and live digital twin.
+
 The live digital twin uses:
 
 - `static/models/h1_2_description/h1_2.urdf`
@@ -173,6 +187,8 @@ Viewer capabilities:
 ---
 
 ## 10. Camera And XR Experience
+
+Visual: XR teleoperation methods.
 
 Camera features:
 
@@ -261,6 +277,8 @@ Current safeguards:
 
 ## 14. Telemetry Recorder
 
+Visual: full-body recording pipeline.
+
 The Recorder page supports two capture modes:
 
 - Sequence recording.
@@ -288,6 +306,8 @@ Each sample can include:
 
 ## 15. Replay And Comparison Digital Twin
 
+Visual: blue live reference robot compared with red recorded replay robot.
+
 The Recorder page includes a replay viewer that is independent from the live robot command path.
 
 Replay features:
@@ -307,6 +327,8 @@ This gives operators a visual difference between the robot's current pose and a 
 ---
 
 ## 16. CSV And Data Analysis
+
+Visual: JSONL to CSV conversion tables.
 
 The dashboard includes a CSV View for the current telemetry snapshot.
 
@@ -342,6 +364,8 @@ This documentation is important because it prevents unsafe guessing when moving 
 ---
 
 ## 18. Vision Pro / XR Deployment
+
+Visual: XR service deployment stack.
 
 The repository contains robot-side XR deployment automation:
 
@@ -433,6 +457,8 @@ Important limitations are explicit:
 
 ## 23. Business Value
 
+Visual: value pillars for leadership.
+
 The platform gives the team:
 
 - A visible operator experience for demos.
@@ -493,4 +519,3 @@ The project has moved from a telemetry viewer into a broader robot operator plat
 It now covers live state monitoring, XR operation, camera access, guarded control, full-body recording, digital twin replay, CSV data export, deployment automation, simulation assets, and offline validation.
 
 The next major step is not adding raw power. It is adding production-grade safety, access control, and validated motion playback.
-

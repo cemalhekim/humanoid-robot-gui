@@ -1,70 +1,55 @@
-# Unitree Telemetry Web Dashboard
+# Unitree H1-2 Telemetry and XR Operator Dashboard
 
-A local web dashboard and guarded operator command surface for the Unitree H1-2 robot. The app runs a small Python HTTP server on the robot PC, subscribes to Unitree DDS telemetry topics through the Unitree SDK, streams the latest robot state to a browser UI, and exposes explicitly armed controls for selected wrist and loco actions.
+This repository contains a local web dashboard, telemetry server, guarded robot
+command surface, and Vision Pro / XR service deployment for the Unitree H1-2
+robot.
 
-The dashboard is intended for observation, debugging, operator situational awareness, and carefully gated command experiments by an operator who understands the robot state.
+The project is designed to:
 
-## What It Shows
+- Read Unitree DDS telemetry from the robot PC.
+- Show H1-2 robot state, joints, IMU, battery, hands, camera, and command
+  history in a browser dashboard.
+- Expose guarded right-wrist and H1 locomotion commands with explicit operator
+  intent and runtime limits.
+- Run Vision Pro / XR teleoperation services on the robot PC as user-level
+  systemd services.
+- Let a development laptop test the UI and static assets without live robot
+  telemetry.
 
-- Live `rt/lowstate` telemetry from the Unitree H1-2 body controller.
-- Motor state for all known H1-2 body joints, including position, velocity, estimated torque, temperature, voltage, and mode.
-- IMU data, including quaternion, gyroscope, accelerometer, roll/pitch/yaw, and temperature when exposed by the firmware.
-- Robot metadata fields such as version, controller mode, machine mode, tick, CRC, and wireless remote state when available.
-- Battery/BMS information when the active LowState firmware exposes it.
-- Foot force and estimated foot force arrays when present in the LowState message.
-- RH56BFX hand telemetry from `rt/inspire/state`, including per-finger joint positions when the Inspire hand service is running.
-- A live Three.js H1-2 URDF viewer that moves body and hand joints from the incoming telemetry.
-- View cube controls for front, back, left, right, top, and bottom camera presets.
-- Grid and auto-rotate controls for the 3D view.
-- Collapsible raw JSON output for direct inspection of the current normalized telemetry snapshot.
+This is not a read-only application. Some HTTP endpoints can move the robot.
+Run it only on trusted networks and only with an operator who can physically
+observe the robot and understands the risk.
 
-## Safety Model
+## Quick Map
 
-This application is not purely read-only in its current form.
+Local development checkout:
 
-- It subscribes to telemetry topics.
-- It serves HTTP, JSON, static assets, camera frames, and Server-Sent Events.
-- It can publish guarded wrist commands through the configured DDS command path.
-- It can call guarded H1 loco actions when the loco client is available.
-- Command endpoints are expected to require both `armed=true` and `i_understand_risk=true` before command execution.
+```text
+/Users/vodafone/Workspace/humanoid-robot-gui
+```
 
-Run it only on trusted networks. The dashboard exposes live robot state and command endpoints over HTTP to any client that can reach the configured host and port.
+Robot runtime checkout:
 
-## Vision Pro Walking Options
+```text
+/home/unitree/robot_telemetry_web
+```
 
-For H1-2 walking while wearing the Vision Pro, prefer the high-level Unitree
-locomotion service through `LocoClient` or `/api/loco/request`. Do not start by
-publishing leg trajectories to `/lowcmd`; low-level body control can fight the
-onboard locomotion controller unless controller ownership and robot mode are
-explicitly handled.
+Robot network values used by the current setup:
 
-Possible walking control options:
+```text
+Robot Wi-Fi host: 10.2.100.142
+Robot SSH user:  unitree
+Robot DDS host:  192.168.123.164
+Robot DDS iface: eth0
+```
 
-| Option | Input | Robot path | Notes |
-| --- | --- | --- | --- |
-| Existing XR controller motion | Vision Pro controllers / compatible controller thumbsticks | `teleop_hand_and_arm.py --motion` -> loco `Move(vx, vy, yaw)` | Fastest path when controller inputs are available. Left thumbstick maps forward/sideways, right thumbstick maps yaw, both thumbsticks enter damp mode. |
-| Hand gesture walking | Hand tracking pinch, wrist pose, palm direction | New gesture layer -> H1 `LocoClient.Move` | Best headset-only path. Use a deadman gesture, small velocity caps, smoothing, and stop on lost tracking. |
-| Head or gaze directed walking | Head yaw/gaze direction plus a deadman gesture | New headset input mapper -> H1 `LocoClient.Move` | Natural for VR, but must filter normal head motion so looking around does not accidentally walk the robot. |
-| Vision Pro web joystick | Virtual joystick/button in the Vuer or dashboard page | Browser command -> robot-side loco bridge | Less immersive but easy to test and safer for first trials because release can immediately command stop. |
-| Voice commands | Spoken commands such as forward, stop, turn left | Speech recognizer -> robot-side loco bridge | Useful as secondary control. Avoid relying on voice as the only stop path because recognition latency and false triggers are possible. |
-| Split operator control | Physical remote/gamepad for walking, Vision Pro for hands/arms | Existing robot remote or SDK joystick path | Conservative first demo mode. Keeps locomotion on a known input while headset teleoperates manipulation. |
-| ROS2 teleop node | Any headset/controller source | ROS2 node -> `/api/loco/request` | Good when command logging, replay, ROS tooling, or dashboard integration matter. |
-| Direct SDK2 robot bridge | Dashboard or XR command packets | Robot-side Python service -> `unitree_sdk2py.h1.loco.LocoClient` | Best fit for this repository if we want a supervised service with watchdogs and HTTP/WebSocket controls. |
-| Waypoint or click-to-walk | Gaze selection, map click, or short relative targets | Loco odom/target position APIs | Better after velocity walking and odometry checks work reliably. |
-| Autonomous navigation | Vision Pro selects goals, robot plans path | SLAM/navigation stack -> loco command layer | Long-term direction for cluttered spaces; higher integration cost. |
-| Walking-in-place | Headset body motion estimates | Step detector -> loco velocity | Interesting but noisy. Prototype only after normal velocity walking is stable. |
-| Custom low-level gait | Learned policy or generated joint trajectories | MuJoCo/sim-to-real -> `/lowcmd` | Highest risk. Use simulation first and only try on hardware after motion-switcher/controller ownership is understood. |
+Main ports:
 
-Recommended first implementation:
-
-1. Build a robot-side locomotion bridge around H1 `LocoClient` with `stand`,
-   `start`, `move`, `stop`, and `damp` commands.
-2. Add a watchdog that sends `StopMove()` when headset packets stop, tracking is
-   lost, the deadman is released, or command age exceeds a short timeout.
-3. Start with very small live tests, for example `Move(0.05, 0, 0)` for less
-   than one second, then `StopMove()`.
-4. Add the Vision Pro hand-mode gesture mapper only after the bridge and stop
-   behavior are verified on the robot.
+| Port | Service | URL |
+| --- | --- | --- |
+| 8088 | Dashboard HTTP, API, and SSE | `http://10.2.100.142:8088` |
+| 8012 | XR / Vuer HTTPS and WSS | `https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012` |
+| 60001 | TeleImager WebRTC camera | `https://10.2.100.142:60001` |
 
 ## Repository Layout
 
@@ -72,232 +57,183 @@ Recommended first implementation:
 .
 ├── README.md
 ├── server.py
-└── static
-    ├── index.html
-    ├── app.js
-    ├── viewer.js
-    ├── styles.css
-    ├── vendor/three
-    │   ├── three.module.js
-    │   ├── OrbitControls.js
-    │   └── STLLoader.js
-    └── models/h1_2_description
-        ├── h1_2.urdf
-        ├── h1_2_with_FTP_hand.urdf
-        ├── h1_2.xml
-        ├── h1_2_handless.xml
-        └── meshes/*.STL
+├── run_servers.py
+├── kill_servers.py
+├── Makefile
+├── static/
+│   ├── index.html
+│   ├── app.js
+│   ├── viewer.js
+│   ├── styles.css
+│   ├── assets/
+│   ├── vendor/three/
+│   └── models/h1_2_description/
+├── deployment/
+│   ├── install_robot_services.sh
+│   ├── systemd/
+│   ├── patch_*.py
+│   ├── patch_*.sh
+│   ├── robot_autoupdate.sh
+│   └── xr_home_watchdog.py
+├── docs/
+├── teleoperation/vision_pro_control/
+├── execution/semantic_teleoperation/
+├── simulation/semantic_teleoperation/
+├── robot_models/unitree_h1_2/
+├── vendor/unitree_sdk2_python/
+├── tools/
+└── tests/
 ```
 
 Important files:
 
-- `server.py` starts the Unitree DDS subscribers and HTTP server.
-- `static/index.html` defines the dashboard layout.
-- `static/app.js` connects to `/api/state` and `/events`, then renders the status panels, motor table, and raw JSON.
-- `static/viewer.js` loads the H1-2 URDF, maps telemetry joint names to URDF joints, and animates the Three.js model.
-- `static/styles.css` contains the dashboard styling.
-- `static/vendor/three/*` contains vendored Three.js browser modules so the page can run without a package manager.
-- `static/models/h1_2_description/*` contains the H1-2 robot model assets used by the viewer.
+- `server.py`: Python HTTP server, DDS subscribers, camera bridge, dashboard
+  APIs, and command endpoints.
+- `static/index.html`: Dashboard document structure.
+- `static/app.js`: UI state management, API calls, SSE connection, loco
+  controls, wrist controls, and dashboard rendering.
+- `static/viewer.js`: Three.js H1-2 URDF viewer.
+- `static/models/h1_2_description`: H1-2 URDF, XML, and STL model assets served
+  directly to the browser.
+- `run_servers.py`: Helper that kills stale servers and starts the dashboard in
+  foreground or systemd mode.
+- `kill_servers.py`: Helper that stops dashboard/server processes launched from
+  this workspace.
+- `deployment/install_robot_services.sh`: Robot-side installer for user systemd
+  services and XR checkout patches.
+- `deployment/systemd/*.service`: Robot runtime service definitions.
+- `tests/test_contracts.py`: Contract tests for joint ordering, command limits,
+  and API behavior.
 
-## Consolidated Workspace
+## Features
 
-Additional robot workspace projects are organized in this repo under:
+The dashboard shows:
 
-- `teleoperation/vision_pro_control` for Vision Pro / XR teleoperation control code.
-- `execution/semantic_teleoperation` for real/sim execution dependencies and Unitree integration sources.
-- `simulation/semantic_teleoperation` for H1 simulation, Gazebo, MoveIt, and MuJoCo scripts.
-- `robot_models/unitree_h1_2` for the Unitree H1-2 model source copied from the ROS workspace.
-- `vendor/unitree_sdk2_python` for the Unitree SDK2 Python source snapshot.
-- `tools/rh56` for RH56 hand utility scripts.
+- Live H1-2 body telemetry from `rt/lowstate`.
+- State for the 27 known H1-2 body motors: position, velocity, estimated
+  torque, temperature, voltage, and motor mode.
+- IMU fields: quaternion, gyroscope, accelerometer, roll/pitch/yaw, and
+  temperature when exposed by the firmware.
+- Robot metadata fields such as `version`, `mode_pr`, `mode_machine`, `tick`,
+  `crc`, and wireless remote state.
+- Battery/BMS values when the active firmware exposes them.
+- Foot force and estimated foot force arrays when present in LowState.
+- RH56BFX / Inspire hand telemetry from `rt/inspire/state`.
+- A live Three.js H1-2 URDF viewer.
+- Viewer presets for front, back, left, right, top, and bottom.
+- Grid and auto-rotate controls for the viewer.
+- A raw JSON state panel.
+- A TeleImager camera panel.
+- Links to the Vision Pro / XR Vuer page.
+- H1 locomotion controls.
+- Right-wrist controls.
+- A telemetry recorder for sequential body motor and RH56BFX hand samples.
+- Command result and command history panels.
 
-See `docs/workspace_inventory.md` for details about what was copied and what generated artifacts were intentionally left out.
+Dashboard command surfaces:
+
+- `Chill Motors`: requests damp/chill behavior.
+- `Home`: requests the home posture.
+- `Straight`: requests the straight arm/posture preset.
+- `Loco Control`: ready, stand, start, damp, zero torque, velocity, target
+  position, and odometry requests.
+- `Right Wrist`: target position, relative step, gains, duration, command rate,
+  and oscillation controls.
+- `Camera`: TeleImager WebRTC preview and XR page entry points.
+
+## Safety Model
+
+This repository contains code that can move the robot.
+
+- The dashboard serves HTTP.
+- `/events` opens a Server-Sent Events telemetry stream.
+- Read endpoints include `/api/state`, `/api/camera`, `/api/loco/status`, and
+  `/api/wrist/status`.
+- Motion-related POST endpoints include `/api/wrist/command`,
+  `/api/wrist/stop`, `/api/loco/command`, `/api/robot/chill`,
+  `/api/robot/home`, and `/api/robot/straight`.
+- Wrist commands require `armed=true` and `i_understand_risk=true`.
+- Loco and chill commands also fail closed when the robot-side LocoClient is not
+  available or when command validation fails.
+- Low-level `/lowcmd` body control is the highest-risk path. Prefer high-level
+  `LocoClient` control for initial locomotion work.
+
+Anyone who can reach the dashboard host can see robot state and can send HTTP
+requests to exposed endpoints. This repository does not implement
+authentication. Use only on a trusted robot network.
 
 ## Requirements
 
-Runtime requirements:
+For local UI development:
 
-- Python 3.10 or newer recommended.
-- Unitree SDK2 Python installed on the machine that can see the robot DDS network.
-- Network access to the Unitree DDS domain used by the robot.
-- A modern browser with WebGL support for the 3D viewer.
+- Python 3.10 or newer is recommended.
+- A modern browser with WebGL support.
+- No frontend build system is required.
+- No `npm install` is required.
 
-The server automatically prepends this SDK path if it exists:
+For live robot operation:
+
+- Unitree SDK2 Python.
+- CycloneDDS / Unitree DDS network access.
+- A robot PC that can reach the H1-2 DDS network.
+- User-level systemd services under the `unitree` user.
+- The micromamba `tv` environment if using the deployment service files:
+
+```text
+/home/unitree/.micromamba/envs/tv
+```
+
+The server may also use this SDK path when present:
 
 ```text
 ~/unitree_sdk2_python
 ```
 
-If your SDK is installed elsewhere, make sure `unitree_sdk2py` is importable in the Python environment used to run `server.py`.
+If the SDK is installed elsewhere, make sure `unitree_sdk2py` is importable in
+the Python environment used to run `server.py`.
 
-## DDS Topics
+## Git and Checkout Preparation
 
-The server subscribes to:
-
-| Topic | Message Type | Purpose |
-| --- | --- | --- |
-| `rt/lowstate` | `unitree_hg.msg.dds_.LowState_` | Main H1-2 body telemetry, motor state, IMU, robot mode, battery, and force fields. |
-| `rt/inspire/state` | `unitree_go.msg.dds_.MotorStates_` | RH56BFX / Inspire hand state, if the hand service is running. |
-
-If the hand topic is not available, the dashboard still works. The hand panel will show a disconnected state and a note telling you to start the Inspire hand service if the RH56BFX hands are connected over serial.
-
-## Quick Start
-
-From the robot PC or another machine that has access to the same Unitree DDS network:
+The local development checkout is currently expected here:
 
 ```bash
-cd ~/Workspace/robot_telemetry_web
-python3 -u server.py --host 127.0.0.1 --port 8090
+cd /Users/vodafone/Workspace/humanoid-robot-gui
+git status --short --branch
 ```
 
-Open:
-
-```text
-http://127.0.0.1:8090
-```
-
-The server prints a local URL and a LAN URL:
-
-```text
-Unitree telemetry dashboard
-Listening on http://127.0.0.1:8090
-Try from another machine: http://<detected-lan-ip>:8090
-Press Ctrl+C to stop.
-```
-
-## LAN Access
-
-To view the dashboard from another computer on the same network, bind the server to all interfaces:
+To prepare a new development machine:
 
 ```bash
-cd ~/Workspace/robot_telemetry_web
-python3 -u server.py --host 0.0.0.0 --port 8090
+mkdir -p ~/Workspace
+cd ~/Workspace
+git clone <repo-url> humanoid-robot-gui
+cd humanoid-robot-gui
 ```
 
-Then open the LAN URL printed by the server, for example:
-
-```text
-http://192.168.1.42:8090
-```
-
-Use a trusted network. The server does not implement authentication.
-
-For the H1-2 setup where the robot PC is reached over Wi-Fi at `10.2.100.142` but body DDS runs on the robot PC's local `eth0` control link, run the server on the robot PC and force DDS to `eth0`:
-
-```bash
-cd /home/unitree/robot_telemetry_web
-MAMBA_ROOT_PREFIX=/home/unitree/.micromamba \
-  /home/unitree/.local/micromamba run -n tv \
-  python -u server.py --host 0.0.0.0 --port 8088 \
-  --robot-host 192.168.123.164 --camera-source eth0 \
-  --camera-backend teleimager
-```
-
-Then open:
-
-```text
-http://10.2.100.142:8088
-```
-
-In this mode the browser uses Wi-Fi, while the server reads `rt/lowstate`, Loco RPC, wrist control, and camera DDS locally on the robot PC.
-
-## Robot Operator User Journey
-
-Use this section as the end-to-end checklist for bringing up the dashboard and
-XR services from a laptop, confirming what is live, and knowing where to look
-when the dashboard shows a disconnected robot.
-
-### 1. Confirm The Machine You Are On
-
-The dashboard can be launched from a development laptop, but full robot
-telemetry, camera, hands, and XR teleoperation should run on the robot PC.
-
-- Local development checkout: `/Users/vodafone/Workspace/humanoid-robot-gui`
-- Robot runtime checkout: `/home/unitree/robot_telemetry_web`
-- Robot Wi-Fi host: `10.2.100.142`
-- Robot SSH user: `unitree`
-- Robot body DDS target from the robot PC: `192.168.123.164`
-- Robot DDS and camera interface on the robot PC: `eth0`
-
-Do not commit robot passwords, API keys, private keys, or other secrets to this
-repository. Store the robot SSH password in an operator password manager or set
-up an SSH key. The repository may document the SSH username and host, but not
-the password.
-
-### 2. Start The Full Robot Service Set
-
-SSH into the robot PC, then run the service installer from the robot checkout:
+The expected runtime path on the robot PC is:
 
 ```bash
 ssh unitree@10.2.100.142
+cd /home/unitree
+git clone <repo-url> robot_telemetry_web
 cd /home/unitree/robot_telemetry_web
-deployment/install_robot_services.sh
 ```
 
-The installer updates the XR teleoperation checkout when possible, copies user
-systemd units into `~/.config/systemd/user`, applies repository patch scripts,
-installs required Python packages, reloads systemd, and starts the robot
-services.
-
-If the installer exits early because an XR patch no longer matches the current
-upstream file, restart the already-installed services directly:
+To update an existing robot checkout:
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service
-systemctl --user restart robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service
+cd /home/unitree/robot_telemetry_web
+git fetch origin
+git status --short --branch
+git pull --ff-only
 ```
 
-### 3. Open The Operator Surfaces
+Do not commit robot credentials, passwords, private keys, tokens, or other
+secrets. Keep the robot SSH password outside the repository.
 
-After the robot services are active, open these from a laptop on the robot Wi-Fi
-network:
+## Local Development
 
-```text
-Dashboard: http://10.2.100.142:8088
-XR / Vuer: https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012
-Camera:    https://10.2.100.142:60001
-```
-
-The dashboard is the first place to check the robot state. It shows telemetry
-connection status, sample rate, motor state, IMU, hands, camera stream, loco
-state, command history, and raw JSON.
-
-### 4. Verify Services
-
-On the robot PC:
-
-```bash
-systemctl --user --no-pager --full status \
-  robot-telemetry-web.service \
-  teleimager.service \
-  inspire-hands.service \
-  xr-teleop.service \
-  xr-home-watchdog.service
-```
-
-Expected services:
-
-| Service | Purpose | Main port/path |
-| --- | --- | --- |
-| `robot-telemetry-web.service` | Dashboard HTTP server, DDS telemetry, guarded loco and wrist endpoints | `http://10.2.100.142:8088` |
-| `teleimager.service` | TeleImager WebRTC camera image server | `https://10.2.100.142:60001` |
-| `inspire-hands.service` | Inspire DFX/RH56 hand bridge | DDS hand topics |
-| `xr-teleop.service` | Vision Pro / XR Vuer teleoperation server | `https://10.2.100.142:8012` |
-| `xr-home-watchdog.service` | Safety watchdog for lost XR home/pose packets | Watches XR port `8012` |
-
-Check dashboard JSON from a laptop:
-
-```bash
-curl -sS http://10.2.100.142:8088/api/state
-```
-
-Healthy robot telemetry should show `connected: true`, a non-zero
-`sample_rate_hz`, populated motor data, and no Unitree SDK import error.
-
-### 5. Local Development Server
-
-When working only on the dashboard UI or static assets from a Mac development
-checkout, start a local dashboard server:
+To start the dashboard without live robot telemetry:
 
 ```bash
 cd /Users/vodafone/Workspace/humanoid-robot-gui
@@ -310,9 +246,15 @@ Open:
 http://127.0.0.1:8088
 ```
 
-This confirms the web UI loads, but it does not prove robot telemetry is live.
-If the local Python environment does not include the Unitree SDK and CycloneDDS,
-`/api/state` will show a disconnected state such as:
+You can also start the server directly:
+
+```bash
+python3 -u server.py --host 127.0.0.1 --port 8090
+```
+
+If the local Mac environment does not have Unitree SDK2 Python or CycloneDDS,
+robot telemetry will not connect. That is expected for UI-only work. The
+`/api/state` response may show a disconnected state like:
 
 ```text
 connected: false
@@ -320,141 +262,286 @@ sample_rate_hz: 0
 Could not import Unitree SDK: No module named 'cyclonedds'
 ```
 
-For live robot operation, run the dashboard on the robot PC.
+In that mode, you can still verify that the UI loads, static assets are served,
+and the 3D model renders. It does not prove live robot telemetry is working.
 
-### 6. What We Verified During Bring-Up
+## Running on the Robot
 
-During the current repository bring-up:
-
-- The local checkout was found at `/Users/vodafone/Workspace/humanoid-robot-gui`.
-- The local dashboard server started successfully on `0.0.0.0:8088`.
-- The local dashboard API responded at `http://127.0.0.1:8088/api/state`.
-- The local dashboard reported disconnected telemetry because the Mac Python
-  environment was missing `cyclonedds`.
-- SSH to `unitree@10.2.100.142` was reachable after interactive authentication.
-- `deployment/install_robot_services.sh` reached the robot and fetched
-  `unitreerobotics/xr_teleoperate`, but stopped because
-  `patch_xr_hand_input_swap.py` could not find the expected hand input block in
-  `/home/unitree/xr_teleoperate/teleop/teleop_hand_and_arm.py`.
-- Because the installer stopped before its final status block, service status
-  should be rechecked on the robot with `systemctl --user status`.
-
-### 7. Sync This Repository
-
-Commit only intentional repository changes. Do not include generated artifacts,
-robot credentials, or unrelated local modifications.
+SSH into the robot PC:
 
 ```bash
-git status --short --branch
-git add README.md
-git commit -m "Document robot dashboard operator journey"
-git push origin main
-```
-
-To kill every dashboard server process and user service started from this workspace:
-
-```bash
+ssh unitree@10.2.100.142
 cd /home/unitree/robot_telemetry_web
-python3 kill_servers.py
 ```
 
-To start the robot dashboard from scratch with one Python file:
+Install and start the robot service set:
 
 ```bash
-cd /home/unitree/robot_telemetry_web
-python3 run_servers.py
-```
-
-On the robot PC this installs and starts a fresh `robot-telemetry-web.service` user service. The helper detects which `server.py` flags are supported by the current branch. For debugging in the current terminal instead of systemd, run:
-
-```bash
-python3 run_servers.py --mode foreground
-```
-
-To keep the robot-hosted dashboard and Vision Pro/XR teleop server running after shell exits, install the user services:
-
-```bash
-cd /home/unitree/robot_telemetry_web
 deployment/install_robot_services.sh
 ```
 
-The XR service opens the Vuer server on port `8012` and the configured service
-sets `XR_TELEOP_SEND_START=1`. Check the robot services with:
+The installer:
+
+- Updates the `unitreerobotics/xr_teleoperate` checkout when possible.
+- Copies user service files into `~/.config/systemd/user`.
+- Applies repository patch scripts to the XR teleoperation checkout.
+- Configures TeleImager, Inspire hands, XR teleop, and the watchdog.
+- Runs `systemctl --user daemon-reload`.
+- Enables and restarts the services.
+- Prints full systemd status for the core services.
+
+If the installer stops because an XR patch no longer matches the upstream file,
+and the service files are already installed, restart the services manually:
 
 ```bash
-systemctl --user status robot-telemetry-web.service xr-teleop.service --no-pager
+systemctl --user daemon-reload
+systemctl --user enable --now robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service
+systemctl --user restart robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service
 ```
 
-## DDS Domain
+Check service status:
 
-By default the server initializes Unitree DDS with domain `0`.
+```bash
+systemctl --user --no-pager --full status \
+  robot-telemetry-web.service \
+  teleimager.service \
+  inspire-hands.service \
+  xr-teleop.service \
+  xr-home-watchdog.service
+```
+
+The dashboard service runs this command on the robot:
+
+```bash
+/home/unitree/.micromamba/envs/tv/bin/python -u \
+  /home/unitree/robot_telemetry_web/server.py \
+  --host 0.0.0.0 \
+  --port 8088 \
+  --robot-host 192.168.123.164 \
+  --camera-source eth0 \
+  --camera-backend teleimager
+```
+
+Open these from a laptop on the robot Wi-Fi network:
+
+```text
+Dashboard: http://10.2.100.142:8088
+XR / Vuer: https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012
+Camera:    https://10.2.100.142:60001
+```
+
+The browser may require you to open the XR or camera HTTPS page once and accept
+the self-signed certificate.
+
+## Services
+
+| Service | Purpose | Main port/path |
+| --- | --- | --- |
+| `robot-telemetry-web.service` | Dashboard, HTTP API, DDS telemetry, guarded wrist/loco endpoints | `http://10.2.100.142:8088` |
+| `robot-telemetry-web-autoupdate.timer` | Periodically updates the robot checkout from `origin/main` | systemd timer |
+| `teleimager.service` | Unitree TeleImager WebRTC camera server | `https://10.2.100.142:60001` |
+| `inspire-hands.service` | Inspire DFX/RH56 hand bridge | DDS hand topics |
+| `xr-teleop.service` | Vision Pro / XR Vuer teleoperation server | `https://10.2.100.142:8012` |
+| `xr-home-watchdog.service` | Watchdog for lost XR home/pose packets | XR port `8012`, dashboard API `8088` |
+
+Robot logs are generally written under:
+
+```text
+/home/unitree/logs
+```
+
+Dashboard log:
+
+```text
+/home/unitree/logs/robot_telemetry_web.log
+```
+
+Watchdog log:
+
+```text
+/home/unitree/logs/xr_home_watchdog.log
+```
+
+## HTTP API
+
+Read endpoints:
+
+| Path | Type | Description |
+| --- | --- | --- |
+| `/` | HTML | Main dashboard |
+| `/index.html` | HTML | Main dashboard |
+| `/api/state` | JSON | Normalized live robot snapshot |
+| `/api/camera` | JSON | Camera worker and backend state |
+| `/api/ros-graph` | JSON | ROS graph snapshot, when available |
+| `/api/wrist/status` | JSON | Right-wrist control state |
+| `/api/loco/status` | JSON | LocoClient / locomotion state |
+| `/api/recording/status` | JSON | Current telemetry recorder state |
+| `/api/recording/files` | JSON | Available JSONL recording files |
+| `/api/recording/files/<name>.jsonl` | JSONL | A single recording file for dashboard replay |
+| `/events` | SSE | State stream, sent roughly every 100 ms |
+| `/camera.mjpg` | MJPEG | Camera bridge MJPEG stream |
+| `/models/...` | Static | URDF, XML, and STL model assets |
+| `/vendor/...` | Static | Vendored Three.js modules |
+| `/assets/...` | Static | Dashboard visual assets |
+
+POST endpoints:
+
+| Path | Description |
+| --- | --- |
+| `/api/wrist/command` | Sends a right-wrist target or oscillation command |
+| `/api/wrist/stop` | Stops the active wrist command |
+| `/api/robot/chill` | Requests damp/chill behavior |
+| `/api/robot/home` | Requests the home posture |
+| `/api/robot/straight` | Requests the straight posture preset |
+| `/api/loco/command` | Sends H1 LocoClient commands |
+| `/api/xr/mode` | Requests an XR mode change |
+| `/api/recording/start` | Starts a JSONL telemetry recording |
+| `/api/recording/stop` | Stops the active telemetry recording |
+
+State check:
+
+```bash
+curl -sS http://10.2.100.142:8088/api/state
+```
+
+Loco status:
+
+```bash
+curl -sS http://10.2.100.142:8088/api/loco/status
+```
+
+Wrist status:
+
+```bash
+curl -sS http://10.2.100.142:8088/api/wrist/status
+```
+
+Recording status:
+
+```bash
+curl -sS http://10.2.100.142:8088/api/recording/status
+```
+
+Start recording:
+
+```bash
+curl -sS -X POST http://10.2.100.142:8088/api/recording/start \
+  -H 'Content-Type: application/json' \
+  -d '{"label":"h1_2_motors_hands"}'
+```
+
+Stop recording:
+
+```bash
+curl -sS -X POST http://10.2.100.142:8088/api/recording/stop
+```
+
+## Telemetry Recording
+
+The recorder writes sequential JSONL files under:
+
+```text
+recordings/
+```
+
+The directory is intentionally ignored by Git because recordings can become
+large quickly.
+
+Each JSONL line is one record. The current schema uses these record types:
+
+- `recording_start`: metadata, schema name, body joint names, and hand joint
+  names.
+- `telemetry_sample`: one sampled `rt/lowstate` frame plus the latest
+  `rt/inspire/state` hand state.
+- `command_event`: dashboard command markers such as loco, wrist, home, chill,
+  and XR mode requests.
+- `recording_stop`: final sample and event counts.
+
+Each `telemetry_sample` includes:
+
+- Wall-clock `timestamp`.
+- Monotonic `monotonic_ns` timestamp for precise ordering.
+- Body motor rows with `index`, `name`, `mode`, `q`, `dq`, `ddq`, `tau`,
+  `tau_est`, `temperature`, `vol`, `sensor`, and `reserve` when those fields
+  are exposed by the active Unitree message.
+- IMU values.
+- Robot mode fields.
+- Battery, foot force, and estimated foot force when exposed.
+- RH56BFX / Inspire hand joint rows from the latest hand state.
+
+The recorder is intended first for offline replay, simulation export, debugging,
+and imitation-learning dataset preparation. Replaying raw joint trajectories
+back onto the physical robot is intentionally not implemented here because it
+requires additional controller ownership checks, interpolation, velocity and
+torque limits, emergency stop handling, and simulation validation.
+
+## H1 Locomotion Strategy
+
+For Vision Pro walking, prefer the high-level Unitree H1 `LocoClient` layer.
+Do not start with low-level body joint trajectories or direct `/lowcmd`
+publishing; those can fight the onboard locomotion controller.
+
+Current and planned control options:
+
+| Option | Input | Robot path | Notes |
+| --- | --- | --- | --- |
+| XR controller motion | Vision Pro controller / thumbstick | XR teleop `--motion` -> `LocoClient.Move` | Fastest practical path when controller input is available |
+| Hand gesture walking | Pinch, hand pose, palm direction | Gesture mapper -> `/api/loco/command` | Requires a deadman gesture and watchdog |
+| Head/gaze walking | Head yaw or gaze plus deadman | Head mapper -> `/api/loco/command` | Must filter normal head motion |
+| Dashboard joystick | Browser buttons | Dashboard -> `/api/loco/command` | Best for early supervised tests |
+| Voice commands | Speech recognizer | Speech -> loco bridge | Should not be the only stop channel |
+| Split control | Physical remote plus XR hands | Remote for walking, XR for manipulation | Conservative demo mode |
+| ROS2 teleop node | ROS input source | ROS node -> Unitree API topics | Useful for logging and replay |
+| Waypoint/click-to-walk | Gaze or map target | Odom/target position API | Use after velocity walking is stable |
+| Custom low-level gait | Learned/generated trajectories | MuJoCo/sim -> `/lowcmd` | Highest risk; simulate first |
+
+Recommended first live test flow:
+
+1. Confirm the dashboard and robot-side LocoClient are available.
+2. Confirm `Damp` or `Stop Move` works.
+3. Send a tiny velocity command, for example `vx=0.05`, `vy=0`, `yaw=0`, for
+   less than one second.
+4. Immediately send `StopMove()` / `stop_move`.
+5. Do not increase velocity until watchdog, lost-tracking, and deadman behavior
+   are verified.
+
+## DDS and Robot Topics
+
+The server starts with DDS domain `0` by default:
 
 ```bash
 python3 -u server.py --host 127.0.0.1 --port 8090 --domain 0
 ```
 
-If your robot or network setup uses a different DDS domain, pass it explicitly:
+Use a different domain if your robot setup requires it:
 
 ```bash
 python3 -u server.py --host 127.0.0.1 --port 8090 --domain 1
 ```
 
-## HTTP API
+Primary DDS topics subscribed by the dashboard:
 
-The server exposes a small HTTP surface:
-
-| Path | Type | Description |
+| Topic | Message Type | Purpose |
 | --- | --- | --- |
-| `/` | HTML | Main dashboard page. |
-| `/index.html` | HTML | Same dashboard page. |
-| `/api/state` | JSON | Current normalized telemetry snapshot. |
-| `/events` | Server-Sent Events | Continuous telemetry stream, sent about every 100 ms. |
-| `/app.js` | JavaScript | Dashboard rendering logic. |
-| `/viewer.js` | JavaScript module | Three.js URDF viewer logic. |
-| `/styles.css` | CSS | Dashboard styles. |
-| `/models/...` | Static assets | URDF, XML, STL, and image files for the H1-2 model. |
-| `/vendor/...` | Static assets | Vendored Three.js modules. |
+| `rt/lowstate` | `unitree_hg.msg.dds_.LowState_` | H1-2 body telemetry, motors, IMU, forces, battery |
+| `rt/inspire/state` | `unitree_go.msg.dds_.MotorStates_` | RH56BFX / Inspire hand state |
 
-Example:
-
-```bash
-curl -sS http://127.0.0.1:8090/api/state
-```
-
-The JSON shape is normalized for the UI. It includes fields such as:
-
-```json
-{
-  "connected": true,
-  "timestamp": 1710000000.0,
-  "samples": 1200,
-  "sample_rate_hz": 499.8,
-  "motor_count": 27,
-  "motors": [],
-  "imu": {},
-  "robot": {},
-  "battery": {},
-  "hands": {}
-}
-```
-
-Unavailable, non-finite, or firmware-specific fields are handled defensively so the UI can continue rendering when a robot exposes a different LowState variant.
+High-level locomotion uses Unitree API request/response topics. The dashboard
+HTTP endpoint is `/api/loco/command`, while the robot-side DDS API path is
+conceptually `rt/api/loco/request` and `rt/api/loco/response`.
 
 ## Dashboard Panels
 
-### Header Status
-
-The header shows:
+### Header
 
 - Connection state.
-- Snapshot age in seconds.
-- Estimated sample rate in Hz.
-- Motor count and total samples when connected.
-- The latest subscriber error when disconnected.
+- Snapshot age.
+- Sample rate.
+- Motor count.
+- Total sample count.
+- Latest error message.
 
-### Robot Panel
-
-Shows normalized top-level LowState fields when available:
+### Robot
 
 - `version`
 - `mode_pr`
@@ -463,19 +550,17 @@ Shows normalized top-level LowState fields when available:
 - `crc`
 - `wireless_remote`
 
-### IMU Panel
+### IMU
 
-Shows available IMU fields:
+- Quaternion.
+- Gyroscope.
+- Accelerometer.
+- Roll / pitch / yaw.
+- Temperature.
 
-- `quaternion`
-- `gyroscope`
-- `accelerometer`
-- `rpy`
-- `temperature`
+### Battery
 
-### Battery Panel
-
-Shows BMS data when the firmware exposes `bms_state`:
+When exposed by firmware:
 
 - `version_h`
 - `version_l`
@@ -485,18 +570,16 @@ Shows BMS data when the firmware exposes `bms_state`:
 - `cycle`
 - `temperature`
 
-If `bms_state` is not exposed, the panel reports that the active firmware does not provide that field.
+### Hands
 
-### RH56BFX Hands Panel
+When `rt/inspire/state` is available:
 
-Shows the state of the `rt/inspire/state` subscriber:
-
-- Whether the topic is connected.
-- Number of received hand samples.
+- Hand topic connected/disconnected state.
+- Hand sample count.
 - Joint count.
-- Per-joint hand positions.
+- RH56BFX finger joint positions.
 
-Known hand joints are mapped as:
+Hand joint order:
 
 | Index | Name |
 | --- | --- |
@@ -513,31 +596,25 @@ Known hand joints are mapped as:
 | 10 | `LeftThumbBend` |
 | 11 | `LeftThumbRotation` |
 
-### Forces Panel
-
-Shows:
+### Forces
 
 - `foot_force`
 - `foot_force_est`
-
-These fields appear only when the LowState message exposes them.
 
 ### Motor Table
 
 The motor table shows:
 
-- Motor index.
-- Human-readable joint name.
-- Motor mode.
+- Index.
+- Joint name.
+- Mode.
 - Position `q`.
 - Velocity `dq`.
 - Estimated torque `tau_est`.
 - Temperature.
 - Voltage.
 
-Use the filter box to search by joint index or joint name.
-
-Known body motor indexes are mapped as:
+Body joint order:
 
 | Index | Name |
 | --- | --- |
@@ -569,9 +646,9 @@ Known body motor indexes are mapped as:
 | 25 | `RightWristPitch` |
 | 26 | `RightWristYaw` |
 
-Additional motor slots are labeled `ReservedMotorSlot<N>`.
+Additional slots are named `ReservedMotorSlot<N>`.
 
-### Live Robot Viewer
+### 3D Viewer
 
 The viewer loads:
 
@@ -579,156 +656,245 @@ The viewer loads:
 static/models/h1_2_description/h1_2.urdf
 ```
 
-It renders STL meshes through Three.js and applies telemetry values to matching URDF joints. Body motors are mapped from the LowState joint names to URDF joint names. Hand telemetry is mapped to the corresponding RH56BFX finger joints.
+Features:
 
-Viewer controls:
+- STL mesh rendering.
+- Body motor telemetry to URDF joint mapping.
+- Hand telemetry to RH56BFX finger joint mapping.
+- Orbit, zoom, and view cube controls.
+- Grid toggle.
+- Auto-rotate toggle.
+- Mesh loaded/failed status.
 
-- Drag to orbit.
-- Scroll to zoom.
-- Use the view cube labels to jump to front, back, left, right, top, or bottom views.
-- Use `Grid` to toggle the floor grid.
-- Use `Rotate` to toggle auto-rotation.
+### Camera and XR
 
-The viewer status line reports:
+The camera panel:
 
-- Loaded model.
-- Live/waiting state.
-- Body motor count.
-- Hand joint count.
-- Sample rate.
-- Mesh load count.
-- Failed mesh count.
+- Embeds the TeleImager WebRTC preview.
+- Links to the direct camera page.
+- Links to the XR / Vuer page.
+- Notes that the browser may need certificate trust before embedding works.
 
-## Running Without Robot Telemetry
+XR page:
 
-The web server can still start without live robot data. If the Unitree SDK cannot be imported or the DDS subscriber cannot initialize, `/api/state` and the UI report a disconnected state with an error message.
+```text
+https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012
+```
 
-This is useful for checking that static assets, the HTML layout, and the Three.js model are served correctly.
+Camera page:
+
+```text
+https://10.2.100.142:60001
+```
+
+## Helper Commands
+
+Run tests:
+
+```bash
+cd /Users/vodafone/Workspace/humanoid-robot-gui
+python3 -m unittest discover -s tests -p 'test_*.py'
+```
+
+Run tests through the Makefile:
+
+```bash
+make test
+```
+
+Run the production gate:
+
+```bash
+make production-gate
+```
+
+Stop local dashboard servers:
+
+```bash
+python3 kill_servers.py
+```
+
+Stop robot-side dashboard processes:
+
+```bash
+cd /home/unitree/robot_telemetry_web
+python3 kill_servers.py
+```
+
+Check static assets:
+
+```bash
+curl -sSI http://127.0.0.1:8088/vendor/three/three.module.js
+curl -sSI http://127.0.0.1:8088/models/h1_2_description/h1_2.urdf
+```
 
 ## Troubleshooting
 
-### `Could not import Unitree SDK`
+### Dashboard stays disconnected or at 0 Hz
 
-The Python process cannot import `unitree_sdk2py`.
+Read the raw state endpoint:
 
-Check that the SDK exists at:
+```bash
+curl -sS http://10.2.100.142:8088/api/state
+```
+
+Check the `error` field. If you are running locally on a Mac, `cyclonedds` or
+`unitree_sdk2py` import errors can be expected. Live robot telemetry should run
+from the robot PC.
+
+Being able to reach the robot Wi-Fi host does not guarantee DDS visibility.
+H1-2 body DDS traffic may be on the robot PC's `eth0` control link. The robot
+runtime command therefore uses `--camera-source eth0` and
+`--robot-host 192.168.123.164`.
+
+### Unitree SDK cannot be imported
+
+Check:
+
+```bash
+python3 -c "import unitree_sdk2py; print('ok')"
+```
+
+Expected SDK paths include:
 
 ```text
-~/unitree_sdk2_python
+/home/unitree/unitree_sdk2_python
+vendor/unitree_sdk2_python
 ```
 
-Or activate the Python environment where the SDK is installed before running the server.
+Make sure the correct Python environment is active.
 
-### `Could not initialize DDS subscriber`
-
-The SDK imported successfully, but DDS could not subscribe to the configured topics.
+### DDS subscriber cannot initialize
 
 Check:
 
-- The robot is powered and reachable on the network.
-- The correct network interface is being used for Unitree DDS traffic.
-- The DDS domain passed with `--domain` matches the robot setup.
-- No firewall rule is blocking the required DDS traffic.
+- Is the robot powered on?
+- Is the robot PC on the correct network?
+- Is the `eth0` link active?
+- Is the DDS domain correct?
+- Is a firewall blocking DDS traffic?
+- Is `192.168.123.164` reachable from the robot PC?
 
-### Dashboard Stays Disconnected
+### Hand panel is disconnected
 
-Open the raw state endpoint:
-
-```bash
-curl -sS http://127.0.0.1:8090/api/state
-```
-
-Look for the `error` field. The UI displays the same state, but the raw JSON is easier to inspect when debugging.
-
-If the top bar stays at `0 Hz` while the robot is reachable over Wi-Fi, verify where the server is running. Running `server.py` on a laptop connected only to `10.2.100.x` can reach SSH/camera services but may not see body DDS on the robot PC's `192.168.123.x` control link. In that case, run the server on the robot PC with `--camera-source eth0` and open it from the laptop at `http://10.2.100.142:8088`.
-
-### Hand Panel Shows Disconnected
-
-The body telemetry and hand telemetry are independent subscriptions. The body dashboard can be live while the hand panel is disconnected.
-
-Check that:
-
-- The RH56BFX hands are connected.
-- The Inspire hand service is running.
-- The `rt/inspire/state` topic is being published.
-
-### 3D Model Does Not Render
+Body telemetry and hand telemetry are independent. The body can be connected
+while the hand panel is disconnected.
 
 Check:
 
-- Browser WebGL support is enabled.
-- `/vendor/three/three.module.js` returns HTTP 200.
-- `/vendor/three/OrbitControls.js` returns HTTP 200.
-- `/vendor/three/STLLoader.js` returns HTTP 200.
-- `/models/h1_2_description/h1_2.urdf` returns HTTP 200.
-- STL mesh requests under `/models/h1_2_description/meshes/` return HTTP 200.
+- Are the RH56BFX hands connected?
+- Is `inspire-hands.service` active?
+- Is `rt/inspire/state` being published?
+- Do the serial device paths match the systemd service configuration?
 
-Example:
+### Camera does not open
 
-```bash
-curl -sSI http://127.0.0.1:8090/models/h1_2_description/h1_2.urdf
+Check:
+
+- Is `teleimager.service` active?
+- Does `https://10.2.100.142:60001` open directly?
+- Is the browser blocking the certificate?
+- Do `XR_TELEOP_CERT` and `XR_TELEOP_KEY` exist?
+- Is `camera-backend` set as expected: `teleimager`, `ros2`, or `auto`?
+
+### XR page does not open
+
+Check:
+
+- Is `xr-teleop.service` active?
+- Is port `8012` listening?
+- Are you using this URL format?
+
+```text
+https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012
 ```
 
-### Port Already In Use
+- Did the browser grant camera, hand tracking, and WebXR permissions?
 
-Use a different port:
+### 3D model does not render
+
+Check:
+
+```bash
+curl -sSI http://127.0.0.1:8088/vendor/three/three.module.js
+curl -sSI http://127.0.0.1:8088/vendor/three/OrbitControls.js
+curl -sSI http://127.0.0.1:8088/vendor/three/STLLoader.js
+curl -sSI http://127.0.0.1:8088/models/h1_2_description/h1_2.urdf
+```
+
+Browser WebGL support must also be enabled.
+
+### Port is already in use
+
+Start on another port:
 
 ```bash
 python3 -u server.py --host 127.0.0.1 --port 8091
 ```
 
+Or clean up existing processes first:
+
+```bash
+python3 kill_servers.py
+```
+
 ## Development Notes
 
-The app intentionally avoids a frontend build step:
+The frontend intentionally has no build step:
 
-- No npm install is required.
-- Three.js modules are vendored under `static/vendor/three`.
-- The UI is plain HTML, CSS, and browser JavaScript.
-- The server uses Python standard library HTTP primitives.
+- Plain HTML, CSS, and browser JavaScript.
+- Vendored Three.js modules.
+- No Node/npm requirement.
+- Easier deployment on robot PCs where extra frontend tooling is undesirable.
 
-This keeps deployment simple on robot PCs where installing extra frontend tooling is undesirable.
-
-## Common Development Commands
-
-Run the server locally:
+After code changes, run at least:
 
 ```bash
-python3 -u server.py --host 127.0.0.1 --port 8090
-```
-
-Check the current state endpoint:
-
-```bash
-curl -sS http://127.0.0.1:8090/api/state
-```
-
-Check static asset headers:
-
-```bash
-curl -sSI http://127.0.0.1:8090/vendor/three/three.module.js
-curl -sSI http://127.0.0.1:8090/models/h1_2_description/h1_2.urdf
-```
-
-Check git status:
-
-```bash
+python3 -m unittest discover -s tests -p 'test_*.py'
 git status --short --branch
 ```
 
-Publish changes:
+When changing README or operator documentation, verify that runtime paths,
+endpoint names, and systemd service files still agree with the code.
 
-```bash
-git add README.md
-git commit -m "Expand telemetry dashboard README"
-git push
+## Model Asset Notes
+
+The browser uses these H1-2 model assets directly:
+
+```text
+static/models/h1_2_description
 ```
 
-## Notes On Model Assets
+The source robot model assets copied from the ROS workspace are kept here:
 
-The H1-2 description assets under `static/models/h1_2_description` are used directly by the browser. The dashboard serves URDF, XML, image, and STL files through the Python server.
+```text
+robot_models/unitree_h1_2
+```
 
-The included model README credits Unitree Robotics for the H1-2 robot description package. Keep those assets and attribution intact when updating the model files.
+`static/models/h1_2_description` is served directly by the dashboard. Preserve
+Unitree Robotics attribution and the included model README when updating those
+files.
+
+## Recording Replay Digital Twin
+
+The Recorder page includes a separate digital twin viewer for replaying saved
+JSONL recordings. This replay viewer is intentionally independent from the live
+robot telemetry stream and from all robot command paths.
+
+Replay workflow:
+
+1. Open the `Recorder` page.
+2. Choose a JSONL recording from the file selector.
+3. Click `Load`.
+4. Use `Play`, `Pause`, the scrub slider, and speed selector to inspect the
+   recorded movement.
+
+During replay, the dashboard converts each `telemetry_sample` row into a viewer
+snapshot and applies recorded body motor `q` values plus RH56BFX hand joint
+values to the replay-only H1-2 model. No replay data is sent to the physical
+robot.
 
 ## License
 
-No explicit project license is currently included in this repository. Add one before distributing the project more broadly or accepting external contributions.
+No explicit project license is currently included in this repository. Add one
+before broader distribution, external contributions, or commercial use.

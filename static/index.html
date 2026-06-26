@@ -56,6 +56,7 @@
             ROS Graph
           </a>
           <a class="nav-item" href="#motorPage"><span class="nav-icon">▤</span>Motor Data</a>
+          <a class="nav-item" href="#recordingPage"><span class="nav-icon">●</span>Recorder</a>
           <a class="nav-item" href="#locoPage"><span class="nav-icon">↕</span>Loco Control</a>
           <a class="nav-item" href="#wristPage"><span class="nav-icon">◌</span>Right Wrist</a>
           <a class="nav-item" href="#rawView"><span class="nav-icon">☷</span>Raw JSON</a>
@@ -275,6 +276,86 @@
                   </div>
                 </div>
               </aside>
+            </div>
+          </section>
+
+          <section id="recordingPage" class="recording-page panel">
+            <div class="section-head">
+              <div>
+                <h2>Telemetry Recorder</h2>
+                <p class="panel-subtitle">Sequential body motor and RH56BFX hand samples for replay and imitation datasets</p>
+              </div>
+              <div class="wrist-actions">
+                <span id="recordingState" class="pill bad">Idle</span>
+                <button id="recordingStart" class="chill-button compact" type="button">Start</button>
+                <button id="recordingStop" class="emergency-button compact" type="button">Stop</button>
+              </div>
+            </div>
+            <div class="recording-layout">
+              <section class="recording-left">
+                <div class="loco-readout">
+                  <article class="wrist-meter">
+                    <span>Samples</span>
+                    <strong id="recordingSamples">0</strong>
+                    <small>rt/lowstate telemetry rows</small>
+                  </article>
+                  <article class="wrist-meter">
+                    <span>Events</span>
+                    <strong id="recordingEvents">0</strong>
+                    <small>dashboard command markers</small>
+                  </article>
+                  <article class="wrist-meter">
+                    <span>Elapsed</span>
+                    <strong id="recordingElapsed">0.0 s</strong>
+                    <small>active recording duration</small>
+                  </article>
+                  <article class="wrist-meter">
+                    <span>File Size</span>
+                    <strong id="recordingBytes">0 B</strong>
+                    <small>JSONL bytes written</small>
+                  </article>
+                </div>
+                <section class="recording-details">
+                  <dl class="status-list full">
+                    <dt>File</dt>
+                    <dd id="recordingFile">--</dd>
+                    <dt>Path</dt>
+                    <dd id="recordingPath">--</dd>
+                    <dt>Last sample</dt>
+                    <dd id="recordingLastSample">--</dd>
+                    <dt>Error</dt>
+                    <dd id="recordingError">--</dd>
+                    <dt>Schema</dt>
+                    <dd>JSONL: recording_start, telemetry_sample, command_event, recording_stop</dd>
+                  </dl>
+                </section>
+              </section>
+              <section class="recording-replay">
+                <div class="recording-replay-toolbar">
+                  <select id="recordingFileSelect" aria-label="Recording file"></select>
+                  <button id="recordingRefreshFiles" class="ghost-button" type="button">Refresh</button>
+                  <button id="recordingLoadReplay" class="ghost-button" type="button">Load</button>
+                  <button id="recordingPlay" class="chill-button compact" type="button">Play</button>
+                  <button id="recordingPause" class="emergency-button compact" type="button">Pause</button>
+                </div>
+                <div id="recordingReplayCanvas" class="recording-replay-canvas"></div>
+                <div class="recording-replay-footer">
+                  <input id="recordingScrub" type="range" min="0" max="0" value="0" step="1" aria-label="Replay frame">
+                  <strong id="recordingReplayFrame">0 / 0</strong>
+                  <span id="recordingReplayTime">--</span>
+                  <label>
+                    Speed
+                    <select id="recordingReplaySpeed">
+                      <option value="0.25">0.25x</option>
+                      <option value="0.5">0.5x</option>
+                      <option value="1" selected>1x</option>
+                      <option value="2">2x</option>
+                      <option value="4">4x</option>
+                    </select>
+                  </label>
+                </div>
+                <dl id="recordingReplayFields" class="kv"></dl>
+              </section>
             </div>
           </section>
 

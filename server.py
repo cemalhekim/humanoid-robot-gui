@@ -42,6 +42,7 @@ except Exception:  # pragma: no cover
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 CAMERA_JPEG_PATH = Path("/tmp/robot_telemetry_front_camera.jpg")
+RECORDINGS_DIR = APP_DIR / "recordings"
 XR_TELEOP_MODE_DROPIN = Path.home() / ".config/systemd/user/xr-teleop.service.d/10-control-mode.conf"
 UNITREE_ROS2_INSTALL = (
     APP_DIR
@@ -181,6 +182,185 @@ HAND_JOINT_NAMES = {
 }
 
 MAX_JSON_BODY_BYTES = 4096
+
+
+def recording_timestamp() -> str:
+    return time.strftime("%Y%m%d-%H%M%S", time.localtime())
+
+
+class TelemetryRecorder:
+    def __init__(self, directory: Path) -> None:
+        self.directory = directory
+        self.lock = threading.Lock()
+        self.file: Any | None = None
+        self.path: Path | None = None
+        self.started_at: float | None = None
+        self.samples = 0
+        self.events = 0
+        self.bytes_written = 0
+        self.last_error: str | None = None
+        self.last_sample_at: float | None = None
+
+    def status(self) -> dict[str, Any]:
+        with self.lock:
+            return self._status_locked()
+
+    def _status_locked(self) -> dict[str, Any]:
+        return {
+            "active": self.file is not None,
+            "path": str(self.path) if self.path else None,
+            "filename": self.path.name if self.path else None,
+            "started_at": self.started_at,
+            "elapsed_seconds": round(time.time() - self.started_at, 3) if self.started_at else 0,
+            "samples": self.samples,
+            "events": self.events,
+            "bytes_written": self.bytes_written,
+            "last_sample_at": self.last_sample_at,
+            "last_error": self.last_error,
+        }
+
+    def start(self, label: str | None = None) -> dict[str, Any]:
+        with self.lock:
+            if self.file is not None:
+                return self.status()
+            self.directory.mkdir(parents=True, exist_ok=True)
+            safe_label = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in (label or "telemetry"))
+            safe_label = safe_label.strip("_")[:48] or "telemetry"
+            self.path = self.directory / f"{recording_timestamp()}-{safe_label}.jsonl"
+            self.file = self.path.open("a", encoding="utf-8")
+            self.started_at = time.time()
+            self.samples = 0
+            self.events = 0
+            self.bytes_written = 0
+            self.last_error = None
+            self.last_sample_at = None
+            self._write_locked(
+                {
+                    "type": "recording_start",
+                    "timestamp": self.started_at,
+                    "monotonic_ns": time.monotonic_ns(),
+                    "schema": "h1_2_telemetry_jsonl_v1",
+                    "body_joint_names": JOINT_NAMES,
+                    "hand_joint_names": HAND_JOINT_NAMES,
+                }
+            )
+            return self._status_locked()
+
+    def stop(self) -> dict[str, Any]:
+        with self.lock:
+            if self.file is None:
+                return self.status()
+            self._write_locked(
+                {
+                    "type": "recording_stop",
+                    "timestamp": time.time(),
+                    "monotonic_ns": time.monotonic_ns(),
+                    "samples": self.samples,
+                    "events": self.events,
+                }
+            )
+            with contextlib.suppress(Exception):
+                self.file.flush()
+                self.file.close()
+            self.file = None
+            return self._status_locked()
+
+    def write_sample(self, sample: dict[str, Any]) -> None:
+        with self.lock:
+            if self.file is None:
+                return
+            try:
+                self._write_locked(sample)
+                self.samples += 1
+                self.last_sample_at = sample.get("timestamp")
+                if self.samples % 100 == 0:
+                    self.file.flush()
+            except Exception as exc:
+                self.last_error = str(exc)
+
+    def write_event(self, name: str, payload: dict[str, Any]) -> None:
+        with self.lock:
+            if self.file is None:
+                return
+            try:
+                self._write_locked(
+                    {
+                        "type": "command_event",
+                        "timestamp": time.time(),
+                        "monotonic_ns": time.monotonic_ns(),
+                        "name": name,
+                        "payload": payload,
+                    }
+                )
+                self.events += 1
+            except Exception as exc:
+                self.last_error = str(exc)
+
+    def _write_locked(self, data: dict[str, Any]) -> None:
+        if self.file is None:
+            return
+        line = json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n"
+        self.file.write(line)
+        self.bytes_written += len(line.encode("utf-8"))
+
+
+def compact_record_motor(index: int, motor: Any, names: dict[int, str]) -> dict[str, Any]:
+    return fields_from(
+        motor,
+        [
+            "mode",
+            "q",
+            "dq",
+            "ddq",
+            "tau",
+            "tau_est",
+            "temperature",
+            "vol",
+            "sensor",
+            "reserve",
+        ],
+    ) | {"index": index, "name": names.get(index, f"Motor{index}")}
+
+
+def lowstate_record(
+    msg: Any,
+    samples: int,
+    hands: dict[str, Any],
+    hand_samples: int,
+    hand_timestamp: float | None,
+) -> dict[str, Any]:
+    timestamp = time.time()
+    record = {
+        "type": "telemetry_sample",
+        "timestamp": timestamp,
+        "monotonic_ns": time.monotonic_ns(),
+        "sample": samples,
+        "body": {
+            "topic": "rt/lowstate",
+            "motors": [compact_record_motor(i, motor, JOINT_NAMES) for i, motor in enumerate(msg.motor_state)],
+            "imu": fields_from(
+                msg.imu_state,
+                ["quaternion", "gyroscope", "accelerometer", "rpy", "temperature"],
+            ),
+            "robot": fields_from(
+                msg,
+                ["version", "mode_pr", "mode_machine", "tick", "crc", "wireless_remote"],
+            ),
+        },
+        "hands": hands,
+        "hand_samples": hand_samples,
+        "hand_timestamp": hand_timestamp,
+    }
+    if hasattr(msg, "bms_state"):
+        record["body"]["battery"] = fields_from(
+            msg.bms_state,
+            ["version_h", "version_l", "bms_status", "soc", "current", "cycle", "temperature"],
+        )
+    if hasattr(msg, "foot_force"):
+        record["body"]["foot_force"] = listify(msg.foot_force)
+    if hasattr(msg, "foot_force_est"):
+        record["body"]["foot_force_est"] = listify(msg.foot_force_est)
+    return record
 
 
 def has_risk_ack(payload: dict[str, Any]) -> bool:
@@ -1043,6 +1223,7 @@ class TelemetryStore:
         self.camera_backend = os.environ.get("CAMERA_BACKEND", "auto")
         self.camera_topic = "/frontvideostream"
         self.camera_resolution = int(os.environ.get("CAMERA_RESOLUTION", "360"))
+        self.recorder = TelemetryRecorder(RECORDINGS_DIR)
         self.latest: dict[str, Any] = {
             "connected": False,
             "network": network_status(self.robot_host),
@@ -1128,6 +1309,51 @@ class TelemetryStore:
         self.ros_graph_cache = graph
         self.ros_graph_timestamp = now
         return graph
+
+    def recording_status(self) -> dict[str, Any]:
+        return self.recorder.status()
+
+    def recording_files(self) -> dict[str, Any]:
+        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        files = []
+        for path in sorted(RECORDINGS_DIR.glob("*.jsonl"), key=lambda item: item.stat().st_mtime, reverse=True):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            files.append(
+                {
+                    "name": path.name,
+                    "path": str(path),
+                    "size": stat.st_size,
+                    "modified_at": stat.st_mtime,
+                }
+            )
+        return {"files": files}
+
+    def recording_file_path(self, filename: str) -> Path:
+        name = Path(filename).name
+        if not name.endswith(".jsonl"):
+            raise ValueError("Recording filename must end with .jsonl")
+        path = (RECORDINGS_DIR / name).resolve()
+        root = RECORDINGS_DIR.resolve()
+        if root not in path.parents:
+            raise ValueError("Recording path is outside the recordings directory")
+        if not path.exists():
+            raise FileNotFoundError(name)
+        return path
+
+    def start_recording(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        label = str(payload.get("label", "telemetry")).strip() if payload else "telemetry"
+        status = self.recorder.start(label)
+        return 200, {"ok": True, "status": status}
+
+    def stop_recording(self) -> tuple[int, dict[str, Any]]:
+        status = self.recorder.stop()
+        return 200, {"ok": True, "status": status}
+
+    def record_command_event(self, name: str, payload: dict[str, Any]) -> None:
+        self.recorder.write_event(name, payload)
 
     def wrist_snapshot(self) -> dict[str, Any]:
         snapshot = self.snapshot()
@@ -1851,10 +2077,11 @@ finally:
                 now = time.time()
                 self.samples += 1
                 self.sample_times.append(now)
+                hands = handstate_to_dict(hand_msg, hand_samples, hand_timestamp)
+                self.recorder.write_sample(lowstate_record(msg, self.samples, hands, hand_samples, hand_timestamp))
                 if now - last_snapshot_at < 1.0 / 30.0:
                     return
                 last_snapshot_at = now
-                hands = handstate_to_dict(hand_msg, hand_samples, hand_timestamp)
                 if len(self.sample_times) > 1:
                     elapsed = self.sample_times[-1] - self.sample_times[0]
                     rate = (len(self.sample_times) - 1) / elapsed if elapsed > 0 else 0
@@ -1950,6 +2177,21 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.camera_snapshot())
         elif request_path == "/api/ros-graph":
             self._send_json(self.store.ros_graph_snapshot())
+        elif request_path == "/api/recording/status":
+            self._send_json(self.store.recording_status())
+        elif request_path == "/api/recording/files":
+            self._send_json(self.store.recording_files())
+        elif request_path.startswith("/api/recording/files/"):
+            filename = unquote(request_path.removeprefix("/api/recording/files/"))
+            try:
+                path = self.store.recording_file_path(filename)
+            except FileNotFoundError:
+                self.send_error(HTTPStatus.NOT_FOUND, "Recording not found")
+                return
+            except ValueError as exc:
+                self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            self._send_file(path, "application/x-ndjson; charset=utf-8")
         elif request_path == "/api/wrist/status":
             self._send_json(self.store.wrist_snapshot())
         elif request_path == "/api/loco/status":
@@ -1973,12 +2215,20 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/robot/straight",
             "/api/loco/command",
             "/api/xr/mode",
+            "/api/recording/start",
+            "/api/recording/stop",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
 
         payload: dict[str, Any] = {}
-        if request_path in ("/api/wrist/command", "/api/robot/chill", "/api/loco/command", "/api/xr/mode"):
+        if request_path in (
+            "/api/wrist/command",
+            "/api/robot/chill",
+            "/api/loco/command",
+            "/api/xr/mode",
+            "/api/recording/start",
+        ):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length > MAX_JSON_BODY_BYTES:
@@ -1995,6 +2245,18 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send_json_status({"ok": False, "error": f"Invalid JSON body: {exc}"}, HTTPStatus.BAD_REQUEST)
                 return
+
+        if request_path == "/api/recording/start":
+            status, response = self.store.start_recording(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/recording/stop":
+            status, response = self.store.stop_recording()
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        self.store.record_command_event(request_path, payload)
 
         if request_path == "/api/wrist/stop":
             self._send_json(self.store.stop_wrist())

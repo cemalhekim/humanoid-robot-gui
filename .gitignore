@@ -8,3 +8,4 @@ build/
 install/
 log/
 *.egg-info/
+recordings/

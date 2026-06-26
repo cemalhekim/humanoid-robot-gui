@@ -3,6 +3,12 @@ const state = {
   filter: "",
   events: null,
   locoStatusKey: null,
+  replay: {
+    frames: [],
+    index: 0,
+    timer: null,
+    playing: false,
+  },
 };
 
 const vrViewUrl = "https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012";
@@ -33,6 +39,26 @@ const els = {
   rosMap: document.getElementById("rosMap"),
   rosEdges: document.getElementById("rosEdges"),
   refreshRosGraph: document.getElementById("refreshRosGraph"),
+  recordingState: document.getElementById("recordingState"),
+  recordingStart: document.getElementById("recordingStart"),
+  recordingStop: document.getElementById("recordingStop"),
+  recordingSamples: document.getElementById("recordingSamples"),
+  recordingEvents: document.getElementById("recordingEvents"),
+  recordingElapsed: document.getElementById("recordingElapsed"),
+  recordingBytes: document.getElementById("recordingBytes"),
+  recordingFile: document.getElementById("recordingFile"),
+  recordingPath: document.getElementById("recordingPath"),
+  recordingLastSample: document.getElementById("recordingLastSample"),
+  recordingError: document.getElementById("recordingError"),
+  recordingFileSelect: document.getElementById("recordingFileSelect"),
+  recordingRefreshFiles: document.getElementById("recordingRefreshFiles"),
+  recordingLoadReplay: document.getElementById("recordingLoadReplay"),
+  recordingPlay: document.getElementById("recordingPlay"),
+  recordingPause: document.getElementById("recordingPause"),
+  recordingScrub: document.getElementById("recordingScrub"),
+  recordingReplayFrame: document.getElementById("recordingReplayFrame"),
+  recordingReplayTime: document.getElementById("recordingReplayTime"),
+  recordingReplaySpeed: document.getElementById("recordingReplaySpeed"),
   filter: document.getElementById("filter"),
   navItems: document.querySelectorAll(".nav-item"),
   wristState: document.getElementById("wristState"),
@@ -133,6 +159,14 @@ function fmt(value, suffix = "") {
   if (typeof value === "number") return `${Number.isInteger(value) ? value : value.toFixed(3)}${suffix}`;
   if (typeof value === "boolean") return value ? "true" : "false";
   return String(value);
+}
+
+function fmtBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function esc(value) {
@@ -354,6 +388,204 @@ function render(snapshot) {
   if (snapshot.loco) renderLocoStatus(snapshot.loco);
   els.rawJson.textContent = JSON.stringify(snapshot, null, 2);
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));
+}
+
+function renderRecordingStatus(status) {
+  if (!els.recordingState) return;
+  const active = Boolean(status?.active);
+  els.recordingState.textContent = active ? "Recording" : "Idle";
+  els.recordingState.className = `pill ${active ? "good" : "bad"}`;
+  els.recordingSamples.textContent = fmt(status?.samples ?? 0);
+  els.recordingEvents.textContent = fmt(status?.events ?? 0);
+  els.recordingElapsed.textContent = `${Number(status?.elapsed_seconds || 0).toFixed(1)} s`;
+  els.recordingBytes.textContent = fmtBytes(status?.bytes_written);
+  els.recordingFile.textContent = status?.filename || "--";
+  els.recordingPath.textContent = status?.path || "--";
+  els.recordingLastSample.textContent = status?.last_sample_at
+    ? new Date(status.last_sample_at * 1000).toLocaleTimeString()
+    : "--";
+  els.recordingError.textContent = status?.last_error || "--";
+  if (els.recordingStart) els.recordingStart.disabled = active;
+  if (els.recordingStop) els.recordingStop.disabled = !active;
+}
+
+function renderRecordingFiles(files) {
+  if (!els.recordingFileSelect) return;
+  const current = els.recordingFileSelect.value;
+  els.recordingFileSelect.innerHTML = (files || [])
+    .map((file) => `<option value="${esc(file.name)}">${esc(file.name)} (${fmtBytes(file.size)})</option>`)
+    .join("");
+  if (current && [...els.recordingFileSelect.options].some((option) => option.value === current)) {
+    els.recordingFileSelect.value = current;
+  }
+}
+
+async function loadRecordingFiles() {
+  if (!els.recordingFileSelect) return;
+  try {
+    const response = await fetch("/api/recording/files");
+    const payload = await response.json();
+    renderRecordingFiles(payload.files || []);
+  } catch (error) {
+    els.recordingError.textContent = error instanceof Error ? error.message : "Could not list recordings.";
+  }
+}
+
+function recordingFrameToSnapshot(record) {
+  const body = record.body || {};
+  const hands = record.hands || {};
+  return {
+    connected: false,
+    timestamp: record.timestamp,
+    sample: record.sample,
+    samples: record.sample,
+    sample_rate_hz: 0,
+    motor_count: (body.motors || []).length,
+    motors: body.motors || [],
+    imu: body.imu || {},
+    robot: body.robot || {},
+    battery: body.battery || {},
+    foot_force: body.foot_force || [],
+    foot_force_est: body.foot_force_est || [],
+    hands: {
+      ...hands,
+      joint_count: hands.joint_count ?? hands.joints?.length ?? 0,
+      joints: hands.joints || [],
+    },
+  };
+}
+
+function updateReplayUi() {
+  const total = state.replay.frames.length;
+  const frameNumber = total ? state.replay.index + 1 : 0;
+  if (els.recordingScrub) {
+    els.recordingScrub.max = String(Math.max(0, total - 1));
+    els.recordingScrub.value = String(Math.min(state.replay.index, Math.max(0, total - 1)));
+    els.recordingScrub.disabled = total === 0;
+  }
+  if (els.recordingReplayFrame) els.recordingReplayFrame.textContent = `${frameNumber} / ${total}`;
+  const frame = state.replay.frames[state.replay.index];
+  if (els.recordingReplayTime) {
+    els.recordingReplayTime.textContent = frame?.timestamp ? new Date(frame.timestamp * 1000).toLocaleTimeString() : "--";
+  }
+  if (els.recordingPlay) els.recordingPlay.disabled = total === 0 || state.replay.playing;
+  if (els.recordingPause) els.recordingPause.disabled = !state.replay.playing;
+}
+
+function showReplayFrame(index) {
+  if (!state.replay.frames.length) {
+    updateReplayUi();
+    return;
+  }
+  state.replay.index = Math.max(0, Math.min(index, state.replay.frames.length - 1));
+  const snapshot = recordingFrameToSnapshot(state.replay.frames[state.replay.index]);
+  window.dispatchEvent(new CustomEvent("recording-replay-frame", { detail: { snapshot } }));
+  updateReplayUi();
+}
+
+function pauseReplay() {
+  if (state.replay.timer) window.clearTimeout(state.replay.timer);
+  state.replay.timer = null;
+  state.replay.playing = false;
+  updateReplayUi();
+}
+
+function scheduleReplayNext() {
+  if (!state.replay.playing) return;
+  if (state.replay.index >= state.replay.frames.length - 1) {
+    pauseReplay();
+    return;
+  }
+  const current = state.replay.frames[state.replay.index];
+  const next = state.replay.frames[state.replay.index + 1];
+  const speed = Number(els.recordingReplaySpeed?.value || 1) || 1;
+  const deltaMs = Math.max(8, Math.min(1000, ((next.timestamp || 0) - (current.timestamp || 0)) * 1000 / speed));
+  state.replay.timer = window.setTimeout(() => {
+    showReplayFrame(state.replay.index + 1);
+    scheduleReplayNext();
+  }, Number.isFinite(deltaMs) ? deltaMs : 33);
+}
+
+function playReplay() {
+  if (!state.replay.frames.length) return;
+  if (state.replay.index >= state.replay.frames.length - 1) state.replay.index = 0;
+  state.replay.playing = true;
+  showReplayFrame(state.replay.index);
+  scheduleReplayNext();
+}
+
+async function loadReplayRecording() {
+  if (!els.recordingFileSelect?.value) return;
+  pauseReplay();
+  try {
+    const name = els.recordingFileSelect.value;
+    const response = await fetch(`/api/recording/files/${encodeURIComponent(name)}`);
+    if (!response.ok) throw new Error(`Could not load ${name}`);
+    const text = await response.text();
+    state.replay.frames = text
+      .split(/\n+/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((record) => record.type === "telemetry_sample");
+    state.replay.index = 0;
+    showReplayFrame(0);
+    if (els.recordingError) {
+      els.recordingError.textContent = state.replay.frames.length
+        ? "--"
+        : "Recording loaded, but it does not contain telemetry_sample rows.";
+    }
+  } catch (error) {
+    state.replay.frames = [];
+    state.replay.index = 0;
+    updateReplayUi();
+    els.recordingError.textContent = error instanceof Error ? error.message : "Replay load failed.";
+  }
+}
+
+async function loadRecordingStatus() {
+  if (!els.recordingState) return;
+  try {
+    const response = await fetch("/api/recording/status");
+    renderRecordingStatus(await response.json());
+  } catch (error) {
+    els.recordingState.textContent = "Unavailable";
+    els.recordingState.className = "pill bad";
+    els.recordingError.textContent = error instanceof Error ? error.message : "Status request failed.";
+  }
+}
+
+async function startRecording() {
+  if (!els.recordingStart) return;
+  els.recordingStart.disabled = true;
+  try {
+    const response = await fetch("/api/recording/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "h1_2_motors_hands" }),
+    });
+    const payload = await response.json();
+    renderRecordingStatus(payload.status || payload);
+  } catch (error) {
+    els.recordingError.textContent = error instanceof Error ? error.message : "Start failed.";
+  } finally {
+    loadRecordingStatus();
+    loadRecordingFiles();
+  }
+}
+
+async function stopRecording() {
+  if (!els.recordingStop) return;
+  els.recordingStop.disabled = true;
+  try {
+    const response = await fetch("/api/recording/stop", { method: "POST" });
+    const payload = await response.json();
+    renderRecordingStatus(payload.status || payload);
+  } catch (error) {
+    els.recordingError.textContent = error instanceof Error ? error.message : "Stop failed.";
+  } finally {
+    loadRecordingStatus();
+    loadRecordingFiles();
+  }
 }
 
 function updateLocoSliderLabels() {
@@ -1244,11 +1476,22 @@ document.addEventListener("visibilitychange", () => {
     .catch(() => {});
   loadLocoStatus();
   loadWristStatus();
+  loadRecordingStatus();
 });
 els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 els.chillMotors?.addEventListener("click", chillMotors);
 els.straightRobot?.addEventListener("click", sendRobotStraight);
 els.homeRobot?.addEventListener("click", sendRobotHome);
+els.recordingStart?.addEventListener("click", startRecording);
+els.recordingStop?.addEventListener("click", stopRecording);
+els.recordingRefreshFiles?.addEventListener("click", loadRecordingFiles);
+els.recordingLoadReplay?.addEventListener("click", loadReplayRecording);
+els.recordingPlay?.addEventListener("click", playReplay);
+els.recordingPause?.addEventListener("click", pauseReplay);
+els.recordingScrub?.addEventListener("input", () => {
+  pauseReplay();
+  showReplayFrame(Number(els.recordingScrub.value || 0));
+});
 els.teleoperationMethods.forEach((method) => {
   method.addEventListener("click", async () => {
     method.classList.remove("click-glow");
@@ -1292,6 +1535,10 @@ document.addEventListener("dragstart", (event) => {
 syncActiveNav();
 connectCameraPreview();
 loadRosGraph();
+loadRecordingStatus();
+loadRecordingFiles();
+updateReplayUi();
+window.setInterval(loadRecordingStatus, 2000);
 setupLocoControls();
 setupWristControls();
 connectEvents();

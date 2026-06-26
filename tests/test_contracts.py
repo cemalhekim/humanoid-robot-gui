@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
 
 import server
 
@@ -94,6 +95,28 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertIn("zero_torque", server.LOCO_ACTIONS)
         self.assertIn("velocity", server.LOCO_ACTIONS)
         self.assertIn("set_target_position", server.LOCO_ACTIONS)
+
+    def test_telemetry_recorder_writes_ordered_jsonl_records(self) -> None:
+        with TemporaryDirectory() as directory:
+            recorder = server.TelemetryRecorder(server.Path(directory))
+            started = recorder.start("unit-test")
+            self.assertTrue(started["active"])
+
+            recorder.write_sample({"type": "telemetry_sample", "timestamp": 1.0, "monotonic_ns": 10})
+            recorder.write_event("test-command", {"ok": True})
+            stopped = recorder.stop()
+
+            self.assertFalse(stopped["active"])
+            self.assertEqual(stopped["samples"], 1)
+            self.assertEqual(stopped["events"], 1)
+            path = server.Path(stopped["path"])
+            records = [server.json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual([record["type"] for record in records], [
+                "recording_start",
+                "telemetry_sample",
+                "command_event",
+                "recording_stop",
+            ])
 
 
 if __name__ == "__main__":

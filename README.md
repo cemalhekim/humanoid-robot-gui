@@ -730,6 +730,15 @@ python3 tools/generate_synthetic_recordings.py --frames 240 --prefix synthetic-h
 This writes one sequence `.jsonl` file and one pose-point `.pose.json` file into
 `recordings/` so the Recorder replay UI can be tested without live DDS data.
 
+Convert a recording into CSV tables:
+
+```bash
+python3 tools/recording_to_csv.py recordings/example.jsonl
+```
+
+The converter writes `samples.csv`, `body_motors.csv`, `hand_joints.csv`,
+`imu.csv`, `forces.csv`, and `events.csv` into a sibling output directory.
+
 Stop local dashboard servers:
 
 ```bash

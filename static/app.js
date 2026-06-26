@@ -352,6 +352,66 @@ function renderMotors(motors) {
     .join("");
 }
 
+function csvCell(value) {
+  if (value === undefined || value === null) return "";
+  const text = Array.isArray(value) ? value.join("|") : String(value);
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function snapshotToCsv(snapshot) {
+  const headers = [
+    "sample",
+    "timestamp",
+    "source",
+    "index",
+    "name",
+    "mode",
+    "q",
+    "dq",
+    "ddq",
+    "tau",
+    "tau_est",
+    "temperature",
+    "vol",
+  ];
+  const rows = [headers];
+  for (const motor of snapshot.motors || []) {
+    rows.push([
+      snapshot.samples ?? snapshot.sample ?? "",
+      snapshot.timestamp ?? "",
+      "body",
+      motor.index,
+      motor.name,
+      motor.mode,
+      motor.q,
+      motor.dq,
+      motor.ddq,
+      motor.tau,
+      motor.tau_est,
+      motor.temperature,
+      motor.vol,
+    ]);
+  }
+  for (const joint of snapshot.hands?.joints || []) {
+    rows.push([
+      snapshot.samples ?? snapshot.sample ?? "",
+      snapshot.timestamp ?? "",
+      "hand",
+      joint.index,
+      joint.name,
+      joint.mode,
+      joint.q,
+      joint.dq,
+      joint.ddq,
+      joint.tau,
+      joint.tau_est,
+      joint.temperature,
+      joint.vol,
+    ]);
+  }
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
 function networkLabel(network) {
   const type = network?.type || "Network";
   const iface = network?.interface && network.interface !== "unknown" ? ` (${network.interface})` : "";
@@ -389,7 +449,7 @@ function render(snapshot) {
   renderWristTelemetry(snapshot);
   renderLocoTelemetry(snapshot);
   if (snapshot.loco) renderLocoStatus(snapshot.loco);
-  els.rawJson.textContent = JSON.stringify(snapshot, null, 2);
+  els.rawJson.textContent = snapshotToCsv(snapshot);
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));
 }
 

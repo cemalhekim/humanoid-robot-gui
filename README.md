@@ -721,6 +721,15 @@ Run the production gate:
 make production-gate
 ```
 
+Generate synthetic replay-compatible recordings without a robot:
+
+```bash
+python3 tools/generate_synthetic_recordings.py --frames 240 --prefix synthetic-h1-2
+```
+
+This writes one sequence `.jsonl` file and one pose-point `.pose.json` file into
+`recordings/` so the Recorder replay UI can be tested without live DDS data.
+
 Stop local dashboard servers:
 
 ```bash

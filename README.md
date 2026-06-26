@@ -892,9 +892,11 @@ Replay workflow:
    recorded movement.
 
 During replay, the dashboard converts each `telemetry_sample` row into a viewer
-snapshot and applies recorded body motor `q` values plus RH56BFX hand joint
-values to the replay-only H1-2 model. No replay data is sent to the physical
-robot.
+snapshot. The replay page shows two H1-2 models in the same scene: a translucent
+blue neutral reference model and a red recorded model driven by the saved body
+motor `q` values plus RH56BFX hand joint values. This makes the difference
+between the neutral pose and recorded motion visible. No replay data is sent to
+the physical robot.
 
 ## License
 

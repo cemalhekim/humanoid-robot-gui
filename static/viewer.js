@@ -65,7 +65,26 @@ function applyOrigin(object, element) {
   object.rotation.set(rpy[0], rpy[1], rpy[2], "XYZ");
 }
 
-function materialFromVisual(visual) {
+function materialFromVisual(visual, tone = "default") {
+  if (tone === "reference") {
+    return new THREE.MeshStandardMaterial({
+      color: 0x7fb8ff,
+      roughness: 0.82,
+      metalness: 0.04,
+      transparent: true,
+      opacity: 0.24,
+      depthWrite: false,
+    });
+  }
+  if (tone === "replay") {
+    return new THREE.MeshStandardMaterial({
+      color: 0xff3b30,
+      roughness: 0.68,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.78,
+    });
+  }
   const color = visual.querySelector(":scope > material > color")?.getAttribute("rgba");
   if (color) {
     const [r, g, b, a] = color.split(/\s+/).map(Number);
@@ -89,10 +108,11 @@ function resolveMeshPath(filename) {
 }
 
 class RobotViewer {
-  constructor({ container, fields, live = false }) {
+  constructor({ container, fields, live = false, compare = false }) {
     this.container = container;
     this.fields = fields;
     this.live = live;
+    this.compare = compare;
     this.scene = null;
     this.camera = null;
     this.renderer = null;
@@ -187,7 +207,7 @@ class RobotViewer {
     });
   }
 
-  loadVisualMeshes(linkElement, linkGroup) {
+  loadVisualMeshes(linkElement, linkGroup, tone = "default") {
     const loader = new STLLoader();
     for (const visual of linkElement.querySelectorAll(":scope > visual")) {
       const meshElement = visual.querySelector(":scope > geometry > mesh");
@@ -203,7 +223,7 @@ class RobotViewer {
         resolveMeshPath(filename),
         (geometry) => {
           geometry.computeVertexNormals();
-          const mesh = new THREE.Mesh(geometry, materialFromVisual(visual));
+          const mesh = new THREE.Mesh(geometry, materialFromVisual(visual, tone));
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           visualGroup.add(mesh);
@@ -219,22 +239,18 @@ class RobotViewer {
     }
   }
 
-  async loadRobot() {
-    const response = await fetch(URDF_PATH);
-    const text = await response.text();
-    const xml = new DOMParser().parseFromString(text, "application/xml");
-
+  buildRobot(xml, { name, tone = "default", tracked = true }) {
     const linkGroups = new Map();
     for (const link of xml.querySelectorAll("robot > link")) {
       const group = new THREE.Group();
       group.name = link.getAttribute("name");
       linkGroups.set(group.name, group);
-      this.loadVisualMeshes(link, group);
+      this.loadVisualMeshes(link, group, tone);
     }
 
-    this.robotRoot = new THREE.Group();
-    this.robotRoot.name = "h1_2";
-    this.scene.add(this.robotRoot);
+    const root = new THREE.Group();
+    root.name = name;
+    this.scene.add(root);
 
     const childLinks = new Set();
     for (const joint of xml.querySelectorAll("robot > joint")) {
@@ -251,29 +267,45 @@ class RobotViewer {
       const axis = new THREE.Vector3(...parseVector(joint.querySelector(":scope > axis")?.getAttribute("xyz"), [1, 0, 0]));
       axis.normalize();
 
-      this.jointGroups.set(name, {
-        group: jointGroup,
-        axis,
-        baseQuaternion: jointGroup.quaternion.clone(),
-        type,
-      });
+      if (tracked) {
+        this.jointGroups.set(name, {
+          group: jointGroup,
+          axis,
+          baseQuaternion: jointGroup.quaternion.clone(),
+          type,
+        });
+      }
 
       const parentGroup = linkGroups.get(parent);
       if (parentGroup) {
         parentGroup.add(jointGroup);
       } else {
-        this.robotRoot.add(jointGroup);
+        root.add(jointGroup);
       }
       jointGroup.add(childGroup);
       childLinks.add(child);
     }
 
     for (const [name, group] of linkGroups) {
-      if (!childLinks.has(name)) this.robotRoot.add(group);
+      if (!childLinks.has(name)) root.add(group);
     }
 
-    this.robotRoot.rotation.x = -Math.PI / 2;
-    this.robotRoot.position.y = -0.55;
+    root.rotation.x = -Math.PI / 2;
+    root.position.y = -0.55;
+    return root;
+  }
+
+  async loadRobot() {
+    const response = await fetch(URDF_PATH);
+    const text = await response.text();
+    const xml = new DOMParser().parseFromString(text, "application/xml");
+
+    if (this.compare) {
+      this.buildRobot(xml, { name: "h1_2_reference", tone: "reference", tracked: false });
+      this.robotRoot = this.buildRobot(xml, { name: "h1_2_replay", tone: "replay", tracked: true });
+    } else {
+      this.robotRoot = this.buildRobot(xml, { name: "h1_2", tone: "default", tracked: true });
+    }
     this.modelReady = true;
     if (this.latestState) this.applyTelemetry(this.latestState, this.live ? "live" : "replay");
   }
@@ -345,6 +377,7 @@ const replayViewer = new RobotViewer({
   container: document.getElementById("recordingReplayCanvas"),
   fields: document.getElementById("recordingReplayFields"),
   live: false,
+  compare: true,
 });
 
 window.addEventListener("telemetry-state", (event) => liveViewer.applyTelemetry(event.detail.snapshot, "live"));

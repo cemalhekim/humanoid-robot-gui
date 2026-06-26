@@ -398,6 +398,7 @@ POST endpoints:
 | `/api/xr/mode` | Requests an XR mode change |
 | `/api/recording/start` | Starts a JSONL telemetry recording |
 | `/api/recording/stop` | Stops the active telemetry recording |
+| `/api/recording/pose` | Captures the current full-body pose as a single target point |
 | `/api/recording/replay/robot` | Locked robot playback request; validates preview state but refuses physical playback until a safety controller exists |
 
 State check:
@@ -440,7 +441,15 @@ curl -sS -X POST http://10.2.100.142:8088/api/recording/stop
 
 ## Telemetry Recording
 
-The recorder writes sequential JSONL files under:
+The Recorder page supports two capture modes:
+
+- `Sequence`: the existing process recording mode. It records every available
+  `rt/lowstate` sample over time and writes a `.jsonl` file.
+- `Pose Point`: captures the robot's current full-body pose as one target point
+  and writes a `.pose.json` file. When replayed in the dashboard, the red model
+  interpolates from the live robot's current pose to that saved target pose.
+
+Recordings are written under:
 
 ```text
 recordings/
@@ -449,7 +458,8 @@ recordings/
 The directory is intentionally ignored by Git because recordings can become
 large quickly.
 
-Each JSONL line is one record. The current schema uses these record types:
+Sequence JSONL files contain one record per line. The current schema uses these
+record types:
 
 - `recording_start`: metadata, schema name, body joint names, and hand joint
   names.

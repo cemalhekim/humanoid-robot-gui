@@ -43,6 +43,7 @@ const els = {
   recordingState: document.getElementById("recordingState"),
   recordingStart: document.getElementById("recordingStart"),
   recordingStop: document.getElementById("recordingStop"),
+  recordingCapturePose: document.getElementById("recordingCapturePose"),
   recordingSamples: document.getElementById("recordingSamples"),
   recordingEvents: document.getElementById("recordingEvents"),
   recordingElapsed: document.getElementById("recordingElapsed"),
@@ -457,6 +458,56 @@ function recordingFrameToSnapshot(record) {
   };
 }
 
+function cloneSnapshot(snapshot) {
+  return JSON.parse(JSON.stringify(snapshot || {}));
+}
+
+function interpolateValue(start, target, t) {
+  const a = Number(start);
+  const b = Number(target);
+  if (!Number.isFinite(a)) return Number.isFinite(b) ? b : null;
+  if (!Number.isFinite(b)) return a;
+  return a + (b - a) * t;
+}
+
+function interpolateMotors(startMotors = [], targetMotors = [], t) {
+  const startByName = new Map(startMotors.map((motor) => [motor.name, motor]));
+  return targetMotors.map((target) => {
+    const start = startByName.get(target.name) || target;
+    return {
+      ...target,
+      q: interpolateValue(start.q, target.q, t),
+      dq: interpolateValue(start.dq, target.dq, t),
+      tau_est: interpolateValue(start.tau_est, target.tau_est, t),
+    };
+  });
+}
+
+function buildPoseReplayFrames(targetSnapshot) {
+  const start = cloneSnapshot(state.latest || targetSnapshot);
+  const target = cloneSnapshot(targetSnapshot);
+  const frameCount = 120;
+  const startTime = Date.now() / 1000;
+  const startHands = start.hands || {};
+  const targetHands = target.hands || {};
+  return Array.from({ length: frameCount }, (_, index) => {
+    const t = frameCount === 1 ? 1 : index / (frameCount - 1);
+    return {
+      ...target,
+      type: "telemetry_sample",
+      timestamp: startTime + t * 3,
+      sample: index + 1,
+      motor_count: target.motor_count ?? target.motors?.length ?? 0,
+      motors: interpolateMotors(start.motors || [], target.motors || [], t),
+      hands: {
+        ...targetHands,
+        joint_count: targetHands.joint_count ?? targetHands.joints?.length ?? 0,
+        joints: interpolateMotors(startHands.joints || [], targetHands.joints || [], t),
+      },
+    };
+  });
+}
+
 function updateReplayUi() {
   const total = state.replay.frames.length;
   const frameNumber = total ? state.replay.index + 1 : 0;
@@ -554,11 +605,16 @@ async function loadReplayRecording() {
     const response = await fetch(`/api/recording/files/${encodeURIComponent(name)}`);
     if (!response.ok) throw new Error(`Could not load ${name}`);
     const text = await response.text();
-    state.replay.frames = text
-      .split(/\n+/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-      .filter((record) => record.type === "telemetry_sample");
+    if (name.endsWith(".pose.json")) {
+      const pose = JSON.parse(text);
+      state.replay.frames = buildPoseReplayFrames(pose.snapshot || {});
+    } else {
+      state.replay.frames = text
+        .split(/\n+/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .filter((record) => record.type === "telemetry_sample");
+    }
     state.replay.index = 0;
     state.replay.previewComplete = false;
     showReplayFrame(0);
@@ -604,6 +660,27 @@ async function startRecording() {
   } finally {
     loadRecordingStatus();
     loadRecordingFiles();
+  }
+}
+
+async function capturePosePoint() {
+  if (!els.recordingCapturePose) return;
+  els.recordingCapturePose.disabled = true;
+  try {
+    const response = await fetch("/api/recording/pose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "h1_2_pose_point" }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || "Pose capture failed.");
+    els.recordingError.textContent = `Captured ${payload.file?.name || "pose point"}`;
+    await loadRecordingFiles();
+    if (payload.file?.name && els.recordingFileSelect) els.recordingFileSelect.value = payload.file.name;
+  } catch (error) {
+    els.recordingError.textContent = error instanceof Error ? error.message : "Pose capture failed.";
+  } finally {
+    els.recordingCapturePose.disabled = false;
   }
 }
 
@@ -1518,6 +1595,7 @@ els.straightRobot?.addEventListener("click", sendRobotStraight);
 els.homeRobot?.addEventListener("click", sendRobotHome);
 els.recordingStart?.addEventListener("click", startRecording);
 els.recordingStop?.addEventListener("click", stopRecording);
+els.recordingCapturePose?.addEventListener("click", capturePosePoint);
 els.recordingRefreshFiles?.addEventListener("click", loadRecordingFiles);
 els.recordingLoadReplay?.addEventListener("click", loadReplayRecording);
 els.recordingPlay?.addEventListener("click", playReplay);

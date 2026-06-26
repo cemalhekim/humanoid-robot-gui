@@ -1316,7 +1316,8 @@ class TelemetryStore:
     def recording_files(self) -> dict[str, Any]:
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         files = []
-        for path in sorted(RECORDINGS_DIR.glob("*.jsonl"), key=lambda item: item.stat().st_mtime, reverse=True):
+        paths = [*RECORDINGS_DIR.glob("*.jsonl"), *RECORDINGS_DIR.glob("*.pose.json")]
+        for path in sorted(paths, key=lambda item: item.stat().st_mtime, reverse=True):
             try:
                 stat = path.stat()
             except OSError:
@@ -1333,8 +1334,8 @@ class TelemetryStore:
 
     def recording_file_path(self, filename: str) -> Path:
         name = Path(filename).name
-        if not name.endswith(".jsonl"):
-            raise ValueError("Recording filename must end with .jsonl")
+        if not (name.endswith(".jsonl") or name.endswith(".pose.json")):
+            raise ValueError("Recording filename must end with .jsonl or .pose.json")
         path = (RECORDINGS_DIR / name).resolve()
         root = RECORDINGS_DIR.resolve()
         if root not in path.parents:
@@ -1351,6 +1352,34 @@ class TelemetryStore:
     def stop_recording(self) -> tuple[int, dict[str, Any]]:
         status = self.recorder.stop()
         return 200, {"ok": True, "status": status}
+
+    def capture_pose(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        label = str(payload.get("label", "pose_point")).strip() if payload else "pose_point"
+        safe_label = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in label)
+        safe_label = safe_label.strip("_")[:48] or "pose_point"
+        with self.lock:
+            snapshot = json.loads(json.dumps(self.latest))
+        if not snapshot.get("motors"):
+            return 409, {"ok": False, "error": "No body motor telemetry is available to capture as a pose point."}
+        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        path = RECORDINGS_DIR / f"{recording_timestamp()}-{safe_label}.pose.json"
+        payload_out = {
+            "type": "pose_point",
+            "schema": "h1_2_pose_point_v1",
+            "timestamp": time.time(),
+            "monotonic_ns": time.monotonic_ns(),
+            "snapshot": snapshot,
+        }
+        path.write_text(json.dumps(payload_out, ensure_ascii=False, indent=2), encoding="utf-8")
+        return 200, {
+            "ok": True,
+            "file": {
+                "name": path.name,
+                "path": str(path),
+                "size": path.stat().st_size,
+                "modified_at": path.stat().st_mtime,
+            },
+        }
 
     def request_robot_replay(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         filename = str(payload.get("filename", "")).strip()
@@ -2238,6 +2267,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/xr/mode",
             "/api/recording/start",
             "/api/recording/stop",
+            "/api/recording/pose",
             "/api/recording/replay/robot",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
@@ -2250,6 +2280,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/loco/command",
             "/api/xr/mode",
             "/api/recording/start",
+            "/api/recording/pose",
             "/api/recording/replay/robot",
         ):
             try:
@@ -2276,6 +2307,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/recording/stop":
             status, response = self.store.stop_recording()
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/recording/pose":
+            status, response = self.store.capture_pose(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

@@ -289,6 +289,7 @@
                 <span id="recordingState" class="pill bad">Idle</span>
                 <button id="recordingStart" class="chill-button compact" type="button">Start</button>
                 <button id="recordingStop" class="emergency-button compact" type="button">Stop</button>
+                <button id="recordingCapturePose" class="ghost-button" type="button">Capture Pose Point</button>
               </div>
             </div>
             <div class="recording-layout">
@@ -326,7 +327,7 @@
                     <dt>Error</dt>
                     <dd id="recordingError">--</dd>
                     <dt>Schema</dt>
-                    <dd>JSONL: recording_start, telemetry_sample, command_event, recording_stop</dd>
+                    <dd>Sequence JSONL or single pose point JSON</dd>
                   </dl>
                 </section>
               </section>

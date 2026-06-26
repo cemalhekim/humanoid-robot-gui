@@ -127,7 +127,8 @@ The dashboard shows:
 - Links to the Vision Pro / XR Vuer page.
 - H1 locomotion controls.
 - Right-wrist controls.
-- A telemetry recorder for sequential body motor and RH56BFX hand samples.
+- A telemetry recorder for sequential full-body motor samples, including legs,
+  waist, arms, and RH56BFX hand samples.
 - Command result and command history panels.
 
 Dashboard command surfaces:
@@ -427,7 +428,7 @@ Start recording:
 ```bash
 curl -sS -X POST http://10.2.100.142:8088/api/recording/start \
   -H 'Content-Type: application/json' \
-  -d '{"label":"h1_2_motors_hands"}'
+  -d '{"label":"h1_2_full_body_hands"}'
 ```
 
 Stop recording:
@@ -461,9 +462,10 @@ Each `telemetry_sample` includes:
 
 - Wall-clock `timestamp`.
 - Monotonic `monotonic_ns` timestamp for precise ordering.
-- Body motor rows with `index`, `name`, `mode`, `q`, `dq`, `ddq`, `tau`,
-  `tau_est`, `temperature`, `vol`, `sensor`, and `reserve` when those fields
-  are exposed by the active Unitree message.
+- Body motor rows for every `rt/lowstate` motor slot exposed by the robot,
+  including legs, waist, and arms. Each row includes `index`, `name`, `mode`,
+  `q`, `dq`, `ddq`, `tau`, `tau_est`, `temperature`, `vol`, `sensor`, and
+  `reserve` when those fields are exposed by the active Unitree message.
 - IMU values.
 - Robot mode fields.
 - Battery, foot force, and estimated foot force when exposed.

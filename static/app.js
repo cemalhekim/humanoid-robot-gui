@@ -561,7 +561,7 @@ async function startRecording() {
     const response = await fetch("/api/recording/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: "h1_2_motors_hands" }),
+      body: JSON.stringify({ label: "h1_2_full_body_hands" }),
     });
     const payload = await response.json();
     renderRecordingStatus(payload.status || payload);

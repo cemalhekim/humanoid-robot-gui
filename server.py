@@ -1352,6 +1352,27 @@ class TelemetryStore:
         status = self.recorder.stop()
         return 200, {"ok": True, "status": status}
 
+    def request_robot_replay(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        filename = str(payload.get("filename", "")).strip()
+        if not payload.get("preview_complete"):
+            return 400, {"ok": False, "error": "Replay preview must be completed before robot playback is requested."}
+        try:
+            path = self.recording_file_path(filename)
+        except FileNotFoundError:
+            return 404, {"ok": False, "error": "Recording file was not found."}
+        except ValueError as exc:
+            return 400, {"ok": False, "error": str(exc)}
+        return 409, {
+            "ok": False,
+            "error": (
+                "Robot playback is intentionally locked. The recording preview is valid, "
+                "but sending raw recorded joint trajectories to the physical robot requires "
+                "a safety controller with interpolation, joint/velocity/torque limits, "
+                "controller ownership checks, and emergency stop supervision."
+            ),
+            "recording": path.name,
+        }
+
     def record_command_event(self, name: str, payload: dict[str, Any]) -> None:
         self.recorder.write_event(name, payload)
 
@@ -2217,6 +2238,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/xr/mode",
             "/api/recording/start",
             "/api/recording/stop",
+            "/api/recording/replay/robot",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -2228,6 +2250,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/loco/command",
             "/api/xr/mode",
             "/api/recording/start",
+            "/api/recording/replay/robot",
         ):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -2253,6 +2276,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/recording/stop":
             status, response = self.store.stop_recording()
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/recording/replay/robot":
+            status, response = self.store.request_robot_replay(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

@@ -398,6 +398,7 @@ POST endpoints:
 | `/api/xr/mode` | Requests an XR mode change |
 | `/api/recording/start` | Starts a JSONL telemetry recording |
 | `/api/recording/stop` | Stops the active telemetry recording |
+| `/api/recording/replay/robot` | Locked robot playback request; validates preview state but refuses physical playback until a safety controller exists |
 
 State check:
 
@@ -890,13 +891,20 @@ Replay workflow:
 3. Click `Load`.
 4. Use `Play`, `Pause`, the scrub slider, and speed selector to inspect the
    recorded movement.
+5. After the preview reaches the end, the `Robot Play` button unlocks. The
+   current implementation still refuses physical playback at the server because
+   raw joint replay needs a dedicated safety controller first.
 
 During replay, the dashboard converts each `telemetry_sample` row into a viewer
 snapshot. The replay page shows two H1-2 models in the same scene: a translucent
-blue neutral reference model and a red recorded model driven by the saved body
-motor `q` values plus RH56BFX hand joint values. This makes the difference
-between the neutral pose and recorded motion visible. No replay data is sent to
-the physical robot.
+blue reference model driven by the live robot's current motor positions and a
+red recorded model driven by the saved body motor `q` values plus RH56BFX hand
+joint values. This makes the difference between the real robot's current pose
+and recorded motion visible.
+
+No replay data is sent to the physical robot yet. Raw trajectory playback must
+first add interpolation, joint/velocity/torque limits, controller ownership
+checks, emergency stop supervision, and simulation validation.
 
 ## License
 

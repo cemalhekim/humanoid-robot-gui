@@ -8,6 +8,7 @@ const state = {
     index: 0,
     timer: null,
     playing: false,
+    previewComplete: false,
   },
 };
 
@@ -55,6 +56,7 @@ const els = {
   recordingLoadReplay: document.getElementById("recordingLoadReplay"),
   recordingPlay: document.getElementById("recordingPlay"),
   recordingPause: document.getElementById("recordingPause"),
+  recordingRobotPlay: document.getElementById("recordingRobotPlay"),
   recordingScrub: document.getElementById("recordingScrub"),
   recordingReplayFrame: document.getElementById("recordingReplayFrame"),
   recordingReplayTime: document.getElementById("recordingReplayTime"),
@@ -470,6 +472,10 @@ function updateReplayUi() {
   }
   if (els.recordingPlay) els.recordingPlay.disabled = total === 0 || state.replay.playing;
   if (els.recordingPause) els.recordingPause.disabled = !state.replay.playing;
+  if (els.recordingRobotPlay) {
+    els.recordingRobotPlay.disabled = !state.replay.previewComplete || total === 0;
+    els.recordingRobotPlay.textContent = state.replay.previewComplete ? "Robot Play" : "Robot Play Locked";
+  }
 }
 
 function showReplayFrame(index) {
@@ -490,10 +496,16 @@ function pauseReplay() {
   updateReplayUi();
 }
 
+function markReplayComplete() {
+  state.replay.playing = false;
+  state.replay.previewComplete = state.replay.frames.length > 0;
+  updateReplayUi();
+}
+
 function scheduleReplayNext() {
   if (!state.replay.playing) return;
   if (state.replay.index >= state.replay.frames.length - 1) {
-    pauseReplay();
+    markReplayComplete();
     return;
   }
   const current = state.replay.frames[state.replay.index];
@@ -509,9 +521,29 @@ function scheduleReplayNext() {
 function playReplay() {
   if (!state.replay.frames.length) return;
   if (state.replay.index >= state.replay.frames.length - 1) state.replay.index = 0;
+  state.replay.previewComplete = false;
   state.replay.playing = true;
   showReplayFrame(state.replay.index);
   scheduleReplayNext();
+}
+
+async function requestRobotReplay() {
+  if (!state.replay.previewComplete || !els.recordingFileSelect?.value) return;
+  try {
+    const response = await fetch("/api/recording/replay/robot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: els.recordingFileSelect.value,
+        preview_complete: true,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || "Robot replay request was rejected.");
+    els.recordingError.textContent = payload.message || "Robot replay accepted.";
+  } catch (error) {
+    els.recordingError.textContent = error instanceof Error ? error.message : "Robot replay request failed.";
+  }
 }
 
 async function loadReplayRecording() {
@@ -528,6 +560,7 @@ async function loadReplayRecording() {
       .map((line) => JSON.parse(line))
       .filter((record) => record.type === "telemetry_sample");
     state.replay.index = 0;
+    state.replay.previewComplete = false;
     showReplayFrame(0);
     if (els.recordingError) {
       els.recordingError.textContent = state.replay.frames.length
@@ -537,6 +570,7 @@ async function loadReplayRecording() {
   } catch (error) {
     state.replay.frames = [];
     state.replay.index = 0;
+    state.replay.previewComplete = false;
     updateReplayUi();
     els.recordingError.textContent = error instanceof Error ? error.message : "Replay load failed.";
   }
@@ -1488,8 +1522,10 @@ els.recordingRefreshFiles?.addEventListener("click", loadRecordingFiles);
 els.recordingLoadReplay?.addEventListener("click", loadReplayRecording);
 els.recordingPlay?.addEventListener("click", playReplay);
 els.recordingPause?.addEventListener("click", pauseReplay);
+els.recordingRobotPlay?.addEventListener("click", requestRobotReplay);
 els.recordingScrub?.addEventListener("input", () => {
   pauseReplay();
+  state.replay.previewComplete = false;
   showReplayFrame(Number(els.recordingScrub.value || 0));
 });
 els.teleoperationMethods.forEach((method) => {

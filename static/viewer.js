@@ -118,6 +118,7 @@ class RobotViewer {
     this.renderer = null;
     this.controls = null;
     this.robotRoot = null;
+    this.referenceJointGroups = new Map();
     this.gridHelper = null;
     this.jointGroups = new Map();
     this.latestState = null;
@@ -136,7 +137,11 @@ class RobotViewer {
   }
 
   setJointValue(jointName, value) {
-    const joint = this.jointGroups.get(jointName);
+    this.setJointValueIn(this.jointGroups, jointName, value);
+  }
+
+  setJointValueIn(groups, jointName, value) {
+    const joint = groups.get(jointName);
     if (!joint || !Number.isFinite(value)) return;
     joint.group.quaternion.copy(joint.baseQuaternion);
     joint.group.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(joint.axis, value));
@@ -207,6 +212,18 @@ class RobotViewer {
     });
   }
 
+  applyReference(snapshot) {
+    if (!this.compare || !this.modelReady) return;
+    for (const motor of snapshot.motors || []) {
+      const urdfJoint = BODY_JOINTS[motor.name];
+      if (urdfJoint) this.setJointValueIn(this.referenceJointGroups, urdfJoint, motor.q);
+    }
+    for (const hand of snapshot.hands?.joints || []) {
+      const urdfJoints = HAND_JOINTS[hand.name] || [];
+      for (const jointName of urdfJoints) this.setJointValueIn(this.referenceJointGroups, jointName, hand.q);
+    }
+  }
+
   loadVisualMeshes(linkElement, linkGroup, tone = "default") {
     const loader = new STLLoader();
     for (const visual of linkElement.querySelectorAll(":scope > visual")) {
@@ -239,7 +256,7 @@ class RobotViewer {
     }
   }
 
-  buildRobot(xml, { name, tone = "default", tracked = true }) {
+  buildRobot(xml, { name, tone = "default", targetGroups = null }) {
     const linkGroups = new Map();
     for (const link of xml.querySelectorAll("robot > link")) {
       const group = new THREE.Group();
@@ -267,8 +284,8 @@ class RobotViewer {
       const axis = new THREE.Vector3(...parseVector(joint.querySelector(":scope > axis")?.getAttribute("xyz"), [1, 0, 0]));
       axis.normalize();
 
-      if (tracked) {
-        this.jointGroups.set(name, {
+      if (targetGroups) {
+        targetGroups.set(name, {
           group: jointGroup,
           axis,
           baseQuaternion: jointGroup.quaternion.clone(),
@@ -301,10 +318,10 @@ class RobotViewer {
     const xml = new DOMParser().parseFromString(text, "application/xml");
 
     if (this.compare) {
-      this.buildRobot(xml, { name: "h1_2_reference", tone: "reference", tracked: false });
-      this.robotRoot = this.buildRobot(xml, { name: "h1_2_replay", tone: "replay", tracked: true });
+      this.buildRobot(xml, { name: "h1_2_reference", tone: "reference", targetGroups: this.referenceJointGroups });
+      this.robotRoot = this.buildRobot(xml, { name: "h1_2_replay", tone: "replay", targetGroups: this.jointGroups });
     } else {
-      this.robotRoot = this.buildRobot(xml, { name: "h1_2", tone: "default", tracked: true });
+      this.robotRoot = this.buildRobot(xml, { name: "h1_2", tone: "default", targetGroups: this.jointGroups });
     }
     this.modelReady = true;
     if (this.latestState) this.applyTelemetry(this.latestState, this.live ? "live" : "replay");
@@ -380,7 +397,10 @@ const replayViewer = new RobotViewer({
   compare: true,
 });
 
-window.addEventListener("telemetry-state", (event) => liveViewer.applyTelemetry(event.detail.snapshot, "live"));
+window.addEventListener("telemetry-state", (event) => {
+  liveViewer.applyTelemetry(event.detail.snapshot, "live");
+  replayViewer.applyReference(event.detail.snapshot);
+});
 window.addEventListener("recording-replay-frame", (event) => replayViewer.applyTelemetry(event.detail.snapshot, "replay"));
 window.addEventListener("telemetry-tab-change", () => {
   setTimeout(() => {

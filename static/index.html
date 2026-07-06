@@ -44,6 +44,7 @@
             </span>
             Teleoperation
           </a>
+          <a class="nav-item" href="#recordingPage"><span class="nav-icon">●</span>Recorder</a>
           <a class="nav-item" href="#rosGraph">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
@@ -56,10 +57,8 @@
             ROS Graph
           </a>
           <a class="nav-item" href="#motorPage"><span class="nav-icon">▤</span>Motor Data</a>
-          <a class="nav-item" href="#recordingPage"><span class="nav-icon">●</span>Recorder</a>
           <a class="nav-item" href="#locoPage"><span class="nav-icon">↕</span>Loco Control</a>
           <a class="nav-item" href="#wristPage"><span class="nav-icon">◌</span>Right Wrist</a>
-          <a class="nav-item" href="#rawView"><span class="nav-icon">☷</span>CSV View</a>
         </nav>
         <div class="sidebar-signal">
           <div class="signal-rings" aria-hidden="true"></div>
@@ -81,10 +80,8 @@
           </div>
           <div class="status-strip">
             <span id="networkType" class="metric signal-chip">Detecting network</span>
-            <span class="metric">Ultra Low Latency</span>
             <span id="rate" class="metric success">-- Hz</span>
             <span id="connection" class="pill bad">Disconnected</span>
-            <span id="age" class="metric">age --</span>
             <button id="chillMotors" class="chill-button" type="button" title="Request damp mode and release wrist control">Chill Motors</button>
             <button id="straightRobot" class="chill-button" type="button" title="Hold arms straight down while keeping XR running">Straight</button>
             <button id="homeRobot" class="emergency-button" type="button" title="Send XR teleop home command">Home</button>
@@ -287,80 +284,43 @@
               </div>
               <div class="wrist-actions">
                 <span id="recordingState" class="pill bad">Idle</span>
-                <button id="recordingStart" class="chill-button compact" type="button">Start</button>
-                <button id="recordingStop" class="emergency-button compact" type="button">Stop</button>
-                <button id="recordingCapturePose" class="ghost-button" type="button">Capture Pose Point</button>
+                <label class="inline-toggle sequence-debug-toggle"><input id="collisionDebugToggle" type="checkbox"> Bounds</label>
+                <button id="recordingSequenceToggle" class="ghost-button" type="button">Create Sequence</button>
+                <button id="recordingRobotMotionToggle" class="ghost-button compact" type="button" disabled>Save Real Robot Motion</button>
+                <button id="recordingCapturePose" class="ghost-button" type="button">Save Pose</button>
               </div>
             </div>
             <div class="recording-layout">
-              <section class="recording-left">
-                <div class="loco-readout">
-                  <article class="wrist-meter">
-                    <span>Samples</span>
-                    <strong id="recordingSamples">0</strong>
-                    <small>all rt/lowstate body motors</small>
-                  </article>
-                  <article class="wrist-meter">
-                    <span>Events</span>
-                    <strong id="recordingEvents">0</strong>
-                    <small>dashboard command markers</small>
-                  </article>
-                  <article class="wrist-meter">
-                    <span>Elapsed</span>
-                    <strong id="recordingElapsed">0.0 s</strong>
-                    <small>active recording duration</small>
-                  </article>
-                  <article class="wrist-meter">
-                    <span>File Size</span>
-                    <strong id="recordingBytes">0 B</strong>
-                    <small>JSONL bytes written</small>
-                  </article>
+              <section id="sequenceBuilder" class="sequence-builder is-hidden" aria-label="Sequence builder">
+                <div class="sequence-builder-head">
+                  <strong>Sequence Points</strong>
+                  <div class="sequence-builder-actions">
+                    <button id="sequenceUndoDelete" class="ghost-button compact is-hidden" type="button">Undo</button>
+                    <button id="recordingSaveSequence" class="chill-button compact" type="button">Save Sequence</button>
+                    <button id="sequenceBuilderClose" class="ghost-button compact" type="button">×</button>
+                  </div>
                 </div>
-                <section class="recording-details">
-                  <dl class="status-list full">
-                    <dt>File</dt>
-                    <dd id="recordingFile">--</dd>
-                    <dt>Path</dt>
-                    <dd id="recordingPath">--</dd>
-                    <dt>Last sample</dt>
-                    <dd id="recordingLastSample">--</dd>
-                    <dt>Error</dt>
-                    <dd id="recordingError">--</dd>
-                    <dt>Schema</dt>
-                    <dd>Sequence JSONL or single pose point JSON</dd>
-                  </dl>
-                </section>
+                <div id="sequenceBuilderStatus" class="sequence-builder-status">Draft sequence</div>
+                <div id="sequencePointList" class="sequence-point-list"></div>
               </section>
               <section class="recording-replay">
                 <div class="recording-replay-toolbar">
                   <select id="recordingFileSelect" aria-label="Recording file"></select>
-                  <button id="recordingRefreshFiles" class="ghost-button" type="button">Refresh</button>
-                  <button id="recordingLoadReplay" class="ghost-button" type="button">Load</button>
-                  <button id="recordingPlay" class="chill-button compact" type="button">Play</button>
-                  <button id="recordingPause" class="emergency-button compact" type="button">Pause</button>
-                  <button id="recordingRobotPlay" class="emergency-button compact" type="button" disabled>Robot Play Locked</button>
+                  <span id="endEffectorStatus" class="ik-status is-hidden">IK idle</span>
+                  <button id="recordingPlay" class="chill-button compact" type="button">Simulate Trajectory</button>
+                  <button id="recordingRobotPlay" class="emergency-button compact" type="button" disabled>Move Arms</button>
                 </div>
                 <div id="recordingReplayCanvas" class="recording-replay-canvas"></div>
                 <div class="recording-legend">
-                  <span><i class="reference"></i>Neutral reference</span>
-                  <span><i class="replay"></i>Recorded replay</span>
+                  <span><i class="reference"></i>Actual robot / reference</span>
+                  <span><i class="trajectory"></i>Simulated trajectory</span>
+                  <span><i class="replay"></i>Target / recorded replay</span>
                 </div>
                 <div class="recording-replay-footer">
                   <input id="recordingScrub" type="range" min="0" max="0" value="0" step="1" aria-label="Replay frame">
                   <strong id="recordingReplayFrame">0 / 0</strong>
                   <span id="recordingReplayTime">--</span>
-                  <label>
-                    Speed
-                    <select id="recordingReplaySpeed">
-                      <option value="0.25">0.25x</option>
-                      <option value="0.5">0.5x</option>
-                      <option value="1" selected>1x</option>
-                      <option value="2">2x</option>
-                      <option value="4">4x</option>
-                    </select>
-                  </label>
                 </div>
-                <dl id="recordingReplayFields" class="kv"></dl>
               </section>
             </div>
           </section>
@@ -686,6 +646,12 @@
     </div>
 
     <script src="/app.js"></script>
-    <script type="module" src="/viewer.js"></script>
+    <script type="module">
+      const params = new URLSearchParams(window.location.search);
+      const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
+      if (!lite) {
+        import("/viewer.js");
+      }
+    </script>
   </body>
 </html>

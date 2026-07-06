@@ -36,20 +36,51 @@ const BODY_JOINTS = {
   RightWristYaw: "right_wrist_yaw_joint",
 };
 
+const URDF_TO_BODY_JOINT = Object.fromEntries(
+  Object.entries(BODY_JOINTS).map(([bodyName, urdfName]) => [urdfName, bodyName]),
+);
+
+const RIGHT_ARM_IK_JOINTS = [
+  "right_shoulder_pitch_joint",
+  "right_shoulder_roll_joint",
+  "right_shoulder_yaw_joint",
+  "right_elbow_joint",
+  "right_wrist_roll_joint",
+  "right_wrist_pitch_joint",
+  "right_wrist_yaw_joint",
+];
+
+const finger = (joint) => ({ joint, min: 0, max: 1.7 });
+const thumbPitch = (joint, min, max, offset = 0) => ({ joint, min, max, offset });
+
 const HAND_JOINTS = {
-  RightPinky: ["R_pinky_proximal_joint", "R_pinky_intermediate_joint"],
-  RightRing: ["R_ring_proximal_joint", "R_ring_intermediate_joint"],
-  RightMiddle: ["R_middle_proximal_joint", "R_middle_intermediate_joint"],
-  RightIndex: ["R_index_proximal_joint", "R_index_intermediate_joint"],
-  RightThumbBend: ["R_thumb_proximal_pitch_joint", "R_thumb_intermediate_joint", "R_thumb_distal_joint"],
-  RightThumbRotation: ["R_thumb_proximal_yaw_joint"],
-  LeftPinky: ["L_pinky_proximal_joint", "L_pinky_intermediate_joint"],
-  LeftRing: ["L_ring_proximal_joint", "L_ring_intermediate_joint"],
-  LeftMiddle: ["L_middle_proximal_joint", "L_middle_intermediate_joint"],
-  LeftIndex: ["L_index_proximal_joint", "L_index_intermediate_joint"],
-  LeftThumbBend: ["L_thumb_proximal_pitch_joint", "L_thumb_intermediate_joint", "L_thumb_distal_joint"],
-  LeftThumbRotation: ["L_thumb_proximal_yaw_joint"],
+  RightPinky: [finger("R_pinky_proximal_joint"), finger("R_pinky_intermediate_joint")],
+  RightRing: [finger("R_ring_proximal_joint"), finger("R_ring_intermediate_joint")],
+  RightMiddle: [finger("R_middle_proximal_joint"), finger("R_middle_intermediate_joint")],
+  RightIndex: [finger("R_index_proximal_joint"), finger("R_index_intermediate_joint")],
+  RightThumbBend: [
+    thumbPitch("R_thumb_proximal_pitch_joint", -0.1, 0.6),
+    thumbPitch("R_thumb_intermediate_joint", 0, 0.8),
+    thumbPitch("R_thumb_distal_joint", 0, 1.2),
+  ],
+  RightThumbRotation: [thumbPitch("R_thumb_proximal_yaw_joint", -0.1, 1.3, -Math.PI / 2)],
+  LeftPinky: [finger("L_pinky_proximal_joint"), finger("L_pinky_intermediate_joint")],
+  LeftRing: [finger("L_ring_proximal_joint"), finger("L_ring_intermediate_joint")],
+  LeftMiddle: [finger("L_middle_proximal_joint"), finger("L_middle_intermediate_joint")],
+  LeftIndex: [finger("L_index_proximal_joint"), finger("L_index_intermediate_joint")],
+  LeftThumbBend: [
+    thumbPitch("L_thumb_proximal_pitch_joint", -0.1, 0.6),
+    thumbPitch("L_thumb_intermediate_joint", 0, 0.8),
+    thumbPitch("L_thumb_distal_joint", 0, 1.2),
+  ],
+  LeftThumbRotation: [thumbPitch("L_thumb_proximal_yaw_joint", -0.1, 1.3)],
 };
+
+function handValueToUrdfAngle(value, config) {
+  if (!Number.isFinite(value)) return null;
+  const normalized = Math.max(0, Math.min(1, value));
+  return config.min + (config.max - config.min) * (1 - normalized) + (config.offset || 0);
+}
 
 function parseVector(value, fallback = [0, 0, 0]) {
   if (!value) return fallback;
@@ -85,6 +116,15 @@ function materialFromVisual(visual, tone = "default") {
       opacity: 0.78,
     });
   }
+  if (tone === "trajectory") {
+    return new THREE.MeshStandardMaterial({
+      color: 0x1dff75,
+      roughness: 0.7,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.62,
+    });
+  }
   const color = visual.querySelector(":scope > material > color")?.getAttribute("rgba");
   if (color) {
     const [r, g, b, a] = color.split(/\s+/).map(Number);
@@ -118,7 +158,10 @@ class RobotViewer {
     this.renderer = null;
     this.controls = null;
     this.robotRoot = null;
+    this.trajectoryRoot = null;
+    this.linkGroups = null;
     this.referenceJointGroups = new Map();
+    this.trajectoryJointGroups = new Map();
     this.gridHelper = null;
     this.jointGroups = new Map();
     this.latestState = null;
@@ -127,6 +170,14 @@ class RobotViewer {
     this.totalMeshes = 0;
     this.modelReady = false;
     this.autoRotate = false;
+    this.started = false;
+    this.endEffectorMarker = null;
+    this.collisionDebugVisible = false;
+    this.collisionDebugHelpers = [];
+    this.draggingEndEffector = false;
+    this.dragPlane = new THREE.Plane();
+    this.raycaster = new THREE.Raycaster();
+    this.pointer = new THREE.Vector2();
   }
 
   setFields(data) {
@@ -143,8 +194,9 @@ class RobotViewer {
   setJointValueIn(groups, jointName, value) {
     const joint = groups.get(jointName);
     if (!joint || !Number.isFinite(value)) return;
+    joint.value = Math.max(joint.lower, Math.min(joint.upper, value));
     joint.group.quaternion.copy(joint.baseQuaternion);
-    joint.group.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(joint.axis, value));
+    joint.group.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(joint.axis, joint.value));
   }
 
   setCamera(position, target = [0, 0.15, 0]) {
@@ -197,7 +249,9 @@ class RobotViewer {
 
     for (const hand of snapshot.hands?.joints || []) {
       const urdfJoints = HAND_JOINTS[hand.name] || [];
-      for (const jointName of urdfJoints) this.setJointValue(jointName, hand.q);
+      for (const jointConfig of urdfJoints) {
+        this.setJointValue(jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+      }
     }
 
     this.setFields({
@@ -210,6 +264,11 @@ class RobotViewer {
       meshes: `${this.loadedMeshes}/${this.totalMeshes}`,
       failed_meshes: this.failedMeshes,
     });
+    if (this.compare) {
+      this.robotRoot?.updateWorldMatrix(true, true);
+      this.updateEndEffectorMarker();
+      if (source === "target") this.emitEditedPose();
+    }
   }
 
   applyReference(snapshot) {
@@ -220,8 +279,338 @@ class RobotViewer {
     }
     for (const hand of snapshot.hands?.joints || []) {
       const urdfJoints = HAND_JOINTS[hand.name] || [];
-      for (const jointName of urdfJoints) this.setJointValueIn(this.referenceJointGroups, jointName, hand.q);
+      for (const jointConfig of urdfJoints) {
+        this.setJointValueIn(this.referenceJointGroups, jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+      }
     }
+  }
+
+  applyTrajectory(snapshot) {
+    if (!this.compare || !this.modelReady) return;
+    if (this.trajectoryRoot) this.trajectoryRoot.visible = true;
+    for (const motor of snapshot.motors || []) {
+      const urdfJoint = BODY_JOINTS[motor.name];
+      if (urdfJoint) this.setJointValueIn(this.trajectoryJointGroups, urdfJoint, motor.q);
+    }
+    for (const hand of snapshot.hands?.joints || []) {
+      const urdfJoints = HAND_JOINTS[hand.name] || [];
+      for (const jointConfig of urdfJoints) {
+        this.setJointValueIn(this.trajectoryJointGroups, jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+      }
+    }
+    this.setFields({
+      model: "h1_2.urdf",
+      status: "simulated trajectory",
+      body_motors: snapshot.motor_count ?? snapshot.motors?.length ?? 0,
+      hand_joints: snapshot.hands?.joint_count ?? snapshot.hands?.joints?.length ?? 0,
+      sample: snapshot.sample ?? snapshot.samples ?? "--",
+      time: snapshot.timestamp ? new Date(snapshot.timestamp * 1000).toLocaleTimeString() : "--",
+      meshes: `${this.loadedMeshes}/${this.totalMeshes}`,
+      failed_meshes: this.failedMeshes,
+    });
+  }
+
+  setTrajectoryVisible(visible) {
+    if (this.trajectoryRoot) this.trajectoryRoot.visible = visible;
+  }
+
+  getRightEndEffectorObject() {
+    return this.linkGroups?.get("R_hand_base_link") || this.linkGroups?.get("right_wrist_yaw_link") || null;
+  }
+
+  getRightEndEffectorPosition() {
+    const effector = this.getRightEndEffectorObject();
+    if (!effector) return null;
+    effector.updateWorldMatrix(true, false);
+    return effector.getWorldPosition(new THREE.Vector3());
+  }
+
+  createEndEffectorMarker() {
+    if (!this.compare || this.endEffectorMarker) return;
+    const marker = new THREE.Group();
+    marker.name = "right_end_effector_target";
+
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.035, 24, 16),
+      new THREE.MeshStandardMaterial({
+        color: 0xff3030,
+        emissive: 0x8c0000,
+        roughness: 0.42,
+        metalness: 0.15,
+      }),
+    );
+    marker.add(sphere);
+
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.58,
+      side: THREE.DoubleSide,
+    });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.003, 8, 36), ringMaterial);
+    ring.rotation.x = Math.PI / 2;
+    marker.add(ring);
+
+    marker.visible = false;
+    this.scene.add(marker);
+    this.endEffectorMarker = marker;
+    this.bindEndEffectorDrag();
+  }
+
+  updateEndEffectorMarker() {
+    if (!this.endEffectorMarker || this.draggingEndEffector) return;
+    const position = this.getRightEndEffectorPosition();
+    if (!position) return;
+    this.endEffectorMarker.position.copy(position);
+    this.endEffectorMarker.visible = true;
+  }
+
+  setPointerFromEvent(event) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+  }
+
+  bindEndEffectorDrag() {
+    if (!this.renderer || !this.endEffectorMarker) return;
+    const canvas = this.renderer.domElement;
+
+    canvas.addEventListener("pointerdown", (event) => {
+      if (!this.endEffectorMarker?.visible) return;
+      this.setPointerFromEvent(event);
+      const hits = this.raycaster.intersectObject(this.endEffectorMarker, true);
+      if (!hits.length) return;
+      event.preventDefault();
+      canvas.setPointerCapture?.(event.pointerId);
+      this.draggingEndEffector = true;
+      this.controls.enabled = false;
+      const normal = this.camera.getWorldDirection(new THREE.Vector3()).normalize();
+      this.dragPlane.setFromNormalAndCoplanarPoint(normal, this.endEffectorMarker.position);
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      if (!this.draggingEndEffector) return;
+      this.setPointerFromEvent(event);
+      const target = new THREE.Vector3();
+      if (!this.raycaster.ray.intersectPlane(this.dragPlane, target)) return;
+      const solved = this.solveRightArmTo(target);
+      this.updateEndEffectorMarkerFromIk();
+      if (solved) this.emitEditedPose();
+    });
+
+    const finishDrag = (event) => {
+      if (!this.draggingEndEffector) return;
+      canvas.releasePointerCapture?.(event.pointerId);
+      this.draggingEndEffector = false;
+      this.controls.enabled = true;
+      this.updateEndEffectorMarker();
+      this.emitEditedPose();
+    };
+    canvas.addEventListener("pointerup", finishDrag);
+    canvas.addEventListener("pointercancel", finishDrag);
+  }
+
+  updateEndEffectorMarkerFromIk() {
+    if (!this.endEffectorMarker) return;
+    const position = this.getRightEndEffectorPosition();
+    if (position) this.endEffectorMarker.position.copy(position);
+  }
+
+  rightArmPoseSnapshot() {
+    const snapshot = new Map();
+    for (const jointName of RIGHT_ARM_IK_JOINTS) {
+      const joint = this.jointGroups.get(jointName);
+      if (joint) snapshot.set(jointName, joint.value || 0);
+    }
+    return snapshot;
+  }
+
+  restoreRightArmPose(snapshot) {
+    for (const [jointName, value] of snapshot) {
+      this.setJointValueIn(this.jointGroups, jointName, value);
+    }
+    this.robotRoot?.updateWorldMatrix(true, true);
+  }
+
+  linkWorldPosition(name) {
+    const link = this.linkGroups?.get(name);
+    if (!link) return null;
+    link.updateWorldMatrix(true, false);
+    return link.getWorldPosition(new THREE.Vector3());
+  }
+
+  rightArmCollisionSpheres() {
+    return [
+      { name: "R_hand_base_link", radius: 0.085, role: "arm" },
+      { name: "right_wrist_yaw_link", radius: 0.075, role: "arm" },
+      { name: "right_wrist_pitch_link", radius: 0.075, role: "arm" },
+      { name: "right_elbow_link", radius: 0.08, role: "arm" },
+    ];
+  }
+
+  bodyCollisionSpheres() {
+    return [
+      { name: "torso_link", radius: 0.2, role: "body" },
+      { name: "pelvis", radius: 0.18, role: "body" },
+      { name: "camera_link", radius: 0.14, role: "body" },
+      { name: "lidar_link", radius: 0.14, role: "body" },
+    ];
+  }
+
+  collisionVisualTargets(name) {
+    const link = this.linkGroups?.get(name);
+    if (!link) return [];
+    const visualTargets = link.children.filter((child) => child.userData?.visualGeometry);
+    return visualTargets.length ? visualTargets : [link];
+  }
+
+  collisionBounds(definitions) {
+    const bounds = [];
+    for (const definition of definitions) {
+      for (const target of this.collisionVisualTargets(definition.name)) {
+        target.updateWorldMatrix(true, true);
+        bounds.push({
+          ...definition,
+          target,
+          box: new THREE.Box3().setFromObject(target),
+        });
+      }
+    }
+    return bounds;
+  }
+
+  createCollisionDebugHelpers() {
+    if (!this.compare || !this.linkGroups || this.collisionDebugHelpers.length) return;
+    for (const sphere of [...this.rightArmCollisionSpheres(), ...this.bodyCollisionSpheres()]) {
+      for (const target of this.collisionVisualTargets(sphere.name)) {
+        const helper = new THREE.BoxHelper(target, sphere.role === "arm" ? 0xffcf40 : 0x45a3ff);
+        helper.name = `collision_bounds_${sphere.name}`;
+        helper.visible = this.collisionDebugVisible;
+        this.scene.add(helper);
+        this.collisionDebugHelpers.push({ helper, link: target });
+      }
+    }
+  }
+
+  setCollisionDebugVisible(visible) {
+    this.collisionDebugVisible = Boolean(visible);
+    if (!this.compare) return;
+    this.createCollisionDebugHelpers();
+    for (const item of this.collisionDebugHelpers) item.helper.visible = this.collisionDebugVisible;
+  }
+
+  updateCollisionDebugHelpers() {
+    if (!this.collisionDebugVisible) return;
+    for (const item of this.collisionDebugHelpers) item.helper.update();
+  }
+
+  rightArmSelfCollision() {
+    const armBounds = this.collisionBounds(this.rightArmCollisionSpheres());
+    const bodyBounds = this.collisionBounds(this.bodyCollisionSpheres());
+
+    for (const arm of armBounds) {
+      for (const body of bodyBounds) {
+        if (arm.box.intersectsBox(body.box)) {
+          return { colliding: true, arm: arm.name, body: body.name, method: "bounds" };
+        }
+      }
+    }
+    return { colliding: false };
+  }
+
+  solveRightArmTo(targetPosition) {
+    if (!this.modelReady || !this.robotRoot) return false;
+    const effector = this.getRightEndEffectorObject();
+    if (!effector) return false;
+    const previousPose = this.rightArmPoseSnapshot();
+    let limited = false;
+
+    const end = new THREE.Vector3();
+    const jointPosition = new THREE.Vector3();
+    const jointQuaternion = new THREE.Quaternion();
+    const axisWorld = new THREE.Vector3();
+    const toEnd = new THREE.Vector3();
+    const toTarget = new THREE.Vector3();
+    const cross = new THREE.Vector3();
+
+    for (let iteration = 0; iteration < 14; iteration += 1) {
+      effector.getWorldPosition(end);
+      if (end.distanceTo(targetPosition) < 0.012) break;
+
+      for (const jointName of [...RIGHT_ARM_IK_JOINTS].reverse()) {
+        const joint = this.jointGroups.get(jointName);
+        if (!joint || joint.type === "fixed") continue;
+
+        joint.group.getWorldPosition(jointPosition);
+        joint.group.getWorldQuaternion(jointQuaternion);
+        axisWorld.copy(joint.axis).applyQuaternion(jointQuaternion).normalize();
+
+        effector.getWorldPosition(end);
+        toEnd.subVectors(end, jointPosition).normalize();
+        toTarget.subVectors(targetPosition, jointPosition).normalize();
+        if (toEnd.lengthSq() === 0 || toTarget.lengthSq() === 0) continue;
+
+        cross.crossVectors(toEnd, toTarget);
+        const signedAngle = Math.atan2(cross.dot(axisWorld), Math.max(-1, Math.min(1, toEnd.dot(toTarget))));
+        if (!Number.isFinite(signedAngle) || Math.abs(signedAngle) < 0.0005) continue;
+
+        const step = Math.max(-0.12, Math.min(0.12, signedAngle));
+        const requested = (joint.value || 0) + step;
+        const clamped = Math.max(joint.lower, Math.min(joint.upper, requested));
+        if (Math.abs(clamped - requested) > 1e-6) limited = true;
+        this.setJointValueIn(this.jointGroups, jointName, clamped);
+        this.robotRoot.updateWorldMatrix(true, true);
+      }
+    }
+    effector.getWorldPosition(end);
+    const collision = this.rightArmSelfCollision();
+    if (collision.colliding) {
+      this.restoreRightArmPose(previousPose);
+      effector.getWorldPosition(end);
+      this.emitIkStatus(end.distanceTo(targetPosition), limited, collision);
+      return false;
+    }
+    this.emitIkStatus(end.distanceTo(targetPosition), limited, collision);
+    return true;
+  }
+
+  emitIkStatus(error, limited, collision = null) {
+    const blocked = Boolean(collision?.colliding);
+    const reachable = Number.isFinite(error) && error < 0.04 && !limited && !blocked;
+    window.dispatchEvent(
+      new CustomEvent("recording-ik-status", {
+        detail: {
+          error,
+          limited,
+          collision,
+          blocked,
+          reachable,
+        },
+      }),
+    );
+  }
+
+  currentEditedPoseSnapshot() {
+    if (!this.latestState) return null;
+    const snapshot = JSON.parse(JSON.stringify(this.latestState));
+    snapshot.timestamp = Date.now() / 1000;
+    snapshot.type = "telemetry_sample";
+    snapshot.source = "right_end_effector_editor";
+    for (const jointName of RIGHT_ARM_IK_JOINTS) {
+      const bodyName = URDF_TO_BODY_JOINT[jointName];
+      const joint = this.jointGroups.get(jointName);
+      if (!bodyName || !joint) continue;
+      const motor = (snapshot.motors || []).find((item) => item.name === bodyName);
+      if (motor) motor.q = joint.value || 0;
+    }
+    return snapshot;
+  }
+
+  emitEditedPose() {
+    const snapshot = this.currentEditedPoseSnapshot();
+    if (!snapshot) return;
+    window.dispatchEvent(new CustomEvent("recording-edited-pose", { detail: { snapshot } }));
   }
 
   loadVisualMeshes(linkElement, linkGroup, tone = "default") {
@@ -233,6 +622,8 @@ class RobotViewer {
 
       this.totalMeshes += 1;
       const visualGroup = new THREE.Group();
+      visualGroup.name = `${linkGroup.name}_visual_${this.totalMeshes}`;
+      visualGroup.userData.visualGeometry = true;
       applyOrigin(visualGroup, visual);
       linkGroup.add(visualGroup);
 
@@ -283,6 +674,9 @@ class RobotViewer {
       applyOrigin(jointGroup, joint);
       const axis = new THREE.Vector3(...parseVector(joint.querySelector(":scope > axis")?.getAttribute("xyz"), [1, 0, 0]));
       axis.normalize();
+      const limit = joint.querySelector(":scope > limit");
+      const lower = Number(limit?.getAttribute("lower"));
+      const upper = Number(limit?.getAttribute("upper"));
 
       if (targetGroups) {
         targetGroups.set(name, {
@@ -290,6 +684,9 @@ class RobotViewer {
           axis,
           baseQuaternion: jointGroup.quaternion.clone(),
           type,
+          lower: Number.isFinite(lower) ? lower : -Math.PI,
+          upper: Number.isFinite(upper) ? upper : Math.PI,
+          value: 0,
         });
       }
 
@@ -309,6 +706,7 @@ class RobotViewer {
 
     root.rotation.x = -Math.PI / 2;
     root.position.y = -0.55;
+    if (targetGroups === this.jointGroups) this.linkGroups = linkGroups;
     return root;
   }
 
@@ -319,7 +717,15 @@ class RobotViewer {
 
     if (this.compare) {
       this.buildRobot(xml, { name: "h1_2_reference", tone: "reference", targetGroups: this.referenceJointGroups });
+      this.trajectoryRoot = this.buildRobot(xml, {
+        name: "h1_2_trajectory",
+        tone: "trajectory",
+        targetGroups: this.trajectoryJointGroups,
+      });
+      this.trajectoryRoot.visible = false;
       this.robotRoot = this.buildRobot(xml, { name: "h1_2_replay", tone: "replay", targetGroups: this.jointGroups });
+      this.createEndEffectorMarker();
+      this.setCollisionDebugVisible(this.collisionDebugVisible);
     } else {
       this.robotRoot = this.buildRobot(xml, { name: "h1_2", tone: "default", targetGroups: this.jointGroups });
     }
@@ -368,11 +774,13 @@ class RobotViewer {
     requestAnimationFrame(() => this.animate());
     this.controls?.update();
     this.resize();
+    this.updateCollisionDebugHelpers();
     this.renderer?.render(this.scene, this.camera);
   }
 
   start() {
-    if (!this.container) return;
+    if (!this.container || this.started) return;
+    this.started = true;
     this.initScene();
     this.bindViewTools();
     this.setFields({ model: "loading", status: "loading URDF", meshes: "0/0" });
@@ -383,6 +791,9 @@ class RobotViewer {
     this.animate();
   }
 }
+
+const params = new URLSearchParams(window.location.search);
+const viewerDisabled = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
 
 const liveViewer = new RobotViewer({
   container: document.getElementById("robotCanvas"),
@@ -402,6 +813,14 @@ window.addEventListener("telemetry-state", (event) => {
   replayViewer.applyReference(event.detail.snapshot);
 });
 window.addEventListener("recording-replay-frame", (event) => replayViewer.applyTelemetry(event.detail.snapshot, "replay"));
+window.addEventListener("recording-replay-target", (event) => replayViewer.applyTelemetry(event.detail.snapshot, "target"));
+window.addEventListener("recording-trajectory-frame", (event) => replayViewer.applyTrajectory(event.detail.snapshot));
+window.addEventListener("recording-trajectory-visibility", (event) =>
+  replayViewer.setTrajectoryVisible(Boolean(event.detail.visible)),
+);
+window.addEventListener("recording-collision-debug", (event) =>
+  replayViewer.setCollisionDebugVisible(Boolean(event.detail?.visible)),
+);
 window.addEventListener("telemetry-tab-change", () => {
   setTimeout(() => {
     liveViewer.resize();
@@ -413,5 +832,27 @@ window.addEventListener("resize", () => {
   replayViewer.resize();
 });
 
-liveViewer.start();
-replayViewer.start();
+function startReplayViewer() {
+  replayViewer.start();
+  setTimeout(() => {
+    replayViewer.resize();
+    window.dispatchEvent(new CustomEvent("recording-viewer-ready"));
+  }, 0);
+}
+
+function startVisibleViewers() {
+  if (viewerDisabled) {
+    liveViewer.setFields({ model: "disabled", status: "lite mode" });
+    replayViewer.setFields({ model: "disabled", status: "lite mode" });
+    return;
+  }
+
+  liveViewer.start();
+  if (window.location.hash === "#recordingPage") startReplayViewer();
+}
+
+window.addEventListener("telemetry-tab-change", () => {
+  if (!viewerDisabled && window.location.hash === "#recordingPage") startReplayViewer();
+});
+
+startVisibleViewers();

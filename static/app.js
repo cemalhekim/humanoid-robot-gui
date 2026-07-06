@@ -3,16 +3,62 @@ const state = {
   filter: "",
   events: null,
   locoStatusKey: null,
+  editedPose: null,
+  recordingActive: false,
+  sequenceBuilder: {
+    active: false,
+    points: [],
+    deletedPoint: null,
+    selectedIndex: null,
+    playbackCurrentIndex: null,
+    playbackNextIndex: null,
+  },
   replay: {
     frames: [],
     index: 0,
     timer: null,
+    mode: "trajectory",
+    loadedFile: null,
     playing: false,
     previewComplete: false,
   },
 };
 
 const vrViewUrl = "https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012";
+const trajectorySampleRateHz = 60;
+const trajectoryDenseMaxDt = 1 / 30;
+const trajectoryMaxJointStep = 0.05;
+const currentRobotPoseValue = "__current_robot_pose__";
+const sequenceDraftStorageKey = "h1_sequence_builder_draft_v1";
+const fallbackBodyJointNames = [
+  "LeftHipYaw",
+  "LeftHipPitch",
+  "LeftHipRoll",
+  "LeftKnee",
+  "LeftAnklePitch",
+  "LeftAnkleRoll",
+  "RightHipYaw",
+  "RightHipPitch",
+  "RightHipRoll",
+  "RightKnee",
+  "RightAnklePitch",
+  "RightAnkleRoll",
+  "WaistYaw",
+  "LeftShoulderPitch",
+  "LeftShoulderRoll",
+  "LeftShoulderYaw",
+  "LeftElbow",
+  "LeftWristRoll",
+  "LeftWristPitch",
+  "LeftWristYaw",
+  "RightShoulderPitch",
+  "RightShoulderRoll",
+  "RightShoulderYaw",
+  "RightElbow",
+  "RightWristRoll",
+  "RightWristPitch",
+  "RightWristYaw",
+];
 
 const els = {
   subtitle: document.getElementById("subtitle"),
@@ -41,8 +87,18 @@ const els = {
   rosEdges: document.getElementById("rosEdges"),
   refreshRosGraph: document.getElementById("refreshRosGraph"),
   recordingState: document.getElementById("recordingState"),
-  recordingStart: document.getElementById("recordingStart"),
-  recordingStop: document.getElementById("recordingStop"),
+  recordingPage: document.getElementById("recordingPage"),
+  recordingLayout: document.querySelector("#recordingPage .recording-layout"),
+  sequenceBuilder: document.getElementById("sequenceBuilder"),
+  sequenceBuilderClose: document.getElementById("sequenceBuilderClose"),
+  sequenceBuilderStatus: document.getElementById("sequenceBuilderStatus"),
+  sequenceUndoDelete: document.getElementById("sequenceUndoDelete"),
+  sequencePointList: document.getElementById("sequencePointList"),
+  endEffectorStatus: document.getElementById("endEffectorStatus"),
+  collisionDebugToggle: document.getElementById("collisionDebugToggle"),
+  recordingSequenceToggle: document.getElementById("recordingSequenceToggle"),
+  recordingSaveSequence: document.getElementById("recordingSaveSequence"),
+  recordingRobotMotionToggle: document.getElementById("recordingRobotMotionToggle"),
   recordingCapturePose: document.getElementById("recordingCapturePose"),
   recordingSamples: document.getElementById("recordingSamples"),
   recordingEvents: document.getElementById("recordingEvents"),
@@ -53,15 +109,11 @@ const els = {
   recordingLastSample: document.getElementById("recordingLastSample"),
   recordingError: document.getElementById("recordingError"),
   recordingFileSelect: document.getElementById("recordingFileSelect"),
-  recordingRefreshFiles: document.getElementById("recordingRefreshFiles"),
-  recordingLoadReplay: document.getElementById("recordingLoadReplay"),
   recordingPlay: document.getElementById("recordingPlay"),
-  recordingPause: document.getElementById("recordingPause"),
   recordingRobotPlay: document.getElementById("recordingRobotPlay"),
   recordingScrub: document.getElementById("recordingScrub"),
   recordingReplayFrame: document.getElementById("recordingReplayFrame"),
   recordingReplayTime: document.getElementById("recordingReplayTime"),
-  recordingReplaySpeed: document.getElementById("recordingReplaySpeed"),
   filter: document.getElementById("filter"),
   navItems: document.querySelectorAll(".nav-item"),
   wristState: document.getElementById("wristState"),
@@ -409,6 +461,55 @@ function snapshotToCsv(snapshot) {
       joint.vol,
     ]);
   }
+  if (rows.length === 1) {
+    rows.push([
+      snapshot.samples ?? snapshot.sample ?? "",
+      snapshot.timestamp ?? "",
+      "status",
+      "",
+      "connected",
+      "",
+      snapshot.connected,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ]);
+    if (snapshot.error) {
+      rows.push([
+        snapshot.samples ?? snapshot.sample ?? "",
+        snapshot.timestamp ?? "",
+        "status",
+        "",
+        "error",
+        "",
+        snapshot.error,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+      ]);
+    }
+    rows.push([
+      snapshot.samples ?? snapshot.sample ?? "",
+      snapshot.timestamp ?? "",
+      "hand",
+      "",
+      "connected",
+      "",
+      snapshot.hands?.connected,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ]);
+  }
   return rows.map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
@@ -437,7 +538,9 @@ function render(snapshot) {
   const connected = Boolean(snapshot.connected);
   const age = snapshot.timestamp ? Math.max(0, Date.now() / 1000 - snapshot.timestamp) : null;
 
-  els.age.textContent = `age ${age === null ? "--" : age.toFixed(1)}s`;
+  if (els.age) {
+    els.age.textContent = `age ${age === null ? "--" : age.toFixed(1)}s`;
+  }
   els.rate.textContent = `${fmt(snapshot.sample_rate_hz)} Hz`;
   els.subtitle.textContent = connected
     ? `${fmt(snapshot.motor_count)} motors, ${fmt(snapshot.samples)} samples`
@@ -450,66 +553,95 @@ function render(snapshot) {
   renderLocoTelemetry(snapshot);
   if (snapshot.loco) renderLocoStatus(snapshot.loco);
   els.rawJson.textContent = snapshotToCsv(snapshot);
+  updateRobotMotionToggle();
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));
+}
+
+function updateRobotMotionToggle() {
+  const button = els.recordingRobotMotionToggle;
+  if (!button) return;
+  const connected = Boolean(state.latest?.connected);
+  const active = Boolean(state.recordingActive);
+  button.textContent = active ? "Stop Saving Robot Motion" : "Save Real Robot Motion";
+  button.disabled = !active && !connected;
+  button.classList.toggle("emergency-button", active);
+  button.classList.toggle("ghost-button", !active);
+  button.classList.toggle("chill-button", !active && connected);
+  button.title = active
+    ? "Stop recording live robot telemetry."
+    : connected
+      ? "Record live robot telemetry from the real robot."
+      : "Locked until live robot telemetry is connected.";
 }
 
 function renderRecordingStatus(status) {
   if (!els.recordingState) return;
   const active = Boolean(status?.active);
+  state.recordingActive = active;
   els.recordingState.textContent = active ? "Recording" : "Idle";
   els.recordingState.className = `pill ${active ? "good" : "bad"}`;
-  els.recordingSamples.textContent = fmt(status?.samples ?? 0);
-  els.recordingEvents.textContent = fmt(status?.events ?? 0);
-  els.recordingElapsed.textContent = `${Number(status?.elapsed_seconds || 0).toFixed(1)} s`;
-  els.recordingBytes.textContent = fmtBytes(status?.bytes_written);
-  els.recordingFile.textContent = status?.filename || "--";
-  els.recordingPath.textContent = status?.path || "--";
-  els.recordingLastSample.textContent = status?.last_sample_at
-    ? new Date(status.last_sample_at * 1000).toLocaleTimeString()
-    : "--";
-  els.recordingError.textContent = status?.last_error || "--";
-  if (els.recordingStart) els.recordingStart.disabled = active;
-  if (els.recordingStop) els.recordingStop.disabled = !active;
+  if (els.recordingSamples) els.recordingSamples.textContent = fmt(status?.samples ?? 0);
+  if (els.recordingEvents) els.recordingEvents.textContent = fmt(status?.events ?? 0);
+  if (els.recordingElapsed) els.recordingElapsed.textContent = `${Number(status?.elapsed_seconds || 0).toFixed(1)} s`;
+  if (els.recordingBytes) els.recordingBytes.textContent = fmtBytes(status?.bytes_written);
+  if (els.recordingFile) els.recordingFile.textContent = status?.filename || "--";
+  if (els.recordingPath) els.recordingPath.textContent = status?.path || "--";
+  if (els.recordingLastSample) {
+    els.recordingLastSample.textContent = status?.last_sample_at
+      ? new Date(status.last_sample_at * 1000).toLocaleTimeString()
+      : "--";
+  }
+  if (els.recordingError) els.recordingError.textContent = status?.last_error || "--";
+  updateRobotMotionToggle();
 }
 
 function renderRecordingFiles(files) {
   if (!els.recordingFileSelect) return;
   const current = els.recordingFileSelect.value;
-  els.recordingFileSelect.innerHTML = (files || [])
+  const fileOptions = (files || [])
     .map((file) => `<option value="${esc(file.name)}">${esc(file.name)} (${fmtBytes(file.size)})</option>`)
     .join("");
+  els.recordingFileSelect.innerHTML = `<option value="${currentRobotPoseValue}">Current Robot Pose</option>${fileOptions}`;
   if (current && [...els.recordingFileSelect.options].some((option) => option.value === current)) {
     els.recordingFileSelect.value = current;
   }
+  els.recordingFileSelect.disabled = false;
+  return els.recordingFileSelect.value;
 }
 
-async function loadRecordingFiles() {
+async function loadRecordingFiles({ loadSelected = false } = {}) {
   if (!els.recordingFileSelect) return;
   try {
     const response = await fetch("/api/recording/files");
     const payload = await response.json();
-    renderRecordingFiles(payload.files || []);
+    const selected = renderRecordingFiles(payload.files || []);
+    if (loadSelected && selected && selected !== state.replay.loadedFile && !state.replay.playing) {
+      await loadReplayRecording();
+    }
   } catch (error) {
-    els.recordingError.textContent = error instanceof Error ? error.message : "Could not list recordings.";
+    if (els.recordingError) {
+      els.recordingError.textContent = error instanceof Error ? error.message : "Could not list recordings.";
+    }
   }
 }
 
 function recordingFrameToSnapshot(record) {
   const body = record.body || {};
   const hands = record.hands || {};
+  const motors = body.motors || record.motors || [];
   return {
     connected: false,
     timestamp: record.timestamp,
     sample: record.sample,
     samples: record.sample,
     sample_rate_hz: 0,
-    motor_count: (body.motors || []).length,
-    motors: body.motors || [],
-    imu: body.imu || {},
-    robot: body.robot || {},
-    battery: body.battery || {},
-    foot_force: body.foot_force || [],
-    foot_force_est: body.foot_force_est || [],
+    motor_count: record.motor_count ?? motors.length,
+    motors,
+    imu: body.imu || record.imu || {},
+    robot: body.robot || record.robot || {},
+    battery: body.battery || record.battery || {},
+    foot_force: body.foot_force || record.foot_force || [],
+    foot_force_est: body.foot_force_est || record.foot_force_est || [],
     hands: {
       ...hands,
       joint_count: hands.joint_count ?? hands.joints?.length ?? 0,
@@ -522,6 +654,49 @@ function cloneSnapshot(snapshot) {
   return JSON.parse(JSON.stringify(snapshot || {}));
 }
 
+function fallbackCurrentPoseSnapshot() {
+  const timestamp = Date.now() / 1000;
+  const motors = fallbackBodyJointNames.map((name, index) => ({
+    index,
+    name,
+    mode: 1,
+    q: 0,
+    dq: 0,
+    ddq: 0,
+    tau_est: 0,
+    temperature: [],
+    vol: null,
+    sensor: [],
+    reserve: 0,
+  }));
+  return {
+    connected: false,
+    synthetic: true,
+    offline_fallback: true,
+    source: "offline_current_robot_pose",
+    timestamp,
+    sample: 0,
+    samples: 0,
+    sample_rate_hz: 0,
+    motor_count: motors.length,
+    motors,
+    imu: {},
+    robot: {},
+    battery: {},
+    foot_force: [],
+    foot_force_est: [],
+    hands: {
+      connected: false,
+      joint_count: 0,
+      joints: [],
+    },
+  };
+}
+
+function currentPoseSnapshot() {
+  return hasBodyMotors(state.latest) ? cloneSnapshot(state.latest) : fallbackCurrentPoseSnapshot();
+}
+
 function interpolateValue(start, target, t) {
   const a = Number(start);
   const b = Number(target);
@@ -531,9 +706,9 @@ function interpolateValue(start, target, t) {
 }
 
 function interpolateMotors(startMotors = [], targetMotors = [], t) {
-  const startByName = new Map(startMotors.map((motor) => [motor.name, motor]));
+  const startByKey = new Map(startMotors.map((motor) => [motorKey(motor), motor]));
   return targetMotors.map((target) => {
-    const start = startByName.get(target.name) || target;
+    const start = startByKey.get(motorKey(target)) || target;
     return {
       ...target,
       q: interpolateValue(start.q, target.q, t),
@@ -543,9 +718,58 @@ function interpolateMotors(startMotors = [], targetMotors = [], t) {
   });
 }
 
-function buildPoseReplayFrames(targetSnapshot) {
-  const start = cloneSnapshot(state.latest || targetSnapshot);
-  const target = cloneSnapshot(targetSnapshot);
+function motorKey(motor) {
+  return motor?.index ?? motor?.name ?? "";
+}
+
+function maxMotorDelta(startMotors = [], targetMotors = []) {
+  const startByKey = new Map(startMotors.map((motor) => [motorKey(motor), motor]));
+  return targetMotors.reduce((maxDelta, target) => {
+    const start = startByKey.get(motorKey(target));
+    const a = Number(start?.q);
+    const b = Number(target?.q);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return maxDelta;
+    return Math.max(maxDelta, Math.abs(b - a));
+  }, 0);
+}
+
+function maxSnapshotDelta(start, target) {
+  return Math.max(
+    maxMotorDelta(start?.motors || [], target?.motors || []),
+    maxMotorDelta(start?.hands?.joints || [], target?.hands?.joints || []),
+  );
+}
+
+function hasBodyMotors(snapshot) {
+  return Array.isArray(snapshot?.motors) && snapshot.motors.length > 0;
+}
+
+function neutralizeMotor(motor) {
+  return {
+    ...motor,
+    q: 0,
+    dq: 0,
+    tau_est: 0,
+  };
+}
+
+function neutralStartFromTarget(target) {
+  const targetHands = target.hands || {};
+  return {
+    ...target,
+    sample: 0,
+    samples: 0,
+    motors: (target.motors || []).map(neutralizeMotor),
+    hands: {
+      ...targetHands,
+      joints: (targetHands.joints || []).map(neutralizeMotor),
+    },
+  };
+}
+
+function buildApproachFrames(targetSnapshot) {
+  const target = cloneSnapshot(recordingFrameToSnapshot(targetSnapshot));
+  const start = cloneSnapshot(hasBodyMotors(state.latest) ? state.latest : neutralStartFromTarget(target));
   const frameCount = 120;
   const startTime = Date.now() / 1000;
   const startHands = start.hands || {};
@@ -568,8 +792,141 @@ function buildPoseReplayFrames(targetSnapshot) {
   });
 }
 
+function retimeSnapshot(snapshot, timestamp, sample) {
+  return {
+    ...snapshot,
+    timestamp,
+    sample,
+    samples: sample,
+  };
+}
+
+function interpolateSnapshot(start, target, t, timestamp, sample) {
+  const startHands = start.hands || {};
+  const targetHands = target.hands || {};
+  return {
+    ...target,
+    timestamp,
+    sample,
+    samples: sample,
+    motors: interpolateMotors(start.motors || [], target.motors || [], t),
+    hands: {
+      ...targetHands,
+      joint_count: targetHands.joint_count ?? targetHands.joints?.length ?? 0,
+      joints: interpolateMotors(startHands.joints || [], targetHands.joints || [], t),
+    },
+  };
+}
+
+function segmentDuration(start, target) {
+  const startTime = Number(start?.timestamp);
+  const targetTime = Number(target?.timestamp);
+  if (Number.isFinite(startTime) && Number.isFinite(targetTime) && targetTime > startTime) {
+    return targetTime - startTime;
+  }
+  return 1 / trajectorySampleRateHz;
+}
+
+function adaptiveSequenceFrames(sequence, sequenceStart) {
+  if (!sequence.length) return [];
+  const frames = [
+    {
+      snapshot: retimeSnapshot(sequence[0], sequenceStart, 1),
+      currentPointIndex: 0,
+      nextPointIndex: sequence.length > 1 ? 1 : null,
+    },
+  ];
+  let previousSource = sequence[0];
+  let previousTimestamp = sequenceStart;
+
+  for (let index = 1; index < sequence.length; index += 1) {
+    const target = sequence[index];
+    const duration = segmentDuration(previousSource, target);
+    const maxDelta = maxSnapshotDelta(previousSource, target);
+    const denseEnough = duration <= trajectoryDenseMaxDt && maxDelta <= trajectoryMaxJointStep;
+    const steps = denseEnough
+      ? 1
+      : Math.max(
+          2,
+          Math.ceil(duration * trajectorySampleRateHz),
+          Math.ceil(maxDelta / trajectoryMaxJointStep),
+        );
+
+    for (let step = 1; step <= steps; step += 1) {
+      const t = step / steps;
+      const timestamp = previousTimestamp + duration * t;
+      const sample = frames.length + 1;
+      const atTarget = step === steps;
+      frames.push({
+        snapshot: atTarget
+          ? retimeSnapshot(target, timestamp, sample)
+          : interpolateSnapshot(previousSource, target, t, timestamp, sample),
+        currentPointIndex: atTarget ? index : index - 1,
+        nextPointIndex: atTarget ? (index + 1 < sequence.length ? index + 1 : null) : index,
+      });
+    }
+
+    previousSource = target;
+    previousTimestamp += duration;
+  }
+
+  return frames;
+}
+
+function frameTimestamp(frame) {
+  return frame?.trajectory?.timestamp ?? frame?.target?.timestamp ?? frame?.timestamp ?? 0;
+}
+
+function timelineFrame(trajectory, target, phase, currentPointIndex = null, nextPointIndex = null) {
+  return {
+    trajectory,
+    target,
+    phase,
+    currentPointIndex,
+    nextPointIndex,
+    timestamp: trajectory.timestamp ?? target.timestamp,
+  };
+}
+
+function buildTrajectoryTimeline(records) {
+  const sequence = records.map(recordingFrameToSnapshot).filter((snapshot) => snapshot.motors.length > 0);
+  if (!sequence.length) return [];
+
+  const firstTarget = sequence[0];
+  const approach = buildApproachFrames(firstTarget);
+  const sequenceStart = (approach.at(-1)?.timestamp ?? Date.now() / 1000) + 1 / 60;
+  const retimedSequence = adaptiveSequenceFrames(sequence, sequenceStart);
+
+  return [
+    ...approach.map((trajectory) => timelineFrame(trajectory, firstTarget, "approach", null, 0)),
+    ...retimedSequence.map(({ snapshot, currentPointIndex, nextPointIndex }) =>
+      timelineFrame(snapshot, snapshot, "sequence", currentPointIndex, nextPointIndex),
+    ),
+  ];
+}
+
+function parseRecordingSnapshots(name, text) {
+  if (name.endsWith(".jsonl")) {
+    return text
+      .split(/\n+/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((record) => record.type === "telemetry_sample");
+  }
+
+  const data = JSON.parse(text);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.points)) return data.points;
+  if (Array.isArray(data.frames)) return data.frames;
+  if (Array.isArray(data.snapshots)) return data.snapshots;
+  if (Array.isArray(data.trajectory)) return data.trajectory;
+  if (data.snapshot) return [data.snapshot];
+  return [data];
+}
+
 function updateReplayUi() {
   const total = state.replay.frames.length;
+  const builderPointCount = state.sequenceBuilder.active ? state.sequenceBuilder.points.length : 0;
   const frameNumber = total ? state.replay.index + 1 : 0;
   if (els.recordingScrub) {
     els.recordingScrub.max = String(Math.max(0, total - 1));
@@ -579,13 +936,20 @@ function updateReplayUi() {
   if (els.recordingReplayFrame) els.recordingReplayFrame.textContent = `${frameNumber} / ${total}`;
   const frame = state.replay.frames[state.replay.index];
   if (els.recordingReplayTime) {
-    els.recordingReplayTime.textContent = frame?.timestamp ? new Date(frame.timestamp * 1000).toLocaleTimeString() : "--";
+    const timestamp = frameTimestamp(frame);
+    els.recordingReplayTime.textContent = timestamp ? new Date(timestamp * 1000).toLocaleTimeString() : "--";
   }
-  if (els.recordingPlay) els.recordingPlay.disabled = total === 0 || state.replay.playing;
-  if (els.recordingPause) els.recordingPause.disabled = !state.replay.playing;
+  if (els.recordingPlay) {
+    els.recordingPlay.textContent = "Simulate Trajectory";
+    els.recordingPlay.disabled = (total === 0 && builderPointCount === 0) || state.replay.playing;
+  }
   if (els.recordingRobotPlay) {
-    els.recordingRobotPlay.disabled = !state.replay.previewComplete || total === 0;
-    els.recordingRobotPlay.textContent = state.replay.previewComplete ? "Robot Play" : "Robot Play Locked";
+    const canMoveArms = state.replay.previewComplete && total > 0 && Boolean(state.latest?.connected);
+    els.recordingRobotPlay.disabled = !canMoveArms;
+    els.recordingRobotPlay.textContent = "Move Arms";
+    els.recordingRobotPlay.title = canMoveArms
+      ? "Publish the validated arm/waist trajectory through arm_sdk."
+      : "Locked until preview is complete and live robot telemetry is connected.";
   }
 }
 
@@ -595,9 +959,36 @@ function showReplayFrame(index) {
     return;
   }
   state.replay.index = Math.max(0, Math.min(index, state.replay.frames.length - 1));
-  const snapshot = recordingFrameToSnapshot(state.replay.frames[state.replay.index]);
-  window.dispatchEvent(new CustomEvent("recording-replay-frame", { detail: { snapshot } }));
+  const frame = state.replay.frames[state.replay.index];
+  updateSequencePlaybackHighlight(frame);
+  window.dispatchEvent(new CustomEvent("recording-replay-target", { detail: { snapshot: frame.target } }));
+  window.dispatchEvent(new CustomEvent("recording-trajectory-frame", { detail: { snapshot: frame.trajectory } }));
   updateReplayUi();
+}
+
+function updateSequencePlaybackHighlight(frame) {
+  if (!state.sequenceBuilder.active || state.replay.loadedFile !== "__sequence_builder__") return;
+  const currentIndex = Number.isInteger(frame?.currentPointIndex) ? frame.currentPointIndex : null;
+  const nextIndex = Number.isInteger(frame?.nextPointIndex) ? frame.nextPointIndex : null;
+  if (
+    state.sequenceBuilder.playbackCurrentIndex === currentIndex &&
+    state.sequenceBuilder.playbackNextIndex === nextIndex
+  ) {
+    return;
+  }
+  state.sequenceBuilder.playbackCurrentIndex = currentIndex;
+  state.sequenceBuilder.playbackNextIndex = nextIndex;
+  renderSequenceBuilder();
+}
+
+function refreshReplayTarget() {
+  if (!state.replay.frames.length) return;
+  const frame = state.replay.frames[state.replay.index] || state.replay.frames[0];
+  if (!frame?.target) return;
+  window.dispatchEvent(new CustomEvent("recording-replay-target", { detail: { snapshot: frame.target } }));
+  if (frame.trajectory) {
+    window.dispatchEvent(new CustomEvent("recording-trajectory-frame", { detail: { snapshot: frame.trajectory } }));
+  }
 }
 
 function pauseReplay() {
@@ -621,8 +1012,7 @@ function scheduleReplayNext() {
   }
   const current = state.replay.frames[state.replay.index];
   const next = state.replay.frames[state.replay.index + 1];
-  const speed = Number(els.recordingReplaySpeed?.value || 1) || 1;
-  const deltaMs = Math.max(8, Math.min(1000, ((next.timestamp || 0) - (current.timestamp || 0)) * 1000 / speed));
+  const deltaMs = Math.max(8, Math.min(1000, (frameTimestamp(next) - frameTimestamp(current)) * 1000));
   state.replay.timer = window.setTimeout(() => {
     showReplayFrame(state.replay.index + 1);
     scheduleReplayNext();
@@ -630,10 +1020,18 @@ function scheduleReplayNext() {
 }
 
 function playReplay() {
+  if (state.sequenceBuilder.active && state.sequenceBuilder.points.length) {
+    state.sequenceBuilder.selectedIndex = null;
+    state.replay.frames = buildTrajectoryTimeline(state.sequenceBuilder.points);
+    state.replay.index = 0;
+    state.replay.loadedFile = "__sequence_builder__";
+    state.replay.previewComplete = false;
+  }
   if (!state.replay.frames.length) return;
   if (state.replay.index >= state.replay.frames.length - 1) state.replay.index = 0;
   state.replay.previewComplete = false;
   state.replay.playing = true;
+  window.dispatchEvent(new CustomEvent("recording-trajectory-visibility", { detail: { visible: true } }));
   showReplayFrame(state.replay.index);
   scheduleReplayNext();
 }
@@ -647,13 +1045,16 @@ async function requestRobotReplay() {
       body: JSON.stringify({
         filename: els.recordingFileSelect.value,
         preview_complete: true,
+        execute_arm_sdk: true,
       }),
     });
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Robot replay request was rejected.");
-    els.recordingError.textContent = payload.message || "Robot replay accepted.";
+    if (els.recordingError) els.recordingError.textContent = payload.message || "Robot replay accepted.";
   } catch (error) {
-    els.recordingError.textContent = error instanceof Error ? error.message : "Robot replay request failed.";
+    if (els.recordingError) {
+      els.recordingError.textContent = error instanceof Error ? error.message : "Robot replay request failed.";
+    }
   }
 }
 
@@ -662,34 +1063,45 @@ async function loadReplayRecording() {
   pauseReplay();
   try {
     const name = els.recordingFileSelect.value;
-    const response = await fetch(`/api/recording/files/${encodeURIComponent(name)}`);
-    if (!response.ok) throw new Error(`Could not load ${name}`);
-    const text = await response.text();
-    if (name.endsWith(".pose.json")) {
-      const pose = JSON.parse(text);
-      state.replay.frames = buildPoseReplayFrames(pose.snapshot || {});
-    } else {
-      state.replay.frames = text
-        .split(/\n+/)
-        .filter(Boolean)
-        .map((line) => JSON.parse(line))
-        .filter((record) => record.type === "telemetry_sample");
-    }
+    const snapshots =
+      name === currentRobotPoseValue
+        ? [currentPoseSnapshot()]
+        : await loadRecordingSnapshots(name);
+    state.replay.mode = "trajectory";
+    state.replay.frames = buildTrajectoryTimeline(snapshots);
     state.replay.index = 0;
+    state.replay.loadedFile = name;
     state.replay.previewComplete = false;
-    showReplayFrame(0);
+    const target = state.replay.frames[0]?.target;
+    if (target) {
+      refreshReplayTarget();
+      window.dispatchEvent(new CustomEvent("recording-trajectory-visibility", { detail: { visible: false } }));
+    }
+    updateReplayUi();
     if (els.recordingError) {
       els.recordingError.textContent = state.replay.frames.length
         ? "--"
-        : "Recording loaded, but it does not contain telemetry_sample rows.";
+        : "Recording loaded, but it does not contain trajectory points.";
     }
   } catch (error) {
     state.replay.frames = [];
     state.replay.index = 0;
+    state.replay.mode = "trajectory";
+    state.replay.loadedFile = null;
     state.replay.previewComplete = false;
+    window.dispatchEvent(new CustomEvent("recording-trajectory-visibility", { detail: { visible: false } }));
     updateReplayUi();
-    els.recordingError.textContent = error instanceof Error ? error.message : "Replay load failed.";
+    if (els.recordingError) {
+      els.recordingError.textContent = error instanceof Error ? error.message : "Replay load failed.";
+    }
   }
+}
+
+async function loadRecordingSnapshots(name) {
+  const response = await fetch(`/api/recording/files/${encodeURIComponent(name)}`);
+  if (!response.ok) throw new Error(`Could not load ${name}`);
+  const text = await response.text();
+  return parseRecordingSnapshots(name, text);
 }
 
 async function loadRecordingStatus() {
@@ -700,13 +1112,15 @@ async function loadRecordingStatus() {
   } catch (error) {
     els.recordingState.textContent = "Unavailable";
     els.recordingState.className = "pill bad";
-    els.recordingError.textContent = error instanceof Error ? error.message : "Status request failed.";
+    if (els.recordingError) {
+      els.recordingError.textContent = error instanceof Error ? error.message : "Status request failed.";
+    }
   }
 }
 
 async function startRecording() {
-  if (!els.recordingStart) return;
-  els.recordingStart.disabled = true;
+  if (!els.recordingRobotMotionToggle || !state.latest?.connected) return;
+  els.recordingRobotMotionToggle.disabled = true;
   try {
     const response = await fetch("/api/recording/start", {
       method: "POST",
@@ -716,47 +1130,294 @@ async function startRecording() {
     const payload = await response.json();
     renderRecordingStatus(payload.status || payload);
   } catch (error) {
-    els.recordingError.textContent = error instanceof Error ? error.message : "Start failed.";
+    if (els.recordingError) els.recordingError.textContent = error instanceof Error ? error.message : "Start failed.";
   } finally {
     loadRecordingStatus();
     loadRecordingFiles();
   }
 }
 
+function sequencePointSnapshot() {
+  return cloneSnapshot(state.editedPose || currentPoseSnapshot());
+}
+
+function saveSequenceDraft() {
+  window.localStorage?.setItem(sequenceDraftStorageKey, JSON.stringify(state.sequenceBuilder.points));
+}
+
+function loadSequenceDraft() {
+  try {
+    const points = JSON.parse(window.localStorage?.getItem(sequenceDraftStorageKey) || "[]");
+    state.sequenceBuilder.points = Array.isArray(points) ? points.filter(hasBodyMotors) : [];
+  } catch {
+    state.sequenceBuilder.points = [];
+  }
+  state.sequenceBuilder.selectedIndex = null;
+  state.sequenceBuilder.playbackCurrentIndex = null;
+  state.sequenceBuilder.playbackNextIndex = null;
+}
+
+function clearSequenceDraft() {
+  state.sequenceBuilder.points = [];
+  state.sequenceBuilder.deletedPoint = null;
+  state.sequenceBuilder.selectedIndex = null;
+  state.sequenceBuilder.playbackCurrentIndex = null;
+  state.sequenceBuilder.playbackNextIndex = null;
+  window.localStorage?.removeItem(sequenceDraftStorageKey);
+}
+
+function sequencePointDuration(point, index) {
+  if (index === 0) return "base point";
+  const previous = state.sequenceBuilder.points[index - 1];
+  const currentTime = Number(point.timestamp);
+  const previousTime = Number(previous?.timestamp);
+  if (!Number.isFinite(currentTime) || !Number.isFinite(previousTime) || currentTime <= previousTime) {
+    return "auto duration";
+  }
+  return `+${(currentTime - previousTime).toFixed(2)} s`;
+}
+
+function renderSequenceBuilder() {
+  if (state.sequenceBuilder.active && state.replay.loadedFile === "__sequence_builder__" && !state.replay.playing) {
+    state.replay.frames = state.sequenceBuilder.points.length
+      ? buildTrajectoryTimeline(state.sequenceBuilder.points)
+      : [];
+    state.replay.index = 0;
+    state.replay.previewComplete = false;
+  }
+  els.recordingPage?.classList.toggle("sequence-mode", state.sequenceBuilder.active);
+  els.recordingLayout?.classList.toggle("sequence-active", state.sequenceBuilder.active);
+  els.sequenceBuilder?.classList.toggle("is-hidden", !state.sequenceBuilder.active);
+  els.recordingSequenceToggle?.classList.toggle("active", state.sequenceBuilder.active);
+  if (els.recordingSequenceToggle) {
+    els.recordingSequenceToggle.textContent = state.sequenceBuilder.active ? "Close Sequence" : "Create Sequence";
+  }
+  if (els.recordingSaveSequence) {
+    els.recordingSaveSequence.disabled = state.sequenceBuilder.points.length === 0;
+  }
+  if (els.recordingCapturePose) {
+    els.recordingCapturePose.textContent = state.sequenceBuilder.active ? "Add Point" : "Save Pose";
+  }
+  if (!state.sequenceBuilder.active) {
+    els.endEffectorStatus?.classList.add("is-hidden");
+  }
+  if (els.sequenceBuilderStatus) {
+    els.sequenceBuilderStatus.textContent = state.sequenceBuilder.points.length
+      ? `Unsaved sequence · ${state.sequenceBuilder.points.length} point${state.sequenceBuilder.points.length === 1 ? "" : "s"}`
+      : "Unsaved sequence · no points";
+  }
+  els.sequenceUndoDelete?.classList.toggle("is-hidden", !state.sequenceBuilder.deletedPoint);
+  if (els.sequencePointList) {
+    els.sequencePointList.innerHTML = state.sequenceBuilder.points.length
+      ? state.sequenceBuilder.points
+          .map((point, index) => {
+            const motors = point.motors?.length ?? 0;
+            const time = point.timestamp ? new Date(point.timestamp * 1000).toLocaleTimeString() : "--";
+            const duration = sequencePointDuration(point, index);
+            const selected = state.sequenceBuilder.selectedIndex === index;
+            const current =
+              Number.isInteger(state.sequenceBuilder.playbackCurrentIndex) &&
+              index <= state.sequenceBuilder.playbackCurrentIndex;
+            const next = state.sequenceBuilder.playbackNextIndex === index;
+            const classes = ["sequence-point"];
+            if (selected) classes.push("selected");
+            if (current) classes.push("current");
+            if (next) classes.push("next");
+            return `
+              <article class="${classes.join(" ")}" data-sequence-select="${index}" tabindex="0" role="button" aria-pressed="${selected ? "true" : "false"}">
+                <span>
+                  <strong>Point ${index + 1}</strong>
+                  <small>${motors} motors · ${duration} · ${time}</small>
+                </span>
+                <button type="button" data-sequence-delete="${index}">Delete</button>
+              </article>
+            `;
+          })
+          .join("")
+      : `<div class="sequence-point"><span><strong>No points yet</strong><small>Move the right hand marker, then Save Pose.</small></span></div>`;
+  }
+  updateReplayUi();
+}
+
+function renderIkStatus(status) {
+  if (!els.endEffectorStatus) return;
+  const errorCm = Number.isFinite(status?.error) ? status.error * 100 : null;
+  els.endEffectorStatus.classList.remove("is-hidden", "good", "warn", "bad");
+  if (status?.blocked || status?.collision?.colliding) {
+    els.endEffectorStatus.classList.add("bad");
+    els.endEffectorStatus.textContent = `Self collision blocked · ${status.collision?.arm || "arm"} vs ${status.collision?.body || "body"}`;
+  } else if (status?.reachable) {
+    els.endEffectorStatus.classList.add("good");
+    els.endEffectorStatus.textContent = `IK solved · ${errorCm.toFixed(1)} cm`;
+  } else if (status?.limited) {
+    els.endEffectorStatus.classList.add("warn");
+    els.endEffectorStatus.textContent = `IK near limit · ${errorCm?.toFixed(1) ?? "--"} cm`;
+  } else {
+    els.endEffectorStatus.classList.add("bad");
+    els.endEffectorStatus.textContent = `IK unreachable · ${errorCm?.toFixed(1) ?? "--"} cm`;
+  }
+}
+
+async function setSequenceMode(active) {
+  if (!active && state.sequenceBuilder.points.length) {
+    const discard = window.confirm("Discard unsaved sequence points?");
+    if (!discard) return;
+    clearSequenceDraft();
+  }
+  state.sequenceBuilder.active = active;
+  if (active) loadSequenceDraft();
+  if (active && els.recordingFileSelect) {
+    els.recordingFileSelect.value = currentRobotPoseValue;
+    await loadReplayRecording();
+  }
+  renderSequenceBuilder();
+}
+
+function addSequencePoint() {
+  const snapshot = sequencePointSnapshot();
+  if (!hasBodyMotors(snapshot)) throw new Error("No edited or current robot pose is available.");
+  snapshot.timestamp = Date.now() / 1000;
+  snapshot.type = "telemetry_sample";
+  snapshot.source = "sequence_builder";
+  state.sequenceBuilder.points.push(snapshot);
+  state.sequenceBuilder.deletedPoint = null;
+  state.sequenceBuilder.selectedIndex = state.sequenceBuilder.points.length - 1;
+  saveSequenceDraft();
+  renderSequenceBuilder();
+  showSequencePoint(state.sequenceBuilder.selectedIndex);
+}
+
+function showSequencePoint(index) {
+  const point = state.sequenceBuilder.points[index];
+  if (!point) return;
+  pauseReplay();
+  const snapshot = recordingFrameToSnapshot(point);
+  state.sequenceBuilder.selectedIndex = index;
+  state.sequenceBuilder.playbackCurrentIndex = null;
+  state.sequenceBuilder.playbackNextIndex = null;
+  state.replay.frames = [timelineFrame(snapshot, snapshot, "sequence_point")];
+  state.replay.index = 0;
+  state.replay.loadedFile = "__sequence_builder_point__";
+  state.replay.previewComplete = false;
+  window.dispatchEvent(new CustomEvent("recording-trajectory-visibility", { detail: { visible: false } }));
+  refreshReplayTarget();
+  updateReplayUi();
+  renderSequenceBuilder();
+}
+
+function compactTrajectoryJoint(joint) {
+  const compact = {
+    index: joint.index,
+    name: joint.name,
+    q: Number(joint.q) || 0,
+  };
+  if (Number.isFinite(Number(joint.dq))) compact.dq = Number(joint.dq);
+  if (Number.isFinite(Number(joint.tau_est))) compact.tau_est = Number(joint.tau_est);
+  return compact;
+}
+
+function compactSequencePoint(point) {
+  const hands = point.hands || {};
+  const handJoints = Array.isArray(hands.joints) ? hands.joints.map(compactTrajectoryJoint) : [];
+  return {
+    type: "telemetry_sample",
+    source: point.source || "sequence_builder",
+    timestamp: point.timestamp,
+    sample: point.sample ?? 0,
+    samples: point.samples ?? point.sample ?? 0,
+    motor_count: point.motor_count ?? point.motors?.length ?? 0,
+    motors: (point.motors || []).map(compactTrajectoryJoint),
+    hands: {
+      joint_count: hands.joint_count ?? handJoints.length,
+      joints: handJoints,
+    },
+  };
+}
+
+async function saveSequence() {
+  if (!state.sequenceBuilder.points.length) return;
+  if (els.recordingSaveSequence) els.recordingSaveSequence.disabled = true;
+  try {
+    const response = await fetch("/api/recording/sequence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: "h1_2_edited_sequence",
+        points: state.sequenceBuilder.points.map(compactSequencePoint),
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || "Sequence save failed.");
+    clearSequenceDraft();
+    await loadRecordingFiles();
+    if (payload.file?.name && els.recordingFileSelect) {
+      await setSequenceMode(false);
+      els.recordingFileSelect.value = payload.file.name;
+      await loadReplayRecording();
+    }
+  } finally {
+    renderSequenceBuilder();
+  }
+}
+
 async function capturePosePoint() {
   if (!els.recordingCapturePose) return;
+  if (state.sequenceBuilder.active) {
+    try {
+      addSequencePoint();
+    } catch (error) {
+      if (els.recordingError) els.recordingError.textContent = error instanceof Error ? error.message : "Could not add point.";
+    }
+    return;
+  }
   els.recordingCapturePose.disabled = true;
   try {
     const response = await fetch("/api/recording/pose", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: "h1_2_pose_point" }),
+      body: JSON.stringify({
+        label: state.editedPose ? "h1_2_edited_pose_point" : "h1_2_pose_point",
+        snapshot: state.editedPose || currentPoseSnapshot(),
+      }),
     });
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Pose capture failed.");
-    els.recordingError.textContent = `Captured ${payload.file?.name || "pose point"}`;
+    if (els.recordingError) els.recordingError.textContent = `Captured ${payload.file?.name || "pose point"}`;
     await loadRecordingFiles();
-    if (payload.file?.name && els.recordingFileSelect) els.recordingFileSelect.value = payload.file.name;
+    if (payload.file?.name && els.recordingFileSelect) {
+      els.recordingFileSelect.value = payload.file.name;
+      await loadReplayRecording();
+    }
   } catch (error) {
-    els.recordingError.textContent = error instanceof Error ? error.message : "Pose capture failed.";
+    if (els.recordingError) {
+      els.recordingError.textContent = error instanceof Error ? error.message : "Pose capture failed.";
+    }
   } finally {
     els.recordingCapturePose.disabled = false;
   }
 }
 
 async function stopRecording() {
-  if (!els.recordingStop) return;
-  els.recordingStop.disabled = true;
+  if (!els.recordingRobotMotionToggle) return;
+  els.recordingRobotMotionToggle.disabled = true;
   try {
     const response = await fetch("/api/recording/stop", { method: "POST" });
     const payload = await response.json();
     renderRecordingStatus(payload.status || payload);
   } catch (error) {
-    els.recordingError.textContent = error instanceof Error ? error.message : "Stop failed.";
+    if (els.recordingError) els.recordingError.textContent = error instanceof Error ? error.message : "Stop failed.";
   } finally {
     loadRecordingStatus();
     loadRecordingFiles();
   }
+}
+
+function toggleRobotMotionRecording() {
+  if (state.recordingActive) {
+    stopRecording();
+    return;
+  }
+  startRecording();
 }
 
 function updateLocoSliderLabels() {
@@ -1602,9 +2263,11 @@ function syncActiveNav() {
   document.documentElement.scrollLeft = 0;
   document.body.scrollLeft = 0;
   const activeHash = window.location.hash || "#dashboard";
+  document.getElementById("dashboard")?.classList.toggle("page-rawView", activeHash === "#rawView");
   els.navItems.forEach((item) => {
     item.classList.toggle("active", item.getAttribute("href") === activeHash);
   });
+  window.dispatchEvent(new CustomEvent("telemetry-tab-change", { detail: { hash: activeHash } }));
 }
 
 function connectEvents() {
@@ -1634,6 +2297,23 @@ fetch("/api/state")
   .then(render)
   .catch(() => {});
 window.addEventListener("hashchange", syncActiveNav);
+window.addEventListener("recording-edited-pose", (event) => {
+  state.editedPose = event.detail?.snapshot || null;
+});
+window.addEventListener("recording-ik-status", (event) => renderIkStatus(event.detail || {}));
+window.addEventListener("recording-viewer-ready", () => {
+  window.dispatchEvent(
+    new CustomEvent("recording-collision-debug", { detail: { visible: Boolean(els.collisionDebugToggle?.checked) } }),
+  );
+  setTimeout(refreshReplayTarget, 0);
+  setTimeout(refreshReplayTarget, 250);
+});
+window.addEventListener("telemetry-tab-change", () => {
+  if (window.location.hash === "#recordingPage") {
+    setTimeout(refreshReplayTarget, 0);
+    setTimeout(refreshReplayTarget, 250);
+  }
+});
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     pauseEvents();
@@ -1653,13 +2333,59 @@ els.refreshRosGraph?.addEventListener("click", loadRosGraph);
 els.chillMotors?.addEventListener("click", chillMotors);
 els.straightRobot?.addEventListener("click", sendRobotStraight);
 els.homeRobot?.addEventListener("click", sendRobotHome);
-els.recordingStart?.addEventListener("click", startRecording);
-els.recordingStop?.addEventListener("click", stopRecording);
+els.recordingRobotMotionToggle?.addEventListener("click", toggleRobotMotionRecording);
 els.recordingCapturePose?.addEventListener("click", capturePosePoint);
-els.recordingRefreshFiles?.addEventListener("click", loadRecordingFiles);
-els.recordingLoadReplay?.addEventListener("click", loadReplayRecording);
+els.recordingSequenceToggle?.addEventListener("click", () => setSequenceMode(!state.sequenceBuilder.active));
+els.collisionDebugToggle?.addEventListener("change", () => {
+  window.dispatchEvent(
+    new CustomEvent("recording-collision-debug", { detail: { visible: Boolean(els.collisionDebugToggle?.checked) } }),
+  );
+});
+els.sequenceBuilderClose?.addEventListener("click", () => setSequenceMode(false));
+els.recordingSaveSequence?.addEventListener("click", () => {
+  saveSequence().catch((error) => {
+    if (els.recordingError) els.recordingError.textContent = error instanceof Error ? error.message : "Sequence save failed.";
+    renderSequenceBuilder();
+  });
+});
+els.sequenceUndoDelete?.addEventListener("click", () => {
+  if (!state.sequenceBuilder.deletedPoint) return;
+  state.sequenceBuilder.points.splice(state.sequenceBuilder.deletedPoint.index, 0, state.sequenceBuilder.deletedPoint.point);
+  state.sequenceBuilder.deletedPoint = null;
+  saveSequenceDraft();
+  renderSequenceBuilder();
+});
+els.sequencePointList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-sequence-delete]");
+  if (button) {
+    const index = Number(button.dataset.sequenceDelete);
+    const [point] = state.sequenceBuilder.points.splice(index, 1);
+    state.sequenceBuilder.deletedPoint = point ? { index, point } : null;
+    if (state.sequenceBuilder.selectedIndex === index) {
+      state.sequenceBuilder.selectedIndex = null;
+    } else if (state.sequenceBuilder.selectedIndex > index) {
+      state.sequenceBuilder.selectedIndex -= 1;
+    }
+    saveSequenceDraft();
+    renderSequenceBuilder();
+    return;
+  }
+  const item = event.target.closest("[data-sequence-select]");
+  if (!item) return;
+  showSequencePoint(Number(item.dataset.sequenceSelect));
+});
+els.sequencePointList?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const item = event.target.closest("[data-sequence-select]");
+  if (!item) return;
+  event.preventDefault();
+  showSequencePoint(Number(item.dataset.sequenceSelect));
+});
+els.recordingFileSelect?.addEventListener("change", loadReplayRecording);
+els.recordingFileSelect?.addEventListener("click", () => {
+  if (els.recordingFileSelect.value === currentRobotPoseValue) loadReplayRecording();
+});
 els.recordingPlay?.addEventListener("click", playReplay);
-els.recordingPause?.addEventListener("click", pauseReplay);
 els.recordingRobotPlay?.addEventListener("click", requestRobotReplay);
 els.recordingScrub?.addEventListener("input", () => {
   pauseReplay();
@@ -1710,9 +2436,11 @@ syncActiveNav();
 connectCameraPreview();
 loadRosGraph();
 loadRecordingStatus();
-loadRecordingFiles();
+loadRecordingFiles({ loadSelected: true });
+renderSequenceBuilder();
 updateReplayUi();
 window.setInterval(loadRecordingStatus, 2000);
+window.setInterval(loadRecordingFiles, 5000);
 setupLocoControls();
 setupWristControls();
 connectEvents();

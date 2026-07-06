@@ -447,7 +447,8 @@ The Recorder page supports two capture modes:
   `rt/lowstate` sample over time and writes a `.jsonl` file.
 - `Pose Point`: captures the robot's current full-body pose as one target point
   and writes a `.pose.json` file. When replayed in the dashboard, the red model
-  interpolates from the live robot's current pose to that saved target pose.
+  shows the target pose and the green simulated trajectory moves from the live
+  or neutral start pose toward that target.
 
 Recordings are written under:
 
@@ -487,6 +488,13 @@ and imitation-learning dataset preparation. Replaying raw joint trajectories
 back onto the physical robot is intentionally not implemented here because it
 requires additional controller ownership checks, interpolation, velocity and
 torque limits, emergency stop handling, and simulation validation.
+
+Dry-run replay planning is implemented. `POST /api/recording/replay/robot` with
+`dry_run=true` reports the planned command path (`arm_sdk` or `lowcmd`),
+trajectory validity, moving joints, lower-body movement, velocity/delta limits,
+and a per-joint `kp`/`kd` gain plan. If the recording contains RH56BFX /
+Inspire finger movement, the same response includes a parallel `hand_plan` for
+`rt/inspire/cmd`. It still does not publish motor commands.
 
 ## H1 Locomotion Strategy
 
@@ -538,6 +546,7 @@ Primary DDS topics subscribed by the dashboard:
 | --- | --- | --- |
 | `rt/lowstate` | `unitree_hg.msg.dds_.LowState_` | H1-2 body telemetry, motors, IMU, forces, battery |
 | `rt/inspire/state` | `unitree_go.msg.dds_.MotorStates_` | RH56BFX / Inspire hand state |
+| `rt/inspire/cmd` | `unitree_go.msg.dds_.MotorCmds_` | Planned RH56BFX / Inspire hand command path |
 
 High-level locomotion uses Unitree API request/response topics. The dashboard
 HTTP endpoint is `/api/loco/command`, while the robot-side DDS API path is
@@ -915,20 +924,21 @@ robot telemetry stream and from all robot command paths.
 Replay workflow:
 
 1. Open the `Recorder` page.
-2. Choose a JSONL recording from the file selector.
-3. Click `Load`.
-4. Use `Play`, `Pause`, the scrub slider, and speed selector to inspect the
-   recorded movement.
-5. After the preview reaches the end, the `Robot Play` button unlocks. The
+2. Choose a JSONL or `.pose.json` file from the auto-refreshing file selector.
+3. The selected file loads automatically.
+4. Click `Simulate Trajectory`.
+5. The green simulated trajectory first moves from the blue/reference pose to
+   the red target frame. For sequence recordings, red waits at frame 0 until
+   green reaches it, then both advance through the sequence together.
+6. After the preview reaches the end, the `Move Robot` button unlocks. The
    current implementation still refuses physical playback at the server because
    raw joint replay needs a dedicated safety controller first.
 
 During replay, the dashboard converts each `telemetry_sample` row into a viewer
-snapshot. The replay page shows two H1-2 models in the same scene: a translucent
-blue reference model driven by the live robot's current motor positions and a
-red recorded model driven by the saved body motor `q` values plus RH56BFX hand
-joint values. This makes the difference between the real robot's current pose
-and recorded motion visible.
+snapshot. The replay page shows three H1-2 models in the same scene: a
+translucent blue reference model, a red target/recorded model, and a green
+simulated trajectory model. This makes both the target and the approach path
+visible before any physical motion request is allowed.
 
 No replay data is sent to the physical robot yet. Raw trajectory playback must
 first add interpolation, joint/velocity/torque limits, controller ownership

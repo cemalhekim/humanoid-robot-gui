@@ -306,20 +306,24 @@ Each sample can include:
 
 ## 15. Replay And Comparison Digital Twin
 
-Visual: blue live reference robot compared with red recorded replay robot.
+Visual: blue live reference robot, red target/recorded replay robot, and green simulated trajectory robot.
 
 The Recorder page includes a replay viewer that is independent from the live robot command path.
 
 Replay features:
 
 - Recording file selector.
-- Load, Play, Pause, scrub slider, and speed selector.
+- Auto-refreshing recording selector.
+- Automatic load on file selection.
+- Simulate Trajectory, Move Robot, scrub slider, and speed selector.
 - JSONL sequence replay.
 - Pose point replay with interpolation from live pose to target pose.
-- Two-robot comparison:
+- Three-robot comparison:
   - Translucent blue reference model from live robot state.
-  - Red recorded model from saved telemetry.
-- Robot Play button unlocks only after the visual preview reaches the end.
+- Red target/recorded model from saved telemetry.
+  - Green simulated trajectory model that moves from current/reference pose to
+    the red target, then follows the sequence together with red.
+- Move Robot button unlocks only after the visual preview reaches the end.
 - Server still returns a locked response for physical playback until a safety controller is implemented.
 
 This gives operators a visual difference between the robot's current pose and a recorded or target motion.

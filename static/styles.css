@@ -112,6 +112,8 @@ select {
 }
 
 .side-nav {
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -161,7 +163,9 @@ select {
 
 .sidebar-signal {
   position: relative;
+  z-index: 1;
   min-height: 230px;
+  pointer-events: none;
 }
 
 .signal-rings {
@@ -478,6 +482,14 @@ h1 {
   display: grid;
 }
 
+.dashboard.page-rawView > :not(.raw-page) {
+  display: none;
+}
+
+.dashboard.page-rawView .raw-page {
+  display: grid;
+}
+
 .dashboard:has(.raw-page:target) > :not(.raw-page),
 .dashboard:has(.motor-page:target) > :not(.motor-page),
 .dashboard:has(.camera-page:target) > :not(.camera-page),
@@ -542,30 +554,163 @@ h1 {
 
 .recording-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 0.72fr) minmax(520px, 1.28fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   min-height: 0;
 }
 
-.recording-left {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
-  min-height: 0;
+.recording-layout.sequence-active {
+  grid-template-columns: minmax(260px, 0.32fr) minmax(0, 1fr);
 }
 
-.recording-details {
+.sequence-builder {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
   min-width: 0;
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.24);
+  overflow: hidden;
+}
+
+.sequence-builder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sequence-builder-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sequence-builder-head strong {
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.sequence-builder-status,
+.ik-status {
+  min-height: 32px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ik-status {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.ik-status.good {
+  color: var(--good);
+  border-color: rgba(50, 240, 93, 0.25);
+}
+
+.ik-status.warn {
+  color: var(--warn);
+  border-color: rgba(255, 207, 64, 0.28);
+}
+
+.ik-status.bad {
+  color: #ff7777;
+  border-color: rgba(230, 0, 0, 0.36);
+}
+
+.sequence-point-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
   overflow: auto;
+}
+
+.sequence-debug-toggle {
+  min-height: 32px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.sequence-point {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(20, 20, 20, 0.8);
+  cursor: pointer;
+}
+
+.sequence-point:hover,
+.sequence-point:focus-visible {
+  border-color: rgba(0, 170, 255, 0.45);
+  outline: none;
+}
+
+.sequence-point.selected {
+  border-color: rgba(0, 170, 255, 0.72);
+  background: rgba(0, 88, 128, 0.24);
+}
+
+.sequence-point.current {
+  border-color: rgba(59, 214, 126, 0.78);
+  background: rgba(31, 128, 74, 0.26);
+}
+
+.sequence-point.next {
+  border-color: rgba(255, 207, 64, 0.78);
+  background: rgba(128, 93, 18, 0.24);
+}
+
+.sequence-point strong {
+  display: block;
+  font-size: 13px;
+}
+
+.sequence-point small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sequence-point button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(230, 0, 0, 0.9);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.recording-page.sequence-mode #recordingFileSelect {
+  display: none;
+}
+
+#recordingRobotPlay:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .recording-replay {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 10px;
   min-width: 0;
   min-height: 0;
@@ -639,9 +784,18 @@ h1 {
   box-shadow: 0 0 14px rgba(127, 184, 255, 0.34);
 }
 
+.recording-legend .trajectory {
+  background: rgba(29, 255, 117, 0.62);
+  box-shadow: 0 0 14px rgba(29, 255, 117, 0.34);
+}
+
 .recording-legend .replay {
   background: rgba(255, 59, 48, 0.82);
   box-shadow: 0 0 14px rgba(255, 59, 48, 0.34);
+}
+
+.is-hidden {
+  display: none !important;
 }
 
 .recording-replay-footer strong,

@@ -14,7 +14,7 @@ Discovered through `/api/ros-graph` on the robot link `enp0s31f6`.
 | `/lowstate` | `rt/lowstate` | `unitree_hg/msg/LowState` and `unitree_go/msg/LowState` | robot to PC | Main body state. Use `unitree_hg` for H1-2 body data. |
 | `/lf/lowstate` | likely `rt/lf/lowstate` or low-frequency bridge | `unitree_hg/msg/LowState` and `unitree_go/msg/LowState` | robot to PC | Low-frequency state variant. |
 | `/lowcmd` | `rt/lowcmd` | `unitree_hg/msg/LowCmd` | PC to robot | Full low-level body command. High risk. Can fight onboard controllers. |
-| `/arm_sdk` | unknown bridge name | `unitree_hg/msg/LowCmd` | PC to robot or SDK bridge | Likely arm SDK command path. Needs investigation before use. |
+| `/arm_sdk` | `rt/arm_sdk` through SDK2 Python | `unitree_hg/msg/LowCmd` | PC to robot arm SDK bridge | Arm/waist command path used by the dashboard wrist command experiments. Lower body should remain owned by higher-level controllers. |
 | `/loco_sdk` | unknown bridge name | `unitree_hg/msg/LowState` | robot/service to PC | Likely loco state/SDK bridge. Read-only unless paired with API requests. |
 
 ### High-Level Robot APIs
@@ -174,13 +174,51 @@ Topic:
 Type:
 `unitree_hg/msg/LowCmd`
 
-This looks important for arm/wrist control. The failed wrist test used
-`rt/lowcmd`, not `/arm_sdk`. The next investigation should compare:
+The dashboard now initializes an SDK2 Python publisher on `rt/arm_sdk`.
+Arm SDK commands still use the 35-slot `LowCmd` shape, but the command enables
+the arm SDK weight slot at index `27` and fills only the waist/arm joints:
 
-1. Whether `/arm_sdk` has a publisher/subscriber active.
-2. Whether Unitree examples document this topic.
-3. Whether `/api/motion_switcher` must switch ownership to arm SDK first.
-4. Whether `/arm_sdk` uses the same 35-slot `LowCmd` or arm-only conventions.
+```text
+12 WaistYaw
+13-19 left arm
+20-26 right arm
+27 arm SDK weight / enable slot
+```
+
+Use this path for replay plans whose lower-body joints remain stationary.
+If any leg joint `0-11` moves beyond the stationary threshold, route to
+`rt/lowcmd` instead.
+
+### Inspire / RH56 Finger Command
+
+State topic:
+`/inspire/state`, DDS `rt/inspire/state`
+
+Command topic:
+DDS `rt/inspire/cmd`
+
+Message shape:
+`unitree_go.msg.dds_.MotorCmds_` with 12 target values in the Inspire bridge
+order:
+
+```text
+0 RightPinky
+1 RightRing
+2 RightMiddle
+3 RightIndex
+4 RightThumbBend
+5 RightThumbRotation
+6 LeftPinky
+7 LeftRing
+8 LeftMiddle
+9 LeftIndex
+10 LeftThumbBend
+11 LeftThumbRotation
+```
+
+Finger commands are planned in parallel with body replay. They do not choose
+between `arm_sdk` and `lowcmd`; the body route still follows the lower-body
+movement rule, while finger targets are sent through the Inspire bridge.
 
 ## Practical Control Functions To Build
 

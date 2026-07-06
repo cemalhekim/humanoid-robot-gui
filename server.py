@@ -115,6 +115,39 @@ JOINT_GROUPS = {
     "reserved": list(range(27, 35)),
 }
 
+LOWER_BODY_JOINTS = JOINT_GROUPS["left_leg"] + JOINT_GROUPS["right_leg"]
+TRAJECTORY_ROUTE_EPSILON = 0.015
+TRAJECTORY_MAX_FRAME_DELTA_RAD = 0.18
+TRAJECTORY_MAX_VELOCITY_RAD_S = 2.0
+TRAJECTORY_DEFAULT_DT = 1.0 / 60.0
+TRAJECTORY_APPROACH_SECONDS = 3.0
+TRAJECTORY_ADAPTIVE_SAMPLE_HZ = 60.0
+TRAJECTORY_DENSE_MAX_DT = 1.0 / 30.0
+TRAJECTORY_MAX_INTERPOLATED_STEP_RAD = 0.05
+TRAJECTORY_MAX_REPORTED_VIOLATIONS = 20
+HAND_STATE_TOPIC = "rt/inspire/state"
+HAND_COMMAND_TOPIC = "rt/inspire/cmd"
+HAND_TRAJECTORY_EPSILON = 0.02
+HAND_TRAJECTORY_MAX_FRAME_DELTA = 0.18
+HAND_TRAJECTORY_MAX_VELOCITY = 3.0
+LOWCMD_BASE_GAINS = {
+    "hip": (40.0, 1.0),
+    "knee": (45.0, 1.1),
+    "ankle": (30.0, 0.8),
+    "waist": (35.0, 1.0),
+    "shoulder": (25.0, 0.8),
+    "elbow": (20.0, 0.7),
+    "wrist": (12.0, 0.5),
+}
+GAIN_NOMINALS = {
+    "hip": {"step": 0.04, "velocity": 0.8},
+    "knee": {"step": 0.05, "velocity": 0.9},
+    "ankle": {"step": 0.035, "velocity": 0.7},
+    "waist": {"step": 0.03, "velocity": 0.6},
+    "shoulder": {"step": 0.05, "velocity": 1.0},
+    "elbow": {"step": 0.06, "velocity": 1.1},
+    "wrist": {"step": 0.07, "velocity": 1.2},
+}
 RIGHT_WRIST_YAW = 26
 ARM_SDK_WEIGHT_SLOT = 27
 ARM_SDK_JOINTS = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 12]
@@ -181,7 +214,7 @@ HAND_JOINT_NAMES = {
     11: "LeftThumbRotation",
 }
 
-MAX_JSON_BODY_BYTES = 4096
+MAX_JSON_BODY_BYTES = 1_000_000
 
 
 def recording_timestamp() -> str:
@@ -519,7 +552,7 @@ def handstate_to_dict(msg: Any | None, samples: int, timestamp: float | None) ->
     if msg is None:
         return {
             "connected": False,
-            "topic": "rt/inspire/state",
+            "topic": HAND_STATE_TOPIC,
             "samples": samples,
             "timestamp": timestamp,
             "joints": [],
@@ -529,7 +562,7 @@ def handstate_to_dict(msg: Any | None, samples: int, timestamp: float | None) ->
     states = getattr(msg, "states", [])
     return {
         "connected": True,
-        "topic": "rt/inspire/state",
+        "topic": HAND_STATE_TOPIC,
         "samples": samples,
         "timestamp": timestamp,
         "joint_count": len(states),
@@ -1254,6 +1287,8 @@ class TelemetryStore:
         self.crc: Any | None = None
         self.wrist_cancel: threading.Event | None = None
         self.wrist_thread: threading.Thread | None = None
+        self.replay_cancel: threading.Event | None = None
+        self.replay_thread: threading.Thread | None = None
         self.wrist_status: dict[str, Any] = {
             "available": False,
             "active": False,
@@ -1316,7 +1351,11 @@ class TelemetryStore:
     def recording_files(self) -> dict[str, Any]:
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         files = []
-        paths = [*RECORDINGS_DIR.glob("*.jsonl"), *RECORDINGS_DIR.glob("*.pose.json")]
+        paths = [
+            *RECORDINGS_DIR.glob("*.jsonl"),
+            *RECORDINGS_DIR.glob("*.pose.json"),
+            *RECORDINGS_DIR.glob("*.sequence.json"),
+        ]
         for path in sorted(paths, key=lambda item: item.stat().st_mtime, reverse=True):
             try:
                 stat = path.stat()
@@ -1334,8 +1373,8 @@ class TelemetryStore:
 
     def recording_file_path(self, filename: str) -> Path:
         name = Path(filename).name
-        if not (name.endswith(".jsonl") or name.endswith(".pose.json")):
-            raise ValueError("Recording filename must end with .jsonl or .pose.json")
+        if not (name.endswith(".jsonl") or name.endswith(".pose.json") or name.endswith(".sequence.json")):
+            raise ValueError("Recording filename must end with .jsonl, .pose.json, or .sequence.json")
         path = (RECORDINGS_DIR / name).resolve()
         root = RECORDINGS_DIR.resolve()
         if root not in path.parents:
@@ -1357,8 +1396,12 @@ class TelemetryStore:
         label = str(payload.get("label", "pose_point")).strip() if payload else "pose_point"
         safe_label = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in label)
         safe_label = safe_label.strip("_")[:48] or "pose_point"
-        with self.lock:
-            snapshot = json.loads(json.dumps(self.latest))
+        payload_snapshot = payload.get("snapshot") if isinstance(payload, dict) else None
+        if isinstance(payload_snapshot, dict):
+            snapshot = json.loads(json.dumps(payload_snapshot))
+        else:
+            with self.lock:
+                snapshot = json.loads(json.dumps(self.latest))
         if not snapshot.get("motors"):
             return 409, {"ok": False, "error": "No body motor telemetry is available to capture as a pose point."}
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1381,6 +1424,43 @@ class TelemetryStore:
             },
         }
 
+    def save_sequence(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        label = str(payload.get("label", "sequence")).strip() if payload else "sequence"
+        safe_label = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in label)
+        safe_label = safe_label.strip("_")[:48] or "sequence"
+        points = payload.get("points") if isinstance(payload, dict) else None
+        if not isinstance(points, list) or not points:
+            return 400, {"ok": False, "error": "Sequence requires a non-empty points array."}
+        clean_points = []
+        for index, point in enumerate(points):
+            if not isinstance(point, dict):
+                return 400, {"ok": False, "error": f"Point {index + 1} must be an object."}
+            snapshot = json.loads(json.dumps(point))
+            if not snapshot.get("motors"):
+                return 400, {"ok": False, "error": f"Point {index + 1} does not contain motors."}
+            snapshot.setdefault("type", "telemetry_sample")
+            snapshot.setdefault("timestamp", time.time() + index * TRAJECTORY_DEFAULT_DT)
+            clean_points.append(snapshot)
+        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        path = RECORDINGS_DIR / f"{recording_timestamp()}-{safe_label}.sequence.json"
+        payload_out = {
+            "type": "trajectory",
+            "schema": "h1_2_sequence_v1",
+            "timestamp": time.time(),
+            "monotonic_ns": time.monotonic_ns(),
+            "points": clean_points,
+        }
+        path.write_text(json.dumps(payload_out, ensure_ascii=False, indent=2), encoding="utf-8")
+        return 200, {
+            "ok": True,
+            "file": {
+                "name": path.name,
+                "path": str(path),
+                "size": path.stat().st_size,
+                "modified_at": path.stat().st_mtime,
+            },
+        }
+
     def request_robot_replay(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         filename = str(payload.get("filename", "")).strip()
         if not payload.get("preview_complete"):
@@ -1391,6 +1471,11 @@ class TelemetryStore:
             return 404, {"ok": False, "error": "Recording file was not found."}
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
+        plan = self.plan_replay_control_path(path)
+        if payload.get("dry_run") is True:
+            return 200, {"ok": True, "recording": path.name, "plan": plan}
+        if payload.get("execute_arm_sdk") is True:
+            return self.execute_arm_sdk_replay(path, plan)
         return 409, {
             "ok": False,
             "error": (
@@ -1400,7 +1485,529 @@ class TelemetryStore:
                 "controller ownership checks, and emergency stop supervision."
             ),
             "recording": path.name,
+            "plan": plan,
         }
+
+    def execute_arm_sdk_replay(self, path: Path, plan: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        if plan.get("control_path") != "arm_sdk":
+            return 409, {"ok": False, "error": "Only arm_sdk arm/waist trajectories are enabled.", "recording": path.name, "plan": plan}
+        if not plan.get("valid_for_execution"):
+            return 409, {"ok": False, "error": "Trajectory failed safety validation.", "recording": path.name, "plan": plan}
+        if plan.get("hand_plan", {}).get("enabled"):
+            return 409, {"ok": False, "error": "Hand/finger execution is not enabled yet; arm_sdk body trajectory was not published.", "recording": path.name, "plan": plan}
+        frames = self._recording_trajectory_frames(path)
+        if not frames:
+            return 400, {"ok": False, "error": "Trajectory has no frames.", "recording": path.name, "plan": plan}
+        with self.command_lock:
+            publisher = self.wrist_publisher
+            msg = self.lowstate_msg
+            previous_cancel = self.replay_cancel
+        if publisher is None:
+            return 503, {"ok": False, "error": "DDS arm_sdk publisher is not available.", "recording": path.name, "plan": plan}
+        if msg is None:
+            return 503, {"ok": False, "error": "No rt/lowstate sample is available yet.", "recording": path.name, "plan": plan}
+        if self.lowcmd_factory is None or self.crc is None:
+            return 503, {"ok": False, "error": "DDS command factory is not available.", "recording": path.name, "plan": plan}
+        if previous_cancel is not None:
+            previous_cancel.set()
+
+        gain_by_index = {
+            int(item["index"]): (float(item["kp"]), float(item["kd"]))
+            for item in plan.get("gain_plan", [])
+            if isinstance(item, dict) and "index" in item
+        }
+        cancel = threading.Event()
+
+        def run_replay() -> None:
+            previous_timestamp: float | None = None
+            try:
+                for frame in frames:
+                    if cancel.is_set():
+                        break
+                    with self.command_lock:
+                        latest_msg = self.lowstate_msg
+                        latest_publisher = self.wrist_publisher
+                    if latest_msg is None or latest_publisher is None:
+                        break
+                    target_by_index = {
+                        int(motor["index"]): float(motor.get("q", 0.0))
+                        for motor in frame.get("motors", [])
+                        if isinstance(motor, dict) and "index" in motor and int(motor["index"]) in ARM_SDK_JOINTS
+                    }
+                    latest_publisher.Write(self._build_arm_sdk_trajectory_cmd(latest_msg, target_by_index, gain_by_index, weight=1.0))
+                    timestamp = numeric(frame.get("timestamp"))
+                    if previous_timestamp is not None and timestamp is not None:
+                        time.sleep(max(0.0, min(0.1, timestamp - previous_timestamp)))
+                    else:
+                        time.sleep(TRAJECTORY_DEFAULT_DT)
+                    if timestamp is not None:
+                        previous_timestamp = timestamp
+            finally:
+                with self.command_lock:
+                    if self.replay_cancel is cancel:
+                        self.replay_cancel = None
+                        self.replay_thread = None
+
+        thread = threading.Thread(target=run_replay, name="arm-sdk-trajectory-replay", daemon=True)
+        with self.command_lock:
+            self.replay_cancel = cancel
+            self.replay_thread = thread
+        thread.start()
+        return 202, {
+            "ok": True,
+            "message": "arm_sdk trajectory replay started.",
+            "recording": path.name,
+            "plan": plan,
+        }
+
+    def plan_replay_control_path(self, path: Path) -> dict[str, Any]:
+        frames = self._recording_trajectory_frames(path)
+        current_q = self._current_body_q()
+        current_lower = {joint: current_q[joint] for joint in LOWER_BODY_JOINTS}
+        max_lower_delta = 0.0
+        max_frame_delta = 0.0
+        max_velocity = 0.0
+        moving_lower_joints: set[int] = set()
+        moving_joints: set[int] = set()
+        violations: list[dict[str, Any]] = []
+        joint_stats: dict[int, dict[str, float]] = {
+            joint: {"max_step": 0.0, "max_velocity": 0.0}
+            for joint in JOINT_NAMES
+        }
+        previous_q = dict(current_q)
+        previous_timestamp: float | None = None
+
+        for frame_index, frame in enumerate(frames):
+            by_index = {
+                int(motor["index"]): float(motor.get("q", 0.0))
+                for motor in frame.get("motors", [])
+                if isinstance(motor, dict) and "index" in motor
+            }
+            for joint in LOWER_BODY_JOINTS:
+                delta = abs(by_index.get(joint, current_lower[joint]) - current_lower[joint])
+                max_lower_delta = max(max_lower_delta, delta)
+                if delta > TRAJECTORY_ROUTE_EPSILON:
+                    moving_lower_joints.add(joint)
+            timestamp = frame.get("timestamp")
+            dt = (
+                max(TRAJECTORY_DEFAULT_DT, float(timestamp) - previous_timestamp)
+                if isinstance(timestamp, (int, float)) and previous_timestamp is not None
+                else TRAJECTORY_DEFAULT_DT
+            )
+            if isinstance(timestamp, (int, float)):
+                previous_timestamp = float(timestamp)
+
+            for joint, target_q in by_index.items():
+                if joint not in JOINT_NAMES:
+                    continue
+                delta = abs(target_q - previous_q.get(joint, 0.0))
+                total_delta = abs(target_q - current_q.get(joint, 0.0))
+                if delta > TRAJECTORY_ROUTE_EPSILON or total_delta > TRAJECTORY_ROUTE_EPSILON:
+                    moving_joints.add(joint)
+                if frame_index > 0:
+                    velocity = delta / dt
+                    max_frame_delta = max(max_frame_delta, delta)
+                    max_velocity = max(max_velocity, velocity)
+                    joint_stats[joint]["max_step"] = max(joint_stats[joint]["max_step"], delta)
+                    joint_stats[joint]["max_velocity"] = max(joint_stats[joint]["max_velocity"], velocity)
+                    if delta > TRAJECTORY_MAX_FRAME_DELTA_RAD:
+                        self._append_trajectory_violation(
+                            violations,
+                            "frame_delta",
+                            frame_index,
+                            joint,
+                            delta,
+                            TRAJECTORY_MAX_FRAME_DELTA_RAD,
+                        )
+                    if velocity > TRAJECTORY_MAX_VELOCITY_RAD_S:
+                        self._append_trajectory_violation(
+                            violations,
+                            "velocity",
+                            frame_index,
+                            joint,
+                            velocity,
+                            TRAJECTORY_MAX_VELOCITY_RAD_S,
+                        )
+                previous_q[joint] = target_q
+
+        control_path = "lowcmd" if moving_lower_joints else "arm_sdk"
+        duration = self._trajectory_duration(frames)
+        hand_plan = self._plan_hand_trajectory(frames)
+        all_violations = [*violations, *hand_plan["violations"]]
+        return {
+            "control_path": control_path,
+            "reason": (
+                "lower body joints move during the planned trajectory"
+                if control_path == "lowcmd"
+                else "lower body joints stay within the stationary threshold"
+            ),
+            "frame_count": len(frames),
+            "duration_seconds": round(duration, 3),
+            "valid_for_execution": bool(frames) and not all_violations,
+            "lower_body_threshold_rad": TRAJECTORY_ROUTE_EPSILON,
+            "max_lower_body_delta_rad": round(max_lower_delta, 6),
+            "max_frame_delta_rad": round(max_frame_delta, 6),
+            "max_velocity_rad_s": round(max_velocity, 6),
+            "moving_lower_body_joints": [
+                {"index": joint, "name": JOINT_NAMES[joint]} for joint in sorted(moving_lower_joints)
+            ],
+            "moving_joints": [
+                {"index": joint, "name": JOINT_NAMES[joint]} for joint in sorted(moving_joints)
+            ],
+            "gain_plan": self._select_trajectory_gains(control_path, moving_joints, joint_stats),
+            "hand_plan": hand_plan,
+            "limits": {
+                "max_frame_delta_rad": TRAJECTORY_MAX_FRAME_DELTA_RAD,
+                "max_velocity_rad_s": TRAJECTORY_MAX_VELOCITY_RAD_S,
+                "hand_max_frame_delta": HAND_TRAJECTORY_MAX_FRAME_DELTA,
+                "hand_max_velocity": HAND_TRAJECTORY_MAX_VELOCITY,
+            },
+            "violations": all_violations,
+        }
+
+    def _plan_hand_trajectory(self, frames: list[dict[str, Any]]) -> dict[str, Any]:
+        current_q = self._current_hand_q()
+        previous_q = dict(current_q)
+        previous_timestamp: float | None = None
+        moving_joints: set[int] = set()
+        max_frame_delta = 0.0
+        max_velocity = 0.0
+        violations: list[dict[str, Any]] = []
+        hand_frame_count = 0
+
+        for frame_index, frame in enumerate(frames):
+            hand_joints = frame.get("hands") or []
+            by_index = {
+                int(joint["index"]): float(joint.get("q", 0.0))
+                for joint in hand_joints
+                if isinstance(joint, dict) and "index" in joint
+            }
+            if not by_index:
+                continue
+            hand_frame_count += 1
+            timestamp = frame.get("timestamp")
+            dt = (
+                max(TRAJECTORY_DEFAULT_DT, float(timestamp) - previous_timestamp)
+                if isinstance(timestamp, (int, float)) and previous_timestamp is not None
+                else TRAJECTORY_DEFAULT_DT
+            )
+            if isinstance(timestamp, (int, float)):
+                previous_timestamp = float(timestamp)
+
+            for joint, target_q in by_index.items():
+                if joint not in HAND_JOINT_NAMES:
+                    continue
+                delta = abs(target_q - previous_q.get(joint, 0.0))
+                total_delta = abs(target_q - current_q.get(joint, 0.0))
+                if delta > HAND_TRAJECTORY_EPSILON or total_delta > HAND_TRAJECTORY_EPSILON:
+                    moving_joints.add(joint)
+                if hand_frame_count > 1:
+                    velocity = delta / dt
+                    max_frame_delta = max(max_frame_delta, delta)
+                    max_velocity = max(max_velocity, velocity)
+                    if delta > HAND_TRAJECTORY_MAX_FRAME_DELTA:
+                        self._append_trajectory_violation(
+                            violations,
+                            "hand_frame_delta",
+                            frame_index,
+                            joint,
+                            delta,
+                            HAND_TRAJECTORY_MAX_FRAME_DELTA,
+                            HAND_JOINT_NAMES,
+                        )
+                    if velocity > HAND_TRAJECTORY_MAX_VELOCITY:
+                        self._append_trajectory_violation(
+                            violations,
+                            "hand_velocity",
+                            frame_index,
+                            joint,
+                            velocity,
+                            HAND_TRAJECTORY_MAX_VELOCITY,
+                            HAND_JOINT_NAMES,
+                        )
+                previous_q[joint] = target_q
+
+        return {
+            "enabled": bool(moving_joints),
+            "state_topic": HAND_STATE_TOPIC,
+            "command_topic": HAND_COMMAND_TOPIC,
+            "command_type": "unitree_go.msg.dds_.MotorCmds_",
+            "joint_count": len(HAND_JOINT_NAMES),
+            "frame_count": hand_frame_count,
+            "stationary_threshold": HAND_TRAJECTORY_EPSILON,
+            "max_frame_delta": round(max_frame_delta, 6),
+            "max_velocity": round(max_velocity, 6),
+            "valid_for_execution": hand_frame_count == 0 or not violations,
+            "moving_hand_joints": [
+                {"index": joint, "name": HAND_JOINT_NAMES[joint]} for joint in sorted(moving_joints)
+            ],
+            "execution_note": (
+                "Finger targets should be published in parallel on rt/inspire/cmd while the body route "
+                "continues through arm_sdk or lowcmd. Physical publish is still locked."
+            ),
+            "violations": violations,
+        }
+
+    def _select_trajectory_gains(
+        self,
+        control_path: str,
+        moving_joints: set[int],
+        joint_stats: dict[int, dict[str, float]],
+    ) -> list[dict[str, Any]]:
+        if control_path == "arm_sdk":
+            commanded_joints = [joint for joint in ARM_SDK_JOINTS if joint in JOINT_NAMES]
+        else:
+            commanded_joints = list(JOINT_NAMES)
+
+        plan = []
+        for joint in commanded_joints:
+            group = self._joint_gain_group(joint)
+            base_kp, base_kd = self._base_gain(joint, control_path)
+            stats = joint_stats.get(joint, {"max_step": 0.0, "max_velocity": 0.0})
+            nominal = GAIN_NOMINALS[group]
+            step_ratio = stats["max_step"] / nominal["step"] if nominal["step"] else 0.0
+            velocity_ratio = stats["max_velocity"] / nominal["velocity"] if nominal["velocity"] else 0.0
+            demand_score = max(step_ratio, velocity_ratio)
+            scale = max(0.75, min(1.15, 0.75 + 0.25 * demand_score))
+            if joint not in moving_joints:
+                scale = 0.75
+            kp = base_kp * scale
+            kd = base_kd * math.sqrt(scale)
+            plan.append(
+                {
+                    "index": joint,
+                    "name": JOINT_NAMES[joint],
+                    "group": group,
+                    "moving": joint in moving_joints,
+                    "base_kp": base_kp,
+                    "base_kd": base_kd,
+                    "scale": round(scale, 4),
+                    "kp": round(kp, 4),
+                    "kd": round(kd, 4),
+                    "demand_score": round(demand_score, 4),
+                }
+            )
+        return plan
+
+    def _base_gain(self, joint: int, control_path: str) -> tuple[float, float]:
+        if control_path == "arm_sdk" and joint in ARM_SDK_JOINTS:
+            arm_index = ARM_SDK_JOINTS.index(joint)
+            return float(ARM_SDK_KP[arm_index]), float(ARM_SDK_KD[arm_index])
+        return LOWCMD_BASE_GAINS[self._joint_gain_group(joint)]
+
+    @staticmethod
+    def _joint_gain_group(joint: int) -> str:
+        if joint in {0, 1, 2, 6, 7, 8}:
+            return "hip"
+        if joint in {3, 9}:
+            return "knee"
+        if joint in {4, 5, 10, 11}:
+            return "ankle"
+        if joint == 12:
+            return "waist"
+        if joint in {13, 14, 15, 20, 21, 22}:
+            return "shoulder"
+        if joint in {16, 23}:
+            return "elbow"
+        return "wrist"
+
+    def _append_trajectory_violation(
+        self,
+        violations: list[dict[str, Any]],
+        kind: str,
+        frame_index: int,
+        joint: int,
+        value: float,
+        limit: float,
+        names: dict[int, str] | None = None,
+    ) -> None:
+        if len(violations) >= TRAJECTORY_MAX_REPORTED_VIOLATIONS:
+            return
+        joint_names = names or JOINT_NAMES
+        violations.append(
+            {
+                "kind": kind,
+                "frame": frame_index,
+                "joint": {"index": joint, "name": joint_names.get(joint, f"Motor{joint}")},
+                "value": round(value, 6),
+                "limit": limit,
+            }
+        )
+
+    def _trajectory_duration(self, frames: list[dict[str, Any]]) -> float:
+        if not frames:
+            return 0.0
+        timestamps = [frame.get("timestamp") for frame in frames if isinstance(frame.get("timestamp"), (int, float))]
+        if len(timestamps) >= 2:
+            return TRAJECTORY_APPROACH_SECONDS + max(0.0, float(timestamps[-1]) - float(timestamps[0]))
+        return TRAJECTORY_APPROACH_SECONDS + max(0.0, (len(frames) - 1) * TRAJECTORY_DEFAULT_DT)
+
+    def _current_body_q(self) -> dict[int, float]:
+        with self.command_lock:
+            msg = self.lowstate_msg
+        if msg is None:
+            return {joint: 0.0 for joint in JOINT_NAMES}
+        return {
+            joint: float(getattr(msg.motor_state[joint], "q", 0.0) or 0.0)
+            for joint in JOINT_NAMES
+        }
+
+    def _current_hand_q(self) -> dict[int, float]:
+        with self.lock:
+            hands = dict(self.latest.get("hands") or {})
+        joints = hands.get("joints") or []
+        current = {joint: 0.0 for joint in HAND_JOINT_NAMES}
+        for joint in joints:
+            if not isinstance(joint, dict):
+                continue
+            index = joint.get("index")
+            q = numeric(joint.get("q"))
+            if isinstance(index, int) and index in HAND_JOINT_NAMES and q is not None:
+                current[index] = q
+        return current
+
+    def _recording_trajectory_frames(self, path: Path) -> list[dict[str, Any]]:
+        raw_frames: list[dict[str, Any]] = []
+        for record in self._recording_point_records(path):
+            frame = self._recording_point_frame(record)
+            if frame is not None:
+                raw_frames.append(frame)
+        return self._adaptive_trajectory_frames(raw_frames)
+
+    def _recording_point_records(self, path: Path) -> list[dict[str, Any]]:
+        if path.name.endswith(".jsonl"):
+            records = []
+            with path.open(encoding="utf-8") as source:
+                for line in source:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    record = json.loads(line)
+                    if record.get("type") == "telemetry_sample":
+                        records.append(record)
+            return records
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [record for record in data if isinstance(record, dict)]
+        if not isinstance(data, dict):
+            return []
+        for key in ("points", "frames", "snapshots", "trajectory"):
+            records = data.get(key)
+            if isinstance(records, list):
+                return [record for record in records if isinstance(record, dict)]
+        if isinstance(data.get("snapshot"), dict):
+            return [data["snapshot"]]
+        return [data]
+
+    def _recording_point_frame(self, record: dict[str, Any]) -> dict[str, Any] | None:
+        snapshot = record.get("snapshot") if isinstance(record.get("snapshot"), dict) else record
+        motors = snapshot.get("motors") or (snapshot.get("body") or {}).get("motors") or []
+        hands = (snapshot.get("hands") or {}).get("joints") or snapshot.get("hand_joints") or []
+        if not (motors or hands):
+            return None
+        return {
+            "timestamp": snapshot.get("timestamp") or record.get("timestamp"),
+            "motors": motors,
+            "hands": hands,
+        }
+
+    def _adaptive_trajectory_frames(self, frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if len(frames) <= 1:
+            return frames
+
+        result = [frames[0]]
+        previous = frames[0]
+        previous_timestamp = numeric(previous.get("timestamp")) or 0.0
+        for target in frames[1:]:
+            duration = self._recording_segment_duration(previous, target)
+            max_delta = self._max_recording_frame_delta(previous, target)
+            dense_enough = duration <= TRAJECTORY_DENSE_MAX_DT and max_delta <= TRAJECTORY_MAX_INTERPOLATED_STEP_RAD
+            steps = (
+                1
+                if dense_enough
+                else max(
+                    2,
+                    math.ceil(duration * TRAJECTORY_ADAPTIVE_SAMPLE_HZ),
+                    math.ceil(max_delta / TRAJECTORY_MAX_INTERPOLATED_STEP_RAD),
+                )
+            )
+            for step in range(1, steps + 1):
+                t = step / steps
+                timestamp = previous_timestamp + duration * t
+                result.append(
+                    {**target, "timestamp": timestamp}
+                    if step == steps
+                    else self._interpolate_recording_frame(previous, target, t, timestamp)
+                )
+            previous = target
+            previous_timestamp += duration
+        return result
+
+    def _recording_segment_duration(self, start: dict[str, Any], target: dict[str, Any]) -> float:
+        start_time = numeric(start.get("timestamp"))
+        target_time = numeric(target.get("timestamp"))
+        if start_time is not None and target_time is not None and target_time > start_time:
+            return target_time - start_time
+        return TRAJECTORY_DEFAULT_DT
+
+    def _max_recording_frame_delta(self, start: dict[str, Any], target: dict[str, Any]) -> float:
+        return max(
+            self._max_recording_joint_delta(start.get("motors") or [], target.get("motors") or []),
+            self._max_recording_joint_delta(start.get("hands") or [], target.get("hands") or []),
+        )
+
+    @staticmethod
+    def _recording_joint_key(joint: dict[str, Any]) -> Any:
+        return joint.get("index", joint.get("name", ""))
+
+    def _max_recording_joint_delta(self, start_joints: list[dict[str, Any]], target_joints: list[dict[str, Any]]) -> float:
+        start_by_key = {self._recording_joint_key(joint): joint for joint in start_joints if isinstance(joint, dict)}
+        max_delta = 0.0
+        for target in target_joints:
+            if not isinstance(target, dict):
+                continue
+            start = start_by_key.get(self._recording_joint_key(target))
+            start_q = numeric((start or {}).get("q"))
+            target_q = numeric(target.get("q"))
+            if start_q is not None and target_q is not None:
+                max_delta = max(max_delta, abs(target_q - start_q))
+        return max_delta
+
+    def _interpolate_recording_frame(
+        self,
+        start: dict[str, Any],
+        target: dict[str, Any],
+        t: float,
+        timestamp: float,
+    ) -> dict[str, Any]:
+        return {
+            **target,
+            "timestamp": timestamp,
+            "motors": self._interpolate_recording_joints(start.get("motors") or [], target.get("motors") or [], t),
+            "hands": self._interpolate_recording_joints(start.get("hands") or [], target.get("hands") or [], t),
+        }
+
+    def _interpolate_recording_joints(
+        self,
+        start_joints: list[dict[str, Any]],
+        target_joints: list[dict[str, Any]],
+        t: float,
+    ) -> list[dict[str, Any]]:
+        start_by_key = {self._recording_joint_key(joint): joint for joint in start_joints if isinstance(joint, dict)}
+        interpolated = []
+        for target in target_joints:
+            if not isinstance(target, dict):
+                continue
+            start = start_by_key.get(self._recording_joint_key(target), target)
+            item = dict(target)
+            for field in ("q", "dq", "tau_est"):
+                start_value = numeric(start.get(field))
+                target_value = numeric(target.get(field))
+                if start_value is not None and target_value is not None:
+                    item[field] = start_value + (target_value - start_value) * t
+            interpolated.append(item)
+        return interpolated
 
     def record_command_event(self, name: str, payload: dict[str, Any]) -> None:
         self.recorder.write_event(name, payload)
@@ -1500,6 +2107,43 @@ class TelemetryStore:
             wrist.tau = 0.0
             wrist.kp = kp
             wrist.kd = kd
+
+        cmd.crc = self.crc.Crc(cmd)
+        return cmd
+
+    def _build_arm_sdk_trajectory_cmd(
+        self,
+        msg: Any,
+        target_by_index: dict[int, float],
+        gain_by_index: dict[int, tuple[float, float]],
+        weight: float = 1.0,
+    ) -> Any:
+        if self.lowcmd_factory is None or self.crc is None:
+            raise RuntimeError("LowCmd factory is not initialized")
+        cmd = self.lowcmd_factory()
+        cmd.mode_pr = int(getattr(msg, "mode_pr", 0) or 0)
+        cmd.mode_machine = int(getattr(msg, "mode_machine", 0) or 0)
+        for i in range(35):
+            motor = cmd.motor_cmd[i]
+            motor.mode = 0
+            motor.q = 0.0
+            motor.dq = 0.0
+            motor.tau = 0.0
+            motor.kp = 0.0
+            motor.kd = 0.0
+            motor.reserve = 0
+
+        cmd.motor_cmd[ARM_SDK_WEIGHT_SLOT].q = float(weight)
+        if weight > 0:
+            for joint, fallback_kp, fallback_kd in zip(ARM_SDK_JOINTS, ARM_SDK_KP, ARM_SDK_KD):
+                motor = cmd.motor_cmd[joint]
+                kp, kd = gain_by_index.get(joint, (float(fallback_kp), float(fallback_kd)))
+                motor.mode = 1
+                motor.q = float(target_by_index.get(joint, getattr(msg.motor_state[joint], "q", 0.0) or 0.0))
+                motor.dq = 0.0
+                motor.tau = 0.0
+                motor.kp = kp
+                motor.kd = kd
 
         cmd.crc = self.crc.Crc(cmd)
         return cmd
@@ -2268,6 +2912,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/start",
             "/api/recording/stop",
             "/api/recording/pose",
+            "/api/recording/sequence",
             "/api/recording/replay/robot",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
@@ -2281,11 +2926,13 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/xr/mode",
             "/api/recording/start",
             "/api/recording/pose",
+            "/api/recording/sequence",
             "/api/recording/replay/robot",
         ):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length > MAX_JSON_BODY_BYTES:
+                    self.close_connection = True
                     self._send_json_status(
                         {"ok": False, "error": f"JSON body must be at most {MAX_JSON_BODY_BYTES} bytes."},
                         HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
@@ -2312,6 +2959,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/recording/pose":
             status, response = self.store.capture_pose(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/recording/sequence":
+            status, response = self.store.save_sequence(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

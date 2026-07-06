@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import random
 import sys
 import time
 from pathlib import Path
@@ -48,24 +49,46 @@ def hand_row(index: int, name: str, q: float, dq: float, t: float) -> dict[str, 
     }
 
 
-def synthetic_snapshot(frame: int, frames: int, start_time: float) -> dict[str, object]:
+def make_motion_profile(seed: int | None = None) -> dict[str, object]:
+    rng = random.Random(seed)
+    return {
+        "seed": seed,
+        "body_phase": {index: rng.uniform(-math.pi, math.pi) for index in server.JOINT_NAMES},
+        "body_scale": {index: rng.uniform(0.45, 1.35) for index in server.JOINT_NAMES},
+        "hand_phase": {index: rng.uniform(-math.pi, math.pi) for index in server.HAND_JOINT_NAMES},
+        "hand_scale": {index: rng.uniform(0.65, 1.25) for index in server.HAND_JOINT_NAMES},
+    }
+
+
+def synthetic_snapshot(
+    frame: int,
+    frames: int,
+    start_time: float,
+    profile: dict[str, object] | None = None,
+) -> dict[str, object]:
     phase = (frame / max(1, frames - 1)) * math.tau
     timestamp = start_time + frame / 60.0
+    body_phase = (profile or {}).get("body_phase", {})
+    body_scale = (profile or {}).get("body_scale", {})
+    hand_phase = (profile or {}).get("hand_phase", {})
+    hand_scale = (profile or {}).get("hand_scale", {})
     motors = []
     for index, name in server.JOINT_NAMES.items():
         leg_scale = 0.16 if index < 12 else 0.0
         waist_scale = 0.08 if index == 12 else 0.0
         arm_scale = 0.28 if index >= 13 else 0.0
-        amplitude = leg_scale + waist_scale + arm_scale
-        offset = index * 0.23
+        amplitude = (leg_scale + waist_scale + arm_scale) * float(body_scale.get(index, 1.0))
+        offset = index * 0.23 + float(body_phase.get(index, 0.0))
         q = amplitude * math.sin(phase + offset)
         dq = amplitude * math.cos(phase + offset) * math.tau
         motors.append(motor_row(index, name, q, dq, phase))
 
     hand_joints = []
     for index, name in server.HAND_JOINT_NAMES.items():
-        q = 0.45 + 0.35 * math.sin(phase + index * 0.31)
-        dq = 0.35 * math.cos(phase + index * 0.31) * math.tau
+        scale = float(hand_scale.get(index, 1.0))
+        offset = index * 0.31 + float(hand_phase.get(index, 0.0))
+        q = 0.45 + 0.35 * scale * math.sin(phase + offset)
+        dq = 0.35 * scale * math.cos(phase + offset) * math.tau
         hand_joints.append(hand_row(index, name, q, dq, phase))
 
     return {
@@ -98,7 +121,7 @@ def synthetic_snapshot(frame: int, frames: int, start_time: float) -> dict[str, 
     }
 
 
-def write_sequence(path: Path, frames: int) -> None:
+def write_sequence(path: Path, frames: int, profile: dict[str, object] | None = None) -> None:
     start_time = time.time()
     with path.open("w", encoding="utf-8") as output:
         output.write(
@@ -109,6 +132,7 @@ def write_sequence(path: Path, frames: int) -> None:
                     "monotonic_ns": time.monotonic_ns(),
                     "schema": "h1_2_telemetry_jsonl_v1",
                     "synthetic": True,
+                    "motion_profile": profile,
                     "body_joint_names": server.JOINT_NAMES,
                     "hand_joint_names": server.HAND_JOINT_NAMES,
                 },
@@ -117,7 +141,7 @@ def write_sequence(path: Path, frames: int) -> None:
             + "\n"
         )
         for frame in range(frames):
-            snapshot = synthetic_snapshot(frame, frames, start_time)
+            snapshot = synthetic_snapshot(frame, frames, start_time, profile)
             output.write(
                 json.dumps(
                     {
@@ -157,8 +181,8 @@ def write_sequence(path: Path, frames: int) -> None:
         )
 
 
-def write_pose(path: Path, frames: int) -> None:
-    snapshot = synthetic_snapshot(frames - 1, frames, time.time())
+def write_pose(path: Path, frames: int, profile: dict[str, object] | None = None) -> None:
+    snapshot = synthetic_snapshot(frames - 1, frames, time.time(), profile)
     path.write_text(
         json.dumps(
             {
@@ -167,6 +191,7 @@ def write_pose(path: Path, frames: int) -> None:
                 "timestamp": time.time(),
                 "monotonic_ns": time.monotonic_ns(),
                 "synthetic": True,
+                "motion_profile": profile,
                 "snapshot": snapshot,
             },
             ensure_ascii=False,
@@ -181,6 +206,8 @@ def main() -> int:
     parser.add_argument("--output-dir", default=str(server.RECORDINGS_DIR))
     parser.add_argument("--frames", type=int, default=240)
     parser.add_argument("--prefix", default="synthetic-h1-2")
+    parser.add_argument("--randomize", action="store_true", help="Generate randomized per-joint phase and amplitude.")
+    parser.add_argument("--seed", type=int, help="Optional seed for reproducible randomized motion.")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -188,8 +215,9 @@ def main() -> int:
     stamp = server.recording_timestamp()
     sequence_path = output_dir / f"{stamp}-{args.prefix}-sequence.jsonl"
     pose_path = output_dir / f"{stamp}-{args.prefix}-pose.pose.json"
-    write_sequence(sequence_path, max(2, args.frames))
-    write_pose(pose_path, max(2, args.frames))
+    profile = make_motion_profile(args.seed) if args.randomize else None
+    write_sequence(sequence_path, max(2, args.frames), profile)
+    write_pose(pose_path, max(2, args.frames), profile)
     print(sequence_path)
     print(pose_path)
     return 0

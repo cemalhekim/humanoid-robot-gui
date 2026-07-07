@@ -1,4 +1,4 @@
-{"kind":"deck","id":"pr/n6oqt6","name":"Deck"}
+{"kind":"deck","id":"pr/0m5lov","name":"Deck"}
 {"kind":"layout","layoutId":"/ppt/slideMasters/slideMaster1.xml","name":"Master","type":"master"}
 {"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout1.xml","name":"Title Slide","type":"title"}
 {"kind":"slide","id":"sl/2x4nap4r","slide":1,"title":"ANA EKRAN","textShapes":10}
@@ -103,8 +103,8 @@
 {"kind":"notes","id":"nt/58z25kb6","slide":6,"text":""}
 {"kind":"slide","id":"sl/0z61032l","slide":7,"title":"FEATURE SCOPE","textShapes":24}
 {"kind":"textbox","id":"sh/qd4vmtwr","slide":7,"name":"summary-eyebrow","text":"FEATURE SCOPE","textPreview":"FEATURE SCOPE","textChars":13,"textLines":1,"bbox":[58,40,320,26]}
-{"kind":"textbox","id":"sh/x4nap4r6","slide":7,"name":"summary-title","text":"Camera Stream ve Teleoperation dışı özellikler","textPreview":"Camera Stream ve Teleoperation dışı özellikler","textChars":46,"textLines":1,"bbox":[58,84,1120,58]}
-{"kind":"textbox","id":"sh/8jqh0fep","slide":7,"name":"summary-subtitle","text":"Platformun değerini kamera yayını veya uzaktan yürütme modlarına dayanmadan anlatan ürün katmanları.","textPreview":"Platformun değerini kamera yayını veya uzaktan yürütme modlarına dayanmadan anlatan ürün katmanları.","textChars":100,"textLines":1,"bbox":[60,158,1040,42]}
+{"kind":"textbox","id":"sh/x4nap4r6","slide":7,"name":"summary-title","text":"Camera Stream, Teleoperation ve kayıt akışları hariç özellikler","textPreview":"Camera Stream, Teleoperation ve kayıt akışları hariç özellikler","textChars":63,"textLines":1,"bbox":[58,82,1160,58]}
+{"kind":"textbox","id":"sh/8jqh0fep","slide":7,"name":"summary-subtitle","text":"Robot deneyimini kamera yayını, teleoperation ve kayıt/sequence akışlarına dayanmadan anlatan ürün katmanları.","textPreview":"Robot deneyimini kamera yayını, teleoperation ve kayıt/sequence akışlarına dayanmadan anlatan ürün katmanları.","textChars":110,"textLines":1,"bbox":[60,154,1110,44]}
 {"kind":"shape","id":"sh/fa9w3m94","slide":7,"name":"summary-accent-1","bbox":[60,236,244,5]}
 {"kind":"textbox","id":"sh/qpg3ex0n","slide":7,"name":"summary-column-title-1","text":"Cockpit ve AI","textPreview":"Cockpit ve AI","textChars":13,"textLines":1,"bbox":[60,258,244,34]}
 {"kind":"shape","id":"sh/xczed8v6","slide":7,"name":"summary-dot-1-0","bbox":[60,324,8,8]}
@@ -116,35 +116,35 @@
 {"kind":"shape","id":"sh/ap4r65wj","slide":7,"name":"summary-dot-1-3","bbox":[60,498,8,8]}
 {"kind":"textbox","id":"sh/za1gvy90","slide":7,"name":"summary-item-1-3","text":"Tek cockpit içinde operatör karar ekranı","textPreview":"Tek cockpit içinde operatör karar ekranı","textChars":40,"textLines":1,"bbox":[80,490,224,46]}
 {"kind":"shape","id":"sh/s36hcrmh","slide":7,"name":"summary-accent-2","bbox":[362,236,244,5]}
-{"kind":"textbox","id":"sh/hoza1gvy","slide":7,"name":"summary-column-title-2","text":"Telemetry","textPreview":"Telemetry","textChars":9,"textLines":1,"bbox":[362,258,244,34]}
+{"kind":"textbox","id":"sh/hoza1gvy","slide":7,"name":"summary-column-title-2","text":"Robot Twin","textPreview":"Robot Twin","textChars":10,"textLines":1,"bbox":[362,258,244,34]}
 {"kind":"shape","id":"sh/a1gvy90j","slide":7,"name":"summary-dot-2-0","bbox":[362,324,8,8]}
-{"kind":"textbox","id":"sh/zidonyd0","slide":7,"name":"summary-item-2-0","text":"Live Dashboard ile anlık robot durumu","textPreview":"Live Dashboard ile anlık robot durumu","textChars":37,"textLines":1,"bbox":[382,316,224,46]}
+{"kind":"textbox","id":"sh/zidonyd0","slide":7,"name":"summary-item-2-0","text":"Dijital robot görünümüyle sahneyi okuma","textPreview":"Dijital robot görünümüyle sahneyi okuma","textChars":39,"textLines":1,"bbox":[382,316,224,46]}
 {"kind":"shape","id":"sh/s72x4nap","slide":7,"name":"summary-dot-2-1","bbox":[362,382,8,8]}
-{"kind":"textbox","id":"sh/lszqtcj6","slide":7,"name":"summary-item-2-1","text":"Motor ve sistem örneklerini okunabilir hale getirme","textPreview":"Motor ve sistem örneklerini okunabilir hale getirme","textChars":51,"textLines":1,"bbox":[382,374,224,46]}
+{"kind":"textbox","id":"sh/lszqtcj6","slide":7,"name":"summary-item-2-1","text":"Robot durumunu görsel olarak takip etme","textPreview":"Robot durumunu görsel olarak takip etme","textChars":39,"textLines":1,"bbox":[382,374,224,46]}
 {"kind":"shape","id":"sh/pg3ex0nu","slide":7,"name":"summary-dot-2-2","bbox":[362,440,8,8]}
-{"kind":"textbox","id":"sh/wval87ed","slide":7,"name":"summary-item-2-2","text":"ROS Visibility ile altyapı sinyallerini görünür kılma","textPreview":"ROS Visibility ile altyapı sinyallerini görünür kılma","textChars":53,"textLines":1,"bbox":[382,432,224,46]}
+{"kind":"textbox","id":"sh/wval87ed","slide":7,"name":"summary-item-2-2","text":"Operatöre tek bakışta sahne farkındalığı verme","textPreview":"Operatöre tek bakışta sahne farkındalığı verme","textChars":46,"textLines":1,"bbox":[382,432,224,46]}
 {"kind":"shape","id":"sh/7adsji5s","slide":7,"name":"summary-dot-2-3","bbox":[362,498,8,8]}
-{"kind":"textbox","id":"sh/epkzupwb","slide":7,"name":"summary-item-2-3","text":"Log, durum ve hata bilgisini aynı deneyime bağlama","textPreview":"Log, durum ve hata bilgisini aynı deneyime bağlama","textChars":50,"textLines":1,"bbox":[382,490,224,46]}
+{"kind":"textbox","id":"sh/epkzupwb","slide":7,"name":"summary-item-2-3","text":"Gerçek robot ile dijital bağlamı aynı hikayede toplama","textPreview":"Gerçek robot ile dijital bağlamı aynı hikayede toplama","textChars":54,"textLines":1,"bbox":[382,490,224,46]}
 {"kind":"shape","id":"sh/psfil0rq","slide":7,"name":"summary-accent-3","bbox":[664,236,244,5]}
-{"kind":"textbox","id":"sh/w7mp0bi9","slide":7,"name":"summary-column-title-3","text":"Sequence Planning","textPreview":"Sequence Planning","textChars":17,"textLines":1,"bbox":[664,258,244,34]}
+{"kind":"textbox","id":"sh/w7mp0bi9","slide":7,"name":"summary-column-title-3","text":"Live Dashboard","textPreview":"Live Dashboard","textChars":14,"textLines":1,"bbox":[664,258,244,34]}
 {"kind":"shape","id":"sh/7mp0bi9s","slide":7,"name":"summary-dot-3-0","bbox":[664,324,8,8]}
-{"kind":"textbox","id":"sh/e1w7mp0b","slide":7,"name":"summary-item-3-0","text":"Add Point ve Pose Capture ile hareket noktası kaydı","textPreview":"Add Point ve Pose Capture ile hareket noktası kaydı","textChars":51,"textLines":1,"bbox":[684,316,224,46]}
+{"kind":"textbox","id":"sh/e1w7mp0b","slide":7,"name":"summary-item-3-0","text":"Anlık robot durumunu okunabilir hale getirme","textPreview":"Anlık robot durumunu okunabilir hale getirme","textChars":44,"textLines":1,"bbox":[684,316,224,46]}
 {"kind":"shape","id":"sh/l0rqd4vm","slide":7,"name":"summary-dot-3-1","bbox":[664,382,8,8]}
-{"kind":"textbox","id":"sh/wfyxobm5","slide":7,"name":"summary-item-3-1","text":"Sequence Builder ile tekrar oynatılabilir hareket","textPreview":"Sequence Builder ile tekrar oynatılabilir hareket","textChars":49,"textLines":1,"bbox":[684,374,224,46]}
+{"kind":"textbox","id":"sh/wfyxobm5","slide":7,"name":"summary-item-3-1","text":"Sistem sağlığı ve bağlantı bilgisini takip etme","textPreview":"Sistem sağlığı ve bağlantı bilgisini takip etme","textChars":47,"textLines":1,"bbox":[684,374,224,46]}
 {"kind":"shape","id":"sh/a9w3m94f","slide":7,"name":"summary-dot-3-2","bbox":[664,440,8,8]}
-{"kind":"textbox","id":"sh/zupwb2hw","slide":7,"name":"summary-item-3-2","text":"Trajectory Planning ile hareket önizleme","textPreview":"Trajectory Planning ile hareket önizleme","textChars":40,"textLines":1,"bbox":[684,432,224,46]}
+{"kind":"textbox","id":"sh/zupwb2hw","slide":7,"name":"summary-item-3-2","text":"Operasyon ekranında hızlı kontrol hissi verme","textPreview":"Operasyon ekranında hızlı kontrol hissi verme","textChars":45,"textLines":1,"bbox":[684,432,224,46]}
 {"kind":"shape","id":"sh/sfil0rqd","slide":7,"name":"summary-dot-3-3","bbox":[664,498,8,8]}
-{"kind":"textbox","id":"sh/h0fepkzu","slide":7,"name":"summary-item-3-3","text":"Crazy Seconds / demo timing ile sahneye hazır akış","textPreview":"Crazy Seconds / demo timing ile sahneye hazır akış","textChars":50,"textLines":1,"bbox":[684,490,224,46]}
+{"kind":"textbox","id":"sh/h0fepkzu","slide":7,"name":"summary-item-3-3","text":"Log, durum ve hata bilgisini tek deneyime bağlama","textPreview":"Log, durum ve hata bilgisini tek deneyime bağlama","textChars":49,"textLines":1,"bbox":[684,490,224,46]}
 {"kind":"shape","id":"sh/al87ed8b","slide":7,"name":"summary-accent-4","bbox":[966,236,244,5]}
-{"kind":"textbox","id":"sh/z61032ls","slide":7,"name":"summary-column-title-4","text":"Doğrulama","textPreview":"Doğrulama","textChars":9,"textLines":1,"bbox":[966,258,244,34]}
+{"kind":"textbox","id":"sh/z61032ls","slide":7,"name":"summary-column-title-4","text":"Entegrasyon ve Demo Hazırlığı","textPreview":"Entegrasyon ve Demo Hazırlığı","textChars":29,"textLines":1,"bbox":[966,258,244,34]}
 {"kind":"shape","id":"sh/orytsvu9","slide":7,"name":"summary-dot-4-0","bbox":[966,324,8,8]}
-{"kind":"textbox","id":"sh/hcrmhk3q","slide":7,"name":"summary-item-4-0","text":"IK çözüm hatasını cm seviyesinde izleme","textPreview":"IK çözüm hatasını cm seviyesinde izleme","textChars":39,"textLines":1,"bbox":[986,316,224,46]}
+{"kind":"textbox","id":"sh/hcrmhk3q","slide":7,"name":"summary-item-4-0","text":"ROS Visibility ile altyapı görünürlüğü","textPreview":"ROS Visibility ile altyapı görünürlüğü","textChars":38,"textLines":1,"bbox":[986,316,224,46]}
 {"kind":"shape","id":"sh/6xkf6dcb","slide":7,"name":"summary-dot-4-1","bbox":[966,382,8,8]}
-{"kind":"textbox","id":"sh/zed8v6ps","slide":7,"name":"summary-item-4-1","text":"Bounds ve eklem limitleriyle güvenli sınır kontrolü","textPreview":"Bounds ve eklem limitleriyle güvenli sınır kontrolü","textChars":51,"textLines":1,"bbox":[986,374,224,46]}
+{"kind":"textbox","id":"sh/zed8v6ps","slide":7,"name":"summary-item-4-1","text":"Modüler kontrol katmanları","textPreview":"Modüler kontrol katmanları","textChars":26,"textLines":1,"bbox":[986,374,224,46]}
 {"kind":"shape","id":"sh/jqh0fepk","slide":7,"name":"summary-dot-4-2","bbox":[966,440,8,8]}
-{"kind":"textbox","id":"sh/q5o7qpg3","slide":7,"name":"summary-item-4-2","text":"Simülasyon, hedef replay ve referans karşılaştırması","textPreview":"Simülasyon, hedef replay ve referans karşılaştırması","textChars":52,"textLines":1,"bbox":[986,432,224,46]}
+{"kind":"textbox","id":"sh/q5o7qpg3","slide":7,"name":"summary-item-4-2","text":"Pilot/demo için tek ekran deneyimi","textPreview":"Pilot/demo için tek ekran deneyimi","textChars":34,"textLines":1,"bbox":[986,432,224,46]}
 {"kind":"shape","id":"sh/1w7mp0bi","slide":7,"name":"summary-dot-4-3","bbox":[966,498,8,8]}
-{"kind":"textbox","id":"sh/8bat47y1","slide":7,"name":"summary-item-4-3","text":"Save Real Robot Motion için doğrulama kapısı","textPreview":"Save Real Robot Motion için doğrulama kapısı","textChars":44,"textLines":1,"bbox":[986,490,224,46]}
+{"kind":"textbox","id":"sh/8bat47y1","slide":7,"name":"summary-item-4-3","text":"Premium control layer ile ürün hissi","textPreview":"Premium control layer ile ürün hissi","textChars":36,"textLines":1,"bbox":[986,490,224,46]}
 {"kind":"shape","id":"sh/j2t83itg","slide":7,"name":"summary-footer-line","bbox":[58,664,1164,2]}
-{"kind":"textbox","id":"sh/qh0fepkz","slide":7,"name":"summary-footer","text":"Kapsam dışı bırakılanlar: Camera Stream, Teleoperation / Remote Presence, VR walking control modes.","textPreview":"Kapsam dışı bırakılanlar: Camera Stream, Teleoperation / Remote Presence, VR walking control modes.","textChars":99,"textLines":1,"bbox":[60,682,1080,28]}
+{"kind":"textbox","id":"sh/qh0fepkz","slide":7,"name":"summary-footer","text":"Kapsam dışı: Camera Stream, Teleoperation / Remote Presence, kayıt-sequence akışları, IK/simülasyon ve XR walking control modes.","textPreview":"Kapsam dışı: Camera Stream, Teleoperation / Remote Presence, kayıt-sequence akışları, IK/simülasyon ve XR walking control modes.","textChars":128,"textLines":1,"bbox":[60,682,1080,28]}
 {"kind":"notes","id":"nt/0z61032l","slide":7,"text":""}

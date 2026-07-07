@@ -44,6 +44,8 @@ STATIC_DIR = APP_DIR / "static"
 CAMERA_JPEG_PATH = Path("/tmp/robot_telemetry_front_camera.jpg")
 RECORDINGS_DIR = APP_DIR / "recordings"
 XR_TELEOP_MODE_DROPIN = Path.home() / ".config/systemd/user/xr-teleop.service.d/10-control-mode.conf"
+XR_MOTION_SERVICES = ("xr-home-watchdog.service", "xr-teleop.service")
+XR_TELEOP_PROCESS_PATTERN = "teleop_hand_and_arm.py"
 UNITREE_ROS2_INSTALL = (
     APP_DIR
     / "execution/semantic_teleoperation/external/unitree_ros2/cyclonedds_ws/install"
@@ -1539,6 +1541,16 @@ class TelemetryStore:
         if previous_cancel is not None:
             previous_cancel.set()
 
+        xr_suspend = self._suspend_xr_motion_publishers()
+        if not xr_suspend.get("ok"):
+            return 409, {
+                "ok": False,
+                "error": "XR teleop motion publisher is still active; arm_sdk replay would be overwritten.",
+                "recording": path.name,
+                "plan": plan,
+                "xr_suspend": xr_suspend,
+            }
+
         gain_by_index = {
             int(item["index"]): (float(item["kp"]), float(item["kd"]))
             for item in plan.get("gain_plan", [])
@@ -1634,12 +1646,83 @@ class TelemetryStore:
         with self.command_lock:
             self.replay_cancel = cancel
             self.replay_thread = thread
+        self._set_wrist_status(
+            active=True,
+            message="Publishing arm_sdk trajectory replay.",
+            last_command={
+                "mode": "trajectory",
+                "recording": path.name,
+                "command_scope": plan.get("command_scope"),
+                "control_path": plan.get("control_path"),
+                "xr_suspend": xr_suspend,
+            },
+        )
         thread.start()
         return 202, {
             "ok": True,
             "message": "arm_sdk trajectory replay started.",
             "recording": path.name,
             "plan": plan,
+            "xr_suspend": xr_suspend,
+        }
+
+    def _suspend_xr_motion_publishers(self) -> dict[str, Any]:
+        if os.environ.get("RTW_SKIP_XR_SUSPEND") == "1":
+            return {"ok": True, "skipped": True, "reason": "RTW_SKIP_XR_SUSPEND=1"}
+        if shutil.which("systemctl") is None:
+            return {"ok": True, "skipped": True, "reason": "systemctl unavailable"}
+
+        actions: list[dict[str, Any]] = []
+
+        def run_step(args: list[str], timeout: float) -> dict[str, Any]:
+            try:
+                result = subprocess.run(
+                    args,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    timeout=timeout,
+                )
+                return {
+                    "cmd": args,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout.strip(),
+                    "stderr": result.stderr.strip(),
+                }
+            except subprocess.TimeoutExpired as exc:
+                return {
+                    "cmd": args,
+                    "returncode": None,
+                    "timeout": timeout,
+                    "stdout": (exc.stdout or "").strip() if isinstance(exc.stdout, str) else "",
+                    "stderr": (exc.stderr or "").strip() if isinstance(exc.stderr, str) else "",
+                }
+            except OSError as exc:
+                return {"cmd": args, "returncode": None, "error": str(exc)}
+
+        actions.append(run_step(["systemctl", "--user", "stop", *XR_MOTION_SERVICES], 5.0))
+        actions.append(
+            run_step(
+                ["systemctl", "--user", "kill", "--kill-who=all", "--signal=KILL", *XR_MOTION_SERVICES],
+                3.0,
+            )
+        )
+        actions.append(run_step(["pkill", "-f", XR_TELEOP_PROCESS_PATTERN], 2.0))
+        process_check = run_step(["pgrep", "-af", XR_TELEOP_PROCESS_PATTERN], 2.0)
+        actions.append(process_check)
+
+        remaining_processes = []
+        if process_check.get("returncode") == 0:
+            remaining_processes = [
+                line
+                for line in str(process_check.get("stdout", "")).splitlines()
+                if XR_TELEOP_PROCESS_PATTERN in line
+            ]
+        return {
+            "ok": not remaining_processes,
+            "services": list(XR_MOTION_SERVICES),
+            "remaining_processes": remaining_processes,
+            "actions": actions,
         }
 
     @staticmethod

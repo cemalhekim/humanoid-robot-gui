@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 from tempfile import TemporaryDirectory
 
 import server
@@ -191,6 +192,48 @@ class TelemetryContractsTest(unittest.TestCase):
             [joint["index"] for joint in right_arm_plan["moving_joints"]],
             [20],
         )
+
+    def test_arm_sdk_replay_rejects_active_xr_motion_publisher(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        store.wrist_publisher = mock.Mock()
+        store.lowstate_msg = mock.Mock()
+        store.lowcmd_factory = mock.Mock()
+        store.crc = mock.Mock()
+        with TemporaryDirectory() as directory:
+            path = server.Path(directory) / "right-arm.pose.json"
+            motors = [
+                {"index": index, "name": name, "q": 0.0}
+                for index, name in server.JOINT_NAMES.items()
+            ]
+            motors[20]["q"] = 0.25
+            path.write_text(
+                server.json.dumps({"type": "pose_point", "snapshot": {"timestamp": 10.0, "motors": motors}}),
+                encoding="utf-8",
+            )
+            plan = {
+                "command_scope": "right_arm",
+                "control_path": "arm_sdk",
+                "valid_for_execution": True,
+                "hand_plan": {"enabled": False},
+                "commanded_body_joints": [
+                    {"index": index, "name": server.JOINT_NAMES[index]}
+                    for index in server.JOINT_GROUPS["right_arm"]
+                ],
+                "gain_plan": [
+                    {"index": index, "kp": 12.0, "kd": 1.0}
+                    for index in server.JOINT_GROUPS["right_arm"]
+                ],
+            }
+            with mock.patch.object(
+                store,
+                "_suspend_xr_motion_publishers",
+                return_value={"ok": False, "remaining_processes": ["123 teleop_hand_and_arm.py --motion"]},
+            ):
+                status, response = store.execute_arm_sdk_replay(path, plan)
+
+        self.assertEqual(status, 409)
+        self.assertFalse(response["ok"])
+        self.assertIn("XR teleop motion publisher", response["error"])
 
     def test_replay_planner_includes_parallel_hand_plan_for_finger_motion(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")

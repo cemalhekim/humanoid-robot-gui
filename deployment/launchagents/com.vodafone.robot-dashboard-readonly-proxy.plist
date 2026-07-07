@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vodafone.robot-dashboard-readonly-proxy</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>-u</string>
+    <string>/Users/vodafone/Workspace/humanoid-robot-gui/tools/read_only_proxy.py</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>18088</string>
+    <string>--upstream</string>
+    <string>http://127.0.0.1:8088</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/vodafone/Workspace/humanoid-robot-gui</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/robot-dashboard-remote/proxy.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/robot-dashboard-remote/proxy.err.log</string>
+</dict>
+</plist>

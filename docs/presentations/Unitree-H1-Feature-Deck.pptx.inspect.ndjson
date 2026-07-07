@@ -1,0 +1,53 @@
+{"kind":"deck","id":"pr/h51det","name":"Deck"}
+{"kind":"layout","layoutId":"307c5bf9-9005-4c5a-9c23-7a145f8bd666","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"248a6679-57d6-4c21-b0a3-b6a74b6877ad","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/w69pom","slide":1,"title":"UNITREE H1-2 EXPERIENCE","textShapes":5}
+{"kind":"shape","id":"sh/d0z61032","slide":1,"bbox":[0,0,598,720]}
+{"kind":"textbox","id":"sh/kf6dcbul","slide":1,"text":"UNITREE H1-2 EXPERIENCE","textPreview":"UNITREE H1-2 EXPERIENCE","textChars":23,"textLines":1,"bbox":[54,54,300,28]}
+{"kind":"textbox","id":"sh/v6psfil0","slide":1,"text":"AI-ready robot control.","textPreview":"AI-ready robot control.","textChars":23,"textLines":1,"bbox":[54,134,500,172]}
+{"kind":"textbox","id":"sh/2lszqtcj","slide":1,"text":"Live awareness. Immersive control. Demo-grade presence.","textPreview":"Live awareness. Immersive control. Demo-grade presence.","textChars":55,"textLines":1,"bbox":[58,326,420,92]}
+{"kind":"shape","id":"sh/d8bat47y","slide":1,"bbox":[58,450,190,2]}
+{"kind":"textbox","id":"sh/knih4byh","slide":1,"text":"Operator confidence","textPreview":"Operator confidence","textChars":19,"textLines":1,"bbox":[58,488,420,38]}
+{"kind":"textbox","id":"sh/val87ed8","slide":1,"text":"Premium robotics showcase","textPreview":"Premium robotics showcase","textChars":25,"textLines":1,"bbox":[58,530,460,38]}
+{"kind":"image","id":"im/7mp0bi9s","slide":1,"name":"","alt":"01-dashboard.png","bbox":[598,0,682,720]}
+{"kind":"notes","id":"nt/w69pom","slide":1,"text":""}
+{"kind":"slide","id":"sl/cyo4pm","slide":2,"title":"COMMAND CENTER","textShapes":6}
+{"kind":"textbox","id":"sh/ed8v6psf","slide":2,"text":"COMMAND CENTER","textPreview":"COMMAND CENTER","textChars":14,"textLines":1,"bbox":[44,42,300,28]}
+{"kind":"textbox","id":"sh/p4r65wju","slide":2,"text":"Everything visible at once.","textPreview":"Everything visible at once.","textChars":27,"textLines":1,"bbox":[44,82,590,74]}
+{"kind":"textbox","id":"sh/wjudg7ad","slide":2,"text":"A single surface for live status, robot presence, motor insight, and instant readability.","textPreview":"A single surface for live status, robot presence, motor insight, and instant readability.","textChars":89,"textLines":1,"bbox":[44,158,680,58]}
+{"kind":"shape","id":"sh/7ed8bat4","slide":2,"bbox":[44,620,1176,2]}
+{"kind":"textbox","id":"sh/itgfmlkj","slide":2,"text":"Real-time awareness","textPreview":"Real-time awareness","textChars":19,"textLines":1,"bbox":[44,642,310,38]}
+{"kind":"textbox","id":"sh/cvixczed","slide":2,"text":"Clean signal layer","textPreview":"Clean signal layer","textChars":18,"textLines":1,"bbox":[392,642,290,38]}
+{"kind":"textbox","id":"sh/5gbq1ory","slide":2,"text":"Instant operator readout","textPreview":"Instant operator readout","textChars":24,"textLines":1,"bbox":[720,642,360,38]}
+{"kind":"image","id":"im/ap4r65wj","slide":2,"name":"","alt":"01-dashboard.png","bbox":[44,242,548,330]}
+{"kind":"image","id":"im/za1gvy90","slide":2,"name":"","alt":"06-motor-data.png","bbox":[636,242,284,155]}
+{"kind":"image","id":"im/svu9knih","slide":2,"name":"","alt":"09-raw-csv.png","bbox":[936,242,284,155]}
+{"kind":"image","id":"im/hgn29gr2","slide":2,"name":"","alt":"05-ros-graph.png","bbox":[636,416,584,156]}
+{"kind":"notes","id":"nt/cyo4pm","slide":2,"text":""}
+{"kind":"slide","id":"sl/t6rvhj","slide":3,"title":"IMMERSIVE CONTROL","textShapes":7}
+{"kind":"shape","id":"sh/lszqtcj6","slide":3,"bbox":[646,0,634,720]}
+{"kind":"textbox","id":"sh/s72x4nap","slide":3,"text":"IMMERSIVE CONTROL","textPreview":"IMMERSIVE CONTROL","textChars":17,"textLines":1,"bbox":[704,54,300,28]}
+{"kind":"textbox","id":"sh/3ylc7u54","slide":3,"text":"The robot feels present.","textPreview":"The robot feels present.","textChars":24,"textLines":1,"bbox":[704,100,500,104]}
+{"kind":"textbox","id":"sh/adsji5sn","slide":3,"text":"Vision-led operation with selectable control modes and a recording workflow for repeatable moments.","textPreview":"Vision-led operation with selectable control modes and a recording workflow for repeatable moments.","textChars":99,"textLines":1,"bbox":[708,218,470,92]}
+{"kind":"shape","id":"sh/za1gvy90","slide":3,"bbox":[704,516,432,2]}
+{"kind":"textbox","id":"sh/ap4r65wj","slide":3,"text":"VR Control Pad","textPreview":"VR Control Pad","textChars":14,"textLines":1,"bbox":[704,552,240,38]}
+{"kind":"textbox","id":"sh/0je9cvix","slide":3,"text":"Head Rotation","textPreview":"Head Rotation","textChars":13,"textLines":1,"bbox":[704,592,240,38]}
+{"kind":"textbox","id":"sh/t47y1kre","slide":3,"text":"Position Matching","textPreview":"Position Matching","textChars":17,"textLines":1,"bbox":[952,552,260,38]}
+{"kind":"textbox","id":"sh/idonyd0z","slide":3,"text":"Motion Replay","textPreview":"Motion Replay","textChars":13,"textLines":1,"bbox":[952,592,240,38]}
+{"kind":"image","id":"im/3q5o7qpg","slide":3,"name":"","alt":"03-teleoperation.png","bbox":[0,0,646,720]}
+{"kind":"image","id":"im/w3m94fu1","slide":3,"name":"","alt":"02-camera-stream.png","bbox":[704,342,226,126]}
+{"kind":"image","id":"im/loj2t83i","slide":3,"name":"","alt":"04-recorder.png","bbox":[952,342,226,126]}
+{"kind":"notes","id":"nt/t6rvhj","slide":3,"text":""}
+{"kind":"slide","id":"sl/zd20io","slide":4,"title":"DEMO-READY PLATFORM","textShapes":7}
+{"kind":"textbox","id":"sh/mlkjm1cf","slide":4,"text":"DEMO-READY PLATFORM","textPreview":"DEMO-READY PLATFORM","textChars":19,"textLines":1,"bbox":[44,42,300,28]}
+{"kind":"textbox","id":"sh/xc3ylc7u","slide":4,"text":"Built for pilots, showcases, and remote operations.","textPreview":"Built for pilots, showcases, and remote operations.","textChars":51,"textLines":1,"bbox":[44,82,760,112]}
+{"kind":"shape","id":"sh/xkf6dcbu","slide":4,"bbox":[44,532,1192,2]}
+{"kind":"textbox","id":"sh/4zidonyd","slide":4,"text":"Locomotion energy","textPreview":"Locomotion energy","textChars":17,"textLines":1,"bbox":[44,568,270,38]}
+{"kind":"textbox","id":"sh/fil0rqd4","slide":4,"text":"Gesture moments","textPreview":"Gesture moments","textChars":15,"textLines":1,"bbox":[350,568,250,38]}
+{"kind":"textbox","id":"sh/qxs72x4n","slide":4,"text":"Repeatable demos","textPreview":"Repeatable demos","textChars":16,"textLines":1,"bbox":[638,568,260,38]}
+{"kind":"textbox","id":"sh/0bi9s36h","slide":4,"text":"Remote presence","textPreview":"Remote presence","textChars":15,"textLines":1,"bbox":[940,568,250,38]}
+{"kind":"textbox","id":"sh/pwb2hwfy","slide":4,"text":"Premium robotics experience.","textPreview":"Premium robotics experience.","textChars":28,"textLines":1,"bbox":[44,636,640,44]}
+{"kind":"image","id":"im/xczed8v6","slide":4,"name":"","alt":"07-loco-control.png","bbox":[44,232,360,252]}
+{"kind":"image","id":"im/qd4vmtwr","slide":4,"name":"","alt":"08-right-wrist.png","bbox":[460,232,360,252]}
+{"kind":"image","id":"im/fyxobm58","slide":4,"name":"","alt":"04a-recorder-sequence-builder.png","bbox":[876,232,360,252]}
+{"kind":"notes","id":"nt/zd20io","slide":4,"text":""}

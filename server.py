@@ -1700,7 +1700,7 @@ class TelemetryStore:
             except OSError as exc:
                 return {"cmd": args, "returncode": None, "error": str(exc)}
 
-        actions.append(run_step(["systemctl", "--user", "stop", *XR_MOTION_SERVICES], 5.0))
+        actions.append(run_step(["systemctl", "--user", "stop", "--no-block", *XR_MOTION_SERVICES], 2.0))
         actions.append(
             run_step(
                 ["systemctl", "--user", "kill", "--kill-who=all", "--signal=KILL", *XR_MOTION_SERVICES],

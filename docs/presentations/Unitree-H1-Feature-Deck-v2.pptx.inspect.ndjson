@@ -1,57 +1,80 @@
-{"kind":"deck","id":"pr/j4n5s4","name":"Deck"}
-{"kind":"layout","layoutId":"febebcf5-6293-44ea-8992-b9066695d4e4","name":"Master","type":"master"}
-{"kind":"layout","layoutId":"a13fa8d9-23a3-4953-af9d-83857e6ad19c","name":"Title Slide","type":"title"}
-{"kind":"slide","id":"sl/whsglr","slide":1,"title":"ANA EKRAN","textShapes":10}
-{"kind":"textbox","id":"sh/r2p8nqxs","slide":1,"text":"ANA EKRAN","textPreview":"ANA EKRAN","textChars":9,"textLines":1,"bbox":[44,36,320,28]}
-{"kind":"textbox","id":"sh/kjm1cfa9","slide":1,"text":"Robotun bütün hikayesi tek cockpit içinde.","textPreview":"Robotun bütün hikayesi tek cockpit içinde.","textChars":42,"textLines":1,"bbox":[44,76,760,118]}
-{"kind":"textbox","id":"sh/94fu18jq","slide":1,"text":"Solda AI Chatbot, ortada canlı bilgi akışı, sağda Robot Twin. Tek bakışta kontrol hissi.","textPreview":"Solda AI Chatbot, ortada canlı bilgi akışı, sağda Robot Twin. Tek bakışta kontrol hissi.","textChars":88,"textLines":1,"bbox":[44,190,860,50]}
-{"kind":"shape","id":"sh/ra5gbq1o","slide":1,"bbox":[44,624,1192,2]}
-{"kind":"textbox","id":"sh/gvy90je9","slide":1,"text":"SOL","textPreview":"SOL","textChars":3,"textLines":1,"bbox":[44,650,72,28]}
-{"kind":"textbox","id":"sh/9gr2p8nq","slide":1,"text":"AI Chatbot","textPreview":"AI Chatbot","textChars":10,"textLines":1,"bbox":[116,644,180,34]}
-{"kind":"textbox","id":"sh/2t83itgf","slide":1,"text":"ORTA","textPreview":"ORTA","textChars":4,"textLines":1,"bbox":[348,650,82,28]}
-{"kind":"textbox","id":"sh/re1w7mp0","slide":1,"text":"Bilgi Akışı","textPreview":"Bilgi Akışı","textChars":11,"textLines":1,"bbox":[430,644,200,34]}
-{"kind":"textbox","id":"sh/bulwval8","slide":1,"text":"SAG","textPreview":"SAG","textChars":3,"textLines":1,"bbox":[712,650,72,28]}
-{"kind":"textbox","id":"sh/i9s36hcr","slide":1,"text":"Robot Twin","textPreview":"Robot Twin","textChars":10,"textLines":1,"bbox":[784,644,180,34]}
-{"kind":"textbox","id":"sh/p0bi9s36","slide":1,"text":"Premium control layer","textPreview":"Premium control layer","textChars":21,"textLines":1,"bbox":[980,644,260,34]}
-{"kind":"image","id":"im/bulwval8","slide":1,"name":"","alt":"01-dashboard.png","bbox":[44,262,1192,326]}
-{"kind":"notes","id":"nt/whsglr","slide":1,"text":""}
-{"kind":"slide","id":"sl/1de9i9","slide":2,"title":"ROBOT TELEMETRI","textShapes":7}
-{"kind":"textbox","id":"sh/xc3ylc7u","slide":2,"text":"ROBOT TELEMETRI","textPreview":"ROBOT TELEMETRI","textChars":15,"textLines":1,"bbox":[44,36,320,28]}
-{"kind":"textbox","id":"sh/mlkjm1cf","slide":2,"text":"Uc farkli telemetry hissi ayni deneyime akar.","textPreview":"Uc farkli telemetry hissi ayni deneyime akar.","textChars":45,"textLines":1,"bbox":[44,76,860,118]}
-{"kind":"textbox","id":"sh/f6dcbulw","slide":2,"text":"Dashboard telemetry, camera stream ve Apple Vision Pro ile robotun sahnesi her yerden okunur.","textPreview":"Dashboard telemetry, camera stream ve Apple Vision Pro ile robotun sahnesi her yerden okunur.","textChars":93,"textLines":1,"bbox":[44,190,840,52]}
-{"kind":"shape","id":"sh/fepkzupw","slide":2,"bbox":[44,528,1192,2]}
-{"kind":"textbox","id":"sh/83itgfml","slide":2,"text":"1. Live Dashboard","textPreview":"1. Live Dashboard","textChars":17,"textLines":1,"bbox":[44,566,280,34]}
-{"kind":"textbox","id":"sh/xobm58z2","slide":2,"text":"2. Camera Stream","textPreview":"2. Camera Stream","textChars":16,"textLines":1,"bbox":[460,566,290,34]}
-{"kind":"textbox","id":"sh/dcbulwva","slide":2,"text":"3. Apple Vision Pro","textPreview":"3. Apple Vision Pro","textChars":19,"textLines":1,"bbox":[876,566,310,34]}
-{"kind":"textbox","id":"sh/kre1w7mp","slide":2,"text":"Real-time awareness / XR presence / Operator confidence","textPreview":"Real-time awareness / XR presence / Operator confidence","textChars":55,"textLines":1,"bbox":[44,638,800,30]}
-{"kind":"image","id":"im/xobm58z2","slide":2,"name":"","alt":"01-dashboard.png","bbox":[44,270,360,220]}
-{"kind":"image","id":"im/83itgfml","slide":2,"name":"","alt":"02-camera-stream.png","bbox":[460,270,360,220]}
-{"kind":"image","id":"im/fil0rqd4","slide":2,"name":"","alt":"03-teleoperation.png","bbox":[876,270,360,220]}
-{"kind":"notes","id":"nt/1de9i9","slide":2,"text":""}
-{"kind":"slide","id":"sl/1pfci6","slide":3,"title":"MOTION SEQUENCE PLANNING","textShapes":9}
-{"kind":"shape","id":"sh/mlkjm1cf","slide":3,"bbox":[645,0,635,720]}
-{"kind":"textbox","id":"sh/f6dcbulw","slide":3,"text":"MOTION SEQUENCE PLANNING","textPreview":"MOTION SEQUENCE PLANNING","textChars":24,"textLines":1,"bbox":[704,54,320,28]}
-{"kind":"textbox","id":"sh/4zidonyd","slide":3,"text":"Hareket artik bir sequence haline geliyor.","textPreview":"Hareket artik bir sequence haline geliyor.","textChars":42,"textLines":1,"bbox":[704,100,486,118]}
-{"kind":"textbox","id":"sh/xkf6dcbu","slide":3,"text":"Pose point kaydet, sequence kur, trajectory preview izle. Robot hareketi demo diline donusur.","textPreview":"Pose point kaydet, sequence kur, trajectory preview izle. Robot hareketi demo diline donusur.","textChars":93,"textLines":1,"bbox":[708,286,468,70]}
-{"kind":"shape","id":"sh/mtwra5gb","slide":3,"bbox":[704,382,432,2]}
-{"kind":"textbox","id":"sh/fepkzupw","slide":3,"text":"Add Point","textPreview":"Add Point","textChars":9,"textLines":1,"bbox":[704,418,200,34]}
-{"kind":"textbox","id":"sh/83itgfml","slide":3,"text":"Pose Capture","textPreview":"Pose Capture","textChars":12,"textLines":1,"bbox":[704,458,220,34]}
-{"kind":"textbox","id":"sh/xobm58z2","slide":3,"text":"Sequence Builder","textPreview":"Sequence Builder","textChars":16,"textLines":1,"bbox":[704,498,260,34]}
-{"kind":"textbox","id":"sh/dcbulwva","slide":3,"text":"Trajectory Planning","textPreview":"Trajectory Planning","textChars":19,"textLines":1,"bbox":[704,538,300,34]}
-{"kind":"textbox","id":"sh/kre1w7mp","slide":3,"text":"Crazy Seconds","textPreview":"Crazy Seconds","textChars":13,"textLines":1,"bbox":[704,578,260,34]}
-{"kind":"textbox","id":"sh/val87ed8","slide":3,"text":"Repeatable motion / stage-ready timing / replayable moments","textPreview":"Repeatable motion / stage-ready timing / replayable moments","textChars":59,"textLines":1,"bbox":[704,624,490,40]}
-{"kind":"image","id":"im/47y1kre1","slide":3,"name":"","alt":"04a-recorder-sequence-builder.png","bbox":[0,0,645,720]}
-{"kind":"notes","id":"nt/1pfci6","slide":3,"text":""}
-{"kind":"slide","id":"sl/hnjz6a","slide":4,"title":"DEMO VE OPERASYON","textShapes":7}
-{"kind":"textbox","id":"sh/3ex0nuxc","slide":4,"text":"DEMO VE OPERASYON","textPreview":"DEMO VE OPERASYON","textChars":17,"textLines":1,"bbox":[44,36,320,28]}
-{"kind":"textbox","id":"sh/szqtcj6t","slide":4,"text":"Pilot, demo ve remote presence icin hazir bir robot platformu.","textPreview":"Pilot, demo ve remote presence icin hazir bir robot platformu.","textChars":62,"textLines":1,"bbox":[44,76,880,118]}
-{"kind":"shape","id":"sh/sneloj2t","slide":4,"bbox":[44,520,1192,2]}
-{"kind":"textbox","id":"sh/l87ed8ba","slide":4,"text":"Locomotion Layer","textPreview":"Locomotion Layer","textChars":16,"textLines":1,"bbox":[44,558,280,34]}
-{"kind":"textbox","id":"sh/e9cvixcz","slide":4,"text":"Gesture Layer","textPreview":"Gesture Layer","textChars":13,"textLines":1,"bbox":[364,558,240,34]}
-{"kind":"textbox","id":"sh/3q5o7qpg","slide":4,"text":"ROS Visibility","textPreview":"ROS Visibility","textChars":14,"textLines":1,"bbox":[650,558,240,34]}
-{"kind":"textbox","id":"sh/neloj2t8","slide":4,"text":"Remote Presence","textPreview":"Remote Presence","textChars":15,"textLines":1,"bbox":[946,558,260,34]}
-{"kind":"textbox","id":"sh/ytsvu9kn","slide":4,"text":"Premium robotics experience. Fast demo loop. Clear operator story.","textPreview":"Premium robotics experience. Fast demo loop. Clear operator story.","textChars":66,"textLines":1,"bbox":[44,638,850,40]}
-{"kind":"image","id":"im/0z61032l","slide":4,"name":"","alt":"07-loco-control.png","bbox":[44,238,358,238]}
-{"kind":"image","id":"im/72x4nap4","slide":4,"name":"","alt":"08-right-wrist.png","bbox":[462,238,358,238]}
-{"kind":"image","id":"im/ih4byhgn","slide":4,"name":"","alt":"05-ros-graph.png","bbox":[878,238,358,238]}
-{"kind":"notes","id":"nt/hnjz6a","slide":4,"text":""}
+{"kind":"deck","id":"pr/vhtq2m","name":"Deck"}
+{"kind":"layout","layoutId":"/ppt/slideMasters/slideMaster1.xml","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout1.xml","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/2x4nap4r","slide":1,"title":"ANA EKRAN","textShapes":10}
+{"kind":"textbox","id":"sh/nap4r65w","slide":1,"text":"ANA EKRAN","textPreview":"ANA EKRAN","textChars":9,"textLines":1,"bbox":[44,36,320,28]}
+{"kind":"textbox","id":"sh/cvixczed","slide":1,"text":"Robotun bütün hikayesi tek cockpit içinde.","textPreview":"Robotun bütün hikayesi tek cockpit içinde.","textChars":42,"textLines":1,"bbox":[44,76,760,118]}
+{"kind":"textbox","id":"sh/5gbq1ory","slide":1,"text":"Solda AI Chatbot, ortada canlı bilgi akışı, sağda Robot Twin. Tek bakışta kontrol hissi.","textPreview":"Solda AI Chatbot, ortada canlı bilgi akışı, sağda Robot Twin. Tek bakışta kontrol hissi.","textChars":88,"textLines":1,"bbox":[44,190,860,50]}
+{"kind":"shape","id":"sh/nyd0z610","slide":1,"bbox":[44,624,1192,2]}
+{"kind":"textbox","id":"sh/cj6tovah","slide":1,"text":"SOL","textPreview":"SOL","textChars":3,"textLines":1,"bbox":[44,650,72,28]}
+{"kind":"textbox","id":"sh/54zidony","slide":1,"text":"AI Chatbot","textPreview":"AI Chatbot","textChars":10,"textLines":1,"bbox":[116,644,180,34]}
+{"kind":"textbox","id":"sh/u9knih4b","slide":1,"text":"ORTA","textPreview":"ORTA","textChars":4,"textLines":1,"bbox":[348,650,82,28]}
+{"kind":"textbox","id":"sh/judg7ads","slide":1,"text":"Bilgi Akışı","textPreview":"Bilgi Akışı","textChars":11,"textLines":1,"bbox":[430,644,200,34]}
+{"kind":"textbox","id":"sh/nyd0z610","slide":1,"text":"SAG","textPreview":"SAG","textChars":3,"textLines":1,"bbox":[712,650,72,28]}
+{"kind":"textbox","id":"sh/udg7adsj","slide":1,"text":"Robot Twin","textPreview":"Robot Twin","textChars":10,"textLines":1,"bbox":[784,644,180,34]}
+{"kind":"textbox","id":"sh/54zidony","slide":1,"text":"Premium control layer","textPreview":"Premium control layer","textChars":21,"textLines":1,"bbox":[980,644,260,34]}
+{"kind":"image","id":"im/judg7ads","slide":1,"name":"","bbox":[44,262,1192,326]}
+{"kind":"notes","id":"nt/2x4nap4r","slide":1,"text":""}
+{"kind":"slide","id":"sl/pg3ex0nu","slide":2,"title":"ROBOT TELEMETRI","textShapes":7}
+{"kind":"textbox","id":"sh/yxobm58z","slide":2,"text":"ROBOT TELEMETRI","textPreview":"ROBOT TELEMETRI","textChars":15,"textLines":1,"bbox":[44,36,320,28]}
+{"kind":"textbox","id":"sh/5o7qpg3e","slide":2,"text":"Uc farkli telemetry hissi ayni deneyime akar.","textPreview":"Uc farkli telemetry hissi ayni deneyime akar.","textChars":45,"textLines":1,"bbox":[44,76,860,118]}
+{"kind":"textbox","id":"sh/g3ex0nux","slide":2,"text":"Dashboard telemetry, camera stream ve Apple Vision Pro ile robotun sahnesi her yerden okunur.","textPreview":"Dashboard telemetry, camera stream ve Apple Vision Pro ile robotun sahnesi her yerden okunur.","textChars":93,"textLines":1,"bbox":[44,190,840,52]}
+{"kind":"shape","id":"sh/gr2p8nqx","slide":2,"bbox":[44,528,1192,2]}
+{"kind":"textbox","id":"sh/rytsvu9k","slide":2,"text":"1. Live Dashboard","textPreview":"1. Live Dashboard","textChars":17,"textLines":1,"bbox":[44,566,280,34]}
+{"kind":"textbox","id":"sh/yd0z6103","slide":2,"text":"2. Camera Stream","textPreview":"2. Camera Stream","textChars":16,"textLines":1,"bbox":[460,566,290,34]}
+{"kind":"textbox","id":"sh/wb2hwfyx","slide":2,"text":"3. Apple Vision Pro","textPreview":"3. Apple Vision Pro","textChars":19,"textLines":1,"bbox":[876,566,310,34]}
+{"kind":"textbox","id":"sh/lwval87e","slide":2,"text":"Real-time awareness / XR presence / Operator confidence","textPreview":"Real-time awareness / XR presence / Operator confidence","textChars":55,"textLines":1,"bbox":[44,638,800,30]}
+{"kind":"image","id":"im/9gr2p8nq","slide":2,"name":"","bbox":[44,270,360,220]}
+{"kind":"image","id":"im/gvy90je9","slide":2,"name":"","bbox":[460,270,360,220]}
+{"kind":"image","id":"im/r2p8nqxs","slide":2,"name":"","bbox":[876,270,360,220]}
+{"kind":"notes","id":"nt/pg3ex0nu","slide":2,"text":""}
+{"kind":"slide","id":"sl/s72x4nap","slide":3,"title":"MOTION SEQUENCE PLANNING","textShapes":9}
+{"kind":"shape","id":"sh/o7qpg3ex","slide":3,"bbox":[645,0,635,720]}
+{"kind":"textbox","id":"sh/dsji5sne","slide":3,"text":"MOTION SEQUENCE PLANNING","textPreview":"MOTION SEQUENCE PLANNING","textChars":24,"textLines":1,"bbox":[704,54,320,28]}
+{"kind":"textbox","id":"sh/6dcbulwv","slide":3,"text":"Hareket artik bir sequence haline geliyor.","textPreview":"Hareket artik bir sequence haline geliyor.","textChars":42,"textLines":1,"bbox":[704,100,486,118]}
+{"kind":"textbox","id":"sh/vy90je9c","slide":3,"text":"Pose point kaydet, sequence kur, trajectory preview izle. Robot hareketi demo diline donusur.","textPreview":"Pose point kaydet, sequence kur, trajectory preview izle. Robot hareketi demo diline donusur.","textChars":93,"textLines":1,"bbox":[708,286,468,70]}
+{"kind":"shape","id":"sh/oj2t83it","slide":3,"bbox":[704,382,432,2]}
+{"kind":"textbox","id":"sh/d4vmtwra","slide":3,"text":"Add Point","textPreview":"Add Point","textChars":9,"textLines":1,"bbox":[704,418,200,34]}
+{"kind":"textbox","id":"sh/6hcrmhk3","slide":3,"text":"Pose Capture","textPreview":"Pose Capture","textChars":12,"textLines":1,"bbox":[704,458,220,34]}
+{"kind":"textbox","id":"sh/z25kb6xk","slide":3,"text":"Sequence Builder","textPreview":"Sequence Builder","textChars":16,"textLines":1,"bbox":[704,498,260,34]}
+{"kind":"textbox","id":"sh/vy90je9c","slide":3,"text":"Trajectory Planning","textPreview":"Trajectory Planning","textChars":19,"textLines":1,"bbox":[704,538,300,34]}
+{"kind":"textbox","id":"sh/6dcbulwv","slide":3,"text":"Crazy Seconds","textPreview":"Crazy Seconds","textChars":13,"textLines":1,"bbox":[704,578,260,34]}
+{"kind":"textbox","id":"sh/d4vmtwra","slide":3,"text":"Repeatable motion / stage-ready timing / replayable moments","textPreview":"Repeatable motion / stage-ready timing / replayable moments","textChars":59,"textLines":1,"bbox":[704,624,490,40]}
+{"kind":"image","id":"im/z25kb6xk","slide":3,"name":"","bbox":[0,0,645,720]}
+{"kind":"notes","id":"nt/s72x4nap","slide":3,"text":""}
+{"kind":"slide","id":"sl/val87ed8","slide":4,"title":"DEMO VE OPERASYON","textShapes":7}
+{"kind":"textbox","id":"sh/1gvy90je","slide":4,"text":"DEMO VE OPERASYON","textPreview":"DEMO VE OPERASYON","textChars":17,"textLines":1,"bbox":[44,36,320,28]}
+{"kind":"textbox","id":"sh/qtcj6tov","slide":4,"text":"Pilot, demo ve remote presence icin hazir bir robot platformu.","textPreview":"Pilot, demo ve remote presence icin hazir bir robot platformu.","textChars":62,"textLines":1,"bbox":[44,76,880,118]}
+{"kind":"shape","id":"sh/q1orytsv","slide":4,"bbox":[44,520,1192,2]}
+{"kind":"textbox","id":"sh/fmlkjm1c","slide":4,"text":"Locomotion Layer","textPreview":"Locomotion Layer","textChars":16,"textLines":1,"bbox":[44,558,280,34]}
+{"kind":"textbox","id":"sh/8jqh0fep","slide":4,"text":"Gesture Layer","textPreview":"Gesture Layer","textChars":13,"textLines":1,"bbox":[364,558,240,34]}
+{"kind":"textbox","id":"sh/x4nap4r6","slide":4,"text":"ROS Visibility","textPreview":"ROS Visibility","textChars":14,"textLines":1,"bbox":[650,558,240,34]}
+{"kind":"textbox","id":"sh/1w7mp0bi","slide":4,"text":"Remote Presence","textPreview":"Remote Presence","textChars":15,"textLines":1,"bbox":[946,558,260,34]}
+{"kind":"textbox","id":"sh/8bat47y1","slide":4,"text":"Premium robotics experience. Fast demo loop. Clear operator story.","textPreview":"Premium robotics experience. Fast demo loop. Clear operator story.","textChars":66,"textLines":1,"bbox":[44,638,850,40]}
+{"kind":"image","id":"im/gn29gr2p","slide":4,"name":"","bbox":[44,238,358,238]}
+{"kind":"image","id":"im/58z25kb6","slide":4,"name":"","bbox":[462,238,358,238]}
+{"kind":"image","id":"im/y90je9cv","slide":4,"name":"","bbox":[878,238,358,238]}
+{"kind":"notes","id":"nt/val87ed8","slide":4,"text":""}
+{"kind":"slide","id":"sl/zzg76x","slide":5,"title":"ROBOT TELEMETRY WORKFLOW","textShapes":13}
+{"kind":"shape","id":"sh/yd0z6103","slide":5,"name":"telemetry-left-panel-soft-fill","bbox":[0,0,560,720]}
+{"kind":"textbox","id":"sh/90je9cvi","slide":5,"name":"telemetry-eyebrow","text":"ROBOT TELEMETRY WORKFLOW","textPreview":"ROBOT TELEMETRY WORKFLOW","textChars":24,"textLines":1,"bbox":[54,44,430,24]}
+{"kind":"textbox","id":"sh/gfmlkjm1","slide":5,"name":"telemetry-title","text":"Telemetry Recorder\nhareketi doğruluyor","textPreview":"Telemetry Recorder | hareketi doğruluyor","textChars":38,"textLines":2,"bbox":[54,82,468,104]}
+{"kind":"textbox","id":"sh/rmhk3q5o","slide":5,"name":"telemetry-subtitle","text":"Ekran; motor örneklerinden sequence oluşturma, simülasyonla kontrol etme ve güvenli hareketi gerçek robota kaydetme akışını tek yerde topluyor.","textPreview":"Ekran; motor örneklerinden sequence oluşturma, simülasyonla kontrol etme ve güvenli hareketi gerçek robota kaydetme akışını tek yerde top...","textChars":143,"textLines":1,"bbox":[56,208,456,78]}
+{"kind":"shape","id":"sh/y1kre1w7","slide":5,"name":"telemetry-feature-accent-0","bbox":[54,306,8,78]}
+{"kind":"textbox","id":"sh/9s36hcrm","slide":5,"name":"telemetry-feature-title-0","text":"Sıralı hareket noktaları","textPreview":"Sıralı hareket noktaları","textChars":24,"textLines":1,"bbox":[76,304,442,26]}
+{"kind":"textbox","id":"sh/g7adsji5","slide":5,"name":"telemetry-feature-body-0","text":"Her point; 27 motor, zaman damgası ve replay sırası ile tutuluyor. Seçili point anında izlenebiliyor.","textPreview":"Her point; 27 motor, zaman damgası ve replay sırası ile tutuluyor. Seçili point anında izlenebiliyor.","textChars":101,"textLines":1,"bbox":[76,334,450,52]}
+{"kind":"shape","id":"sh/nih4byhg","slide":5,"name":"telemetry-feature-accent-1","bbox":[54,404,8,78]}
+{"kind":"textbox","id":"sh/yxobm58z","slide":5,"name":"telemetry-feature-title-1","text":"IK ve sınır doğrulaması","textPreview":"IK ve sınır doğrulaması","textChars":23,"textLines":1,"bbox":[76,402,442,26]}
+{"kind":"textbox","id":"sh/obm58z25","slide":5,"name":"telemetry-feature-body-1","text":"IK hatası cm seviyesinde gösteriliyor; bounds açıkken güvenli eklem limitleri korunuyor.","textPreview":"IK hatası cm seviyesinde gösteriliyor; bounds açıkken güvenli eklem limitleri korunuyor.","textChars":88,"textLines":1,"bbox":[76,432,450,52]}
+{"kind":"shape","id":"sh/hwfyxobm","slide":5,"name":"telemetry-feature-accent-2","bbox":[54,502,8,78]}
+{"kind":"textbox","id":"sh/65wjudg7","slide":5,"name":"telemetry-feature-title-2","text":"Simülasyon ve replay karşılaştırması","textPreview":"Simülasyon ve replay karşılaştırması","textChars":36,"textLines":1,"bbox":[76,500,442,26]}
+{"kind":"textbox","id":"sh/zqtcj6to","slide":5,"name":"telemetry-feature-body-2","text":"Mavi referans, yeşil simülasyon ve kırmızı hedef hareket aynı sahnede üst üste okunuyor.","textPreview":"Mavi referans, yeşil simülasyon ve kırmızı hedef hareket aynı sahnede üst üste okunuyor.","textChars":88,"textLines":1,"bbox":[76,530,450,52]}
+{"kind":"shape","id":"sh/oza1gvy9","slide":5,"name":"telemetry-feature-accent-3","bbox":[54,600,8,78]}
+{"kind":"textbox","id":"sh/hk3q5o7q","slide":5,"name":"telemetry-feature-title-3","text":"Gerçek robota aktarım kapısı","textPreview":"Gerçek robota aktarım kapısı","textChars":28,"textLines":1,"bbox":[76,598,442,26]}
+{"kind":"textbox","id":"sh/6xkf6dcb","slide":5,"name":"telemetry-feature-body-3","text":"Add Point, Simulate Trajectory, Move Arms ve Save Real Robot Motion adımları aynı operatör akışında.","textPreview":"Add Point, Simulate Trajectory, Move Arms ve Save Real Robot Motion adımları aynı operatör akışında.","textChars":100,"textLines":1,"bbox":[76,628,450,52]}
+{"kind":"shape","id":"sh/orytsvu9","slide":5,"name":"telemetry-screenshot-outline","bbox":[590,72,640,464]}
+{"kind":"textbox","id":"sh/hcrmhk3q","slide":5,"name":"telemetry-screenshot-caption","text":"Canlı operatör görünümü: solda sequence listesi, ortada 3D robot replay, üstte güvenlik ve kayıt aksiyonları.","textPreview":"Canlı operatör görünümü: solda sequence listesi, ortada 3D robot replay, üstte güvenlik ve kayıt aksiyonları.","textChars":109,"textLines":1,"bbox":[590,555,640,48]}
+{"kind":"shape","id":"sh/5gbq1ory","slide":5,"name":"telemetry-bottom-safety-band","bbox":[590,630,640,46]}
+{"kind":"textbox","id":"sh/cvixczed","slide":5,"name":"telemetry-bottom-safety-copy","text":"Amaç: hareket komutu gerçek robota gitmeden önce kayıt, görünürlük ve simülasyon doğrulaması tamamlanır.","textPreview":"Amaç: hareket komutu gerçek robota gitmeden önce kayıt, görünürlük ve simülasyon doğrulaması tamamlanır.","textChars":104,"textLines":1,"bbox":[612,641,596,26]}
+{"kind":"image","id":"im/87ed8bat","slide":5,"name":"","geometry":"roundRect","alt":"Telemetry Recorder ekranında kaydedilmiş robot kol sequence noktaları ve 3D simülasyon görünümü","bbox":[590,72,640,464]}
+{"kind":"notes","id":"nt/zzg76x","slide":5,"text":""}

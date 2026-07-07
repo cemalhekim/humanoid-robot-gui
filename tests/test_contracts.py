@@ -7,6 +7,17 @@ from tempfile import TemporaryDirectory
 import server
 
 
+class FakeMotorState:
+    def __init__(self, q: float = 0.0, dq: float = 0.0) -> None:
+        self.q = q
+        self.dq = dq
+
+
+class FakeLowState:
+    def __init__(self) -> None:
+        self.motor_state = [FakeMotorState() for _ in range(35)]
+
+
 class TelemetryContractsTest(unittest.TestCase):
     def test_body_joint_contract_matches_h1_2_slots(self) -> None:
         self.assertEqual(len(server.JOINT_NAMES), 27)
@@ -234,6 +245,21 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertFalse(response["ok"])
         self.assertIn("XR teleop motion publisher", response["error"])
+
+    def test_closed_loop_arm_targets_correct_toward_desired_position(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        msg = FakeLowState()
+        joint = 20
+        msg.motor_state[joint].q = 0.2
+        msg.motor_state[joint].dq = 0.0
+        target = {joint: 0.5}
+        state: dict[int, dict[str, float]] = {}
+
+        corrected, error = store._closed_loop_arm_targets(msg, target, state, 1.0 / 60.0)
+
+        self.assertGreater(corrected[joint], target[joint])
+        self.assertLessEqual(corrected[joint] - target[joint], server.ARM_REPLAY_MAX_PID_CORRECTION_RAD)
+        self.assertEqual(error["max_error_rad"], 0.3)
 
     def test_replay_planner_includes_parallel_hand_plan_for_finger_motion(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")

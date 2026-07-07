@@ -127,6 +127,12 @@ TRAJECTORY_ADAPTIVE_SAMPLE_HZ = 60.0
 TRAJECTORY_DENSE_MAX_DT = 1.0 / 30.0
 TRAJECTORY_MAX_INTERPOLATED_STEP_RAD = 0.05
 TRAJECTORY_MAX_REPORTED_VIOLATIONS = 20
+ARM_REPLAY_CLOSED_LOOP_DEFAULT = True
+ARM_REPLAY_TOLERANCE_RAD = 0.03
+ARM_REPLAY_SETTLE_SECONDS = 0.45
+ARM_REPLAY_TIMEOUT_SECONDS = 8.0
+ARM_REPLAY_MAX_PID_CORRECTION_RAD = 0.16
+ARM_REPLAY_INTEGRAL_LIMIT = 0.45
 HAND_STATE_TOPIC = "rt/inspire/state"
 HAND_COMMAND_TOPIC = "rt/inspire/cmd"
 HAND_TRAJECTORY_EPSILON = 0.02
@@ -149,6 +155,12 @@ GAIN_NOMINALS = {
     "shoulder": {"step": 0.05, "velocity": 1.0},
     "elbow": {"step": 0.06, "velocity": 1.1},
     "wrist": {"step": 0.07, "velocity": 1.2},
+}
+ARM_REPLAY_PID_GAINS = {
+    "shoulder": (0.18, 0.02, 0.01),
+    "elbow": (0.14, 0.015, 0.008),
+    "wrist": (0.1, 0.01, 0.006),
+    "waist": (0.08, 0.0, 0.004),
 }
 RIGHT_WRIST_YAW = 26
 ARM_SDK_WEIGHT_SLOT = 27
@@ -1505,7 +1517,7 @@ class TelemetryStore:
         if payload.get("dry_run") is True:
             return 200, {"ok": True, "recording": path.name, "plan": plan}
         if payload.get("execute_arm_sdk") is True:
-            return self.execute_arm_sdk_replay(path, plan)
+            return self.execute_arm_sdk_replay(path, plan, payload)
         return 409, {
             "ok": False,
             "error": (
@@ -1518,7 +1530,12 @@ class TelemetryStore:
             "plan": plan,
         }
 
-    def execute_arm_sdk_replay(self, path: Path, plan: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    def execute_arm_sdk_replay(
+        self,
+        path: Path,
+        plan: dict[str, Any],
+        payload: dict[str, Any] | None = None,
+    ) -> tuple[int, dict[str, Any]]:
         if plan.get("control_path") != "arm_sdk":
             return 409, {"ok": False, "error": "Only arm_sdk arm/waist trajectories are enabled.", "recording": path.name, "plan": plan}
         if not plan.get("valid_for_execution"):
@@ -1540,6 +1557,20 @@ class TelemetryStore:
             return 503, {"ok": False, "error": "DDS command factory is not available.", "recording": path.name, "plan": plan}
         if previous_cancel is not None:
             previous_cancel.set()
+
+        payload = payload or {}
+        closed_loop = bool(payload.get("closed_loop", ARM_REPLAY_CLOSED_LOOP_DEFAULT))
+        try:
+            position_tolerance = float(payload.get("position_tolerance_rad", ARM_REPLAY_TOLERANCE_RAD))
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "position_tolerance_rad must be a number.", "recording": path.name, "plan": plan}
+        if not math.isfinite(position_tolerance) or position_tolerance < 0.005 or position_tolerance > 0.25:
+            return 400, {
+                "ok": False,
+                "error": "position_tolerance_rad must be between 0.005 and 0.25.",
+                "recording": path.name,
+                "plan": plan,
+            }
 
         xr_suspend = self._suspend_xr_motion_publishers()
         if not xr_suspend.get("ok"):
@@ -1565,10 +1596,23 @@ class TelemetryStore:
         if not commanded_body_joints:
             commanded_body_joints = set(ARM_SDK_JOINTS)
 
+        closed_loop_state: dict[int, dict[str, float]] = {
+            joint: {"integral": 0.0, "last_error": 0.0}
+            for joint in commanded_body_joints
+        }
+
         def run_replay() -> None:
             previous_timestamp: float | None = None
             writes = 0
+            final_error: dict[str, Any] = {"max_error_rad": None, "per_joint": []}
+            converged = False
+            consecutive_converged = 0
+            settle_cycles = max(1, math.ceil(ARM_REPLAY_SETTLE_SECONDS / TRAJECTORY_DEFAULT_DT))
             hold_until = time.monotonic() + max(TRAJECTORY_APPROACH_SECONDS, plan.get("duration_seconds", 0.0) or 0.0)
+            closed_loop_deadline = time.monotonic() + max(
+                ARM_REPLAY_TIMEOUT_SECONDS,
+                (plan.get("duration_seconds", 0.0) or 0.0) + ARM_REPLAY_TIMEOUT_SECONDS,
+            )
             try:
                 for frame in frames:
                     if cancel.is_set():
@@ -1578,18 +1622,19 @@ class TelemetryStore:
                         latest_publisher = self.wrist_publisher
                     if latest_msg is None or latest_publisher is None:
                         break
-                    target_by_index = {
-                        int(motor["index"]): self._clamp_joint_target(int(motor["index"]), float(motor.get("q", 0.0)))
-                        for motor in frame.get("motors", [])
-                        if (
-                            isinstance(motor, dict)
-                            and "index" in motor
-                            and int(motor["index"]) in ARM_SDK_JOINTS
-                            and int(motor["index"]) in commanded_body_joints
-                        )
-                    }
+                    target_by_index = self._arm_replay_frame_targets(frame, commanded_body_joints)
+                    publish_targets = (
+                        self._closed_loop_arm_targets(
+                            latest_msg,
+                            target_by_index,
+                            closed_loop_state,
+                            TRAJECTORY_DEFAULT_DT,
+                        )[0]
+                        if closed_loop
+                        else target_by_index
+                    )
                     latest_publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(latest_msg, target_by_index, gain_by_index, weight=1.0)
+                        self._build_arm_sdk_trajectory_cmd(latest_msg, publish_targets, gain_by_index, weight=1.0)
                     )
                     writes += 1
                     timestamp = numeric(frame.get("timestamp"))
@@ -1599,25 +1644,37 @@ class TelemetryStore:
                         time.sleep(TRAJECTORY_DEFAULT_DT)
                     if timestamp is not None:
                         previous_timestamp = timestamp
-                while not cancel.is_set() and time.monotonic() < hold_until:
+                while not cancel.is_set():
+                    now = time.monotonic()
+                    if closed_loop and converged and now >= hold_until:
+                        break
+                    if not closed_loop and now >= hold_until:
+                        break
+                    if closed_loop and now >= closed_loop_deadline:
+                        break
                     with self.command_lock:
                         latest_msg = self.lowstate_msg
                         latest_publisher = self.wrist_publisher
                     if latest_msg is None or latest_publisher is None or not frames:
                         break
                     final_frame = frames[-1]
-                    target_by_index = {
-                        int(motor["index"]): self._clamp_joint_target(int(motor["index"]), float(motor.get("q", 0.0)))
-                        for motor in final_frame.get("motors", [])
-                        if (
-                            isinstance(motor, dict)
-                            and "index" in motor
-                            and int(motor["index"]) in ARM_SDK_JOINTS
-                            and int(motor["index"]) in commanded_body_joints
+                    target_by_index = self._arm_replay_frame_targets(final_frame, commanded_body_joints)
+                    publish_targets = target_by_index
+                    if closed_loop:
+                        publish_targets, final_error = self._closed_loop_arm_targets(
+                            latest_msg,
+                            target_by_index,
+                            closed_loop_state,
+                            TRAJECTORY_DEFAULT_DT,
                         )
-                    }
+                        max_error = final_error.get("max_error_rad")
+                        if isinstance(max_error, (int, float)) and max_error <= position_tolerance:
+                            consecutive_converged += 1
+                        else:
+                            consecutive_converged = 0
+                        converged = consecutive_converged >= settle_cycles
                     latest_publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(latest_msg, target_by_index, gain_by_index, weight=1.0)
+                        self._build_arm_sdk_trajectory_cmd(latest_msg, publish_targets, gain_by_index, weight=1.0)
                     )
                     writes += 1
                     time.sleep(TRAJECTORY_DEFAULT_DT)
@@ -1631,7 +1688,11 @@ class TelemetryStore:
                     message=(
                         "arm_sdk trajectory replay cancelled."
                         if cancel.is_set()
-                        else f"arm_sdk trajectory replay complete ({writes} writes)."
+                        else (
+                            f"arm_sdk closed-loop replay converged ({writes} writes)."
+                            if closed_loop and converged
+                            else f"arm_sdk trajectory replay complete ({writes} writes)."
+                        )
                     ),
                     last_command={
                         "mode": "trajectory",
@@ -1639,6 +1700,13 @@ class TelemetryStore:
                         "command_scope": plan.get("command_scope"),
                         "control_path": plan.get("control_path"),
                         "writes": writes,
+                        "closed_loop": {
+                            "enabled": closed_loop,
+                            "converged": converged,
+                            "tolerance_rad": position_tolerance,
+                            "settle_seconds": ARM_REPLAY_SETTLE_SECONDS,
+                            "final_error": final_error,
+                        },
                     },
                 )
 
@@ -1655,6 +1723,12 @@ class TelemetryStore:
                 "command_scope": plan.get("command_scope"),
                 "control_path": plan.get("control_path"),
                 "xr_suspend": xr_suspend,
+                "closed_loop": {
+                    "enabled": closed_loop,
+                    "tolerance_rad": position_tolerance,
+                    "timeout_seconds": ARM_REPLAY_TIMEOUT_SECONDS,
+                    "settle_seconds": ARM_REPLAY_SETTLE_SECONDS,
+                },
             },
         )
         thread.start()
@@ -1664,7 +1738,68 @@ class TelemetryStore:
             "recording": path.name,
             "plan": plan,
             "xr_suspend": xr_suspend,
+            "closed_loop": {
+                "enabled": closed_loop,
+                "tolerance_rad": position_tolerance,
+                "timeout_seconds": ARM_REPLAY_TIMEOUT_SECONDS,
+                "settle_seconds": ARM_REPLAY_SETTLE_SECONDS,
+            },
         }
+
+    def _arm_replay_frame_targets(self, frame: dict[str, Any], commanded_body_joints: set[int]) -> dict[int, float]:
+        return {
+            int(motor["index"]): self._clamp_joint_target(int(motor["index"]), float(motor.get("q", 0.0)))
+            for motor in frame.get("motors", [])
+            if (
+                isinstance(motor, dict)
+                and "index" in motor
+                and int(motor["index"]) in ARM_SDK_JOINTS
+                and int(motor["index"]) in commanded_body_joints
+            )
+        }
+
+    def _closed_loop_arm_targets(
+        self,
+        msg: Any,
+        desired_by_index: dict[int, float],
+        pid_state: dict[int, dict[str, float]],
+        dt: float,
+    ) -> tuple[dict[int, float], dict[str, Any]]:
+        dt = max(0.001, dt)
+        corrected: dict[int, float] = {}
+        per_joint = []
+        max_error = 0.0
+        for joint, desired_q in desired_by_index.items():
+            motor_state = msg.motor_state[joint]
+            actual_q = float(getattr(motor_state, "q", 0.0) or 0.0)
+            actual_dq = float(getattr(motor_state, "dq", 0.0) or 0.0)
+            error = desired_q - actual_q
+            state = pid_state.setdefault(joint, {"integral": 0.0, "last_error": 0.0})
+            state["integral"] = max(
+                -ARM_REPLAY_INTEGRAL_LIMIT,
+                min(ARM_REPLAY_INTEGRAL_LIMIT, state.get("integral", 0.0) + error * dt),
+            )
+            kp, ki, kd = self._arm_replay_pid_gain(joint)
+            correction = kp * error + ki * state["integral"] - kd * actual_dq
+            correction = max(-ARM_REPLAY_MAX_PID_CORRECTION_RAD, min(ARM_REPLAY_MAX_PID_CORRECTION_RAD, correction))
+            corrected[joint] = self._clamp_joint_target(joint, desired_q + correction)
+            state["last_error"] = error
+            abs_error = abs(error)
+            max_error = max(max_error, abs_error)
+            per_joint.append(
+                {
+                    "index": joint,
+                    "name": JOINT_NAMES.get(joint, f"Motor{joint}"),
+                    "target_q": round(desired_q, 6),
+                    "actual_q": round(actual_q, 6),
+                    "error_rad": round(error, 6),
+                    "command_q": round(corrected[joint], 6),
+                }
+            )
+        return corrected, {"max_error_rad": round(max_error, 6), "per_joint": per_joint}
+
+    def _arm_replay_pid_gain(self, joint: int) -> tuple[float, float, float]:
+        return ARM_REPLAY_PID_GAINS.get(self._joint_gain_group(joint), (0.1, 0.0, 0.004))
 
     def _suspend_xr_motion_publishers(self) -> dict[str, Any]:
         if os.environ.get("RTW_SKIP_XR_SUSPEND") == "1":

@@ -928,6 +928,9 @@ function updateReplayUi() {
   const total = state.replay.frames.length;
   const builderPointCount = state.sequenceBuilder.active ? state.sequenceBuilder.points.length : 0;
   const frameNumber = total ? state.replay.index + 1 : 0;
+  const selectedReplayFile = els.recordingFileSelect?.value || "";
+  const savedReplaySelected = isRobotReplayFileName(selectedReplayFile);
+  const replayMatchesSelection = state.replay.loadedFile === selectedReplayFile;
   if (els.recordingScrub) {
     els.recordingScrub.max = String(Math.max(0, total - 1));
     els.recordingScrub.value = String(Math.min(state.replay.index, Math.max(0, total - 1)));
@@ -944,13 +947,39 @@ function updateReplayUi() {
     els.recordingPlay.disabled = (total === 0 && builderPointCount === 0) || state.replay.playing;
   }
   if (els.recordingRobotPlay) {
-    const canMoveArms = state.replay.previewComplete && total > 0 && Boolean(state.latest?.connected);
+    const canMoveArms =
+      state.replay.previewComplete &&
+      total > 0 &&
+      Boolean(state.latest?.connected) &&
+      savedReplaySelected &&
+      replayMatchesSelection;
     els.recordingRobotPlay.disabled = !canMoveArms;
     els.recordingRobotPlay.textContent = "Move Arms";
-    els.recordingRobotPlay.title = canMoveArms
-      ? "Publish the validated arm/waist trajectory through arm_sdk."
-      : "Locked until preview is complete and live robot telemetry is connected.";
+    els.recordingRobotPlay.title = robotReplayLockReason({
+      canMoveArms,
+      total,
+      selectedReplayFile,
+      savedReplaySelected,
+      replayMatchesSelection,
+    });
   }
+}
+
+function isRobotReplayFileName(name) {
+  return Boolean(name && (name.endsWith(".jsonl") || name.endsWith(".pose.json") || name.endsWith(".sequence.json")));
+}
+
+function robotReplayLockReason({ canMoveArms, total, selectedReplayFile, savedReplaySelected, replayMatchesSelection }) {
+  if (canMoveArms) return "Publish the validated arm/waist trajectory through arm_sdk.";
+  if (!state.latest?.connected) return "Locked until live robot telemetry is connected.";
+  if (!total) return "Locked until a trajectory is loaded.";
+  if (state.sequenceBuilder.active && state.replay.loadedFile === "__sequence_builder__") {
+    return "Save Sequence first so the robot receives a validated .sequence.json trajectory.";
+  }
+  if (!savedReplaySelected) return "Select a saved recording, pose, or sequence file before moving the robot.";
+  if (!replayMatchesSelection) return "Run Simulate Trajectory for the selected file before moving the robot.";
+  if (!state.replay.previewComplete) return "Locked until trajectory preview is complete.";
+  return selectedReplayFile ? "Robot replay is locked." : "Select a saved trajectory file.";
 }
 
 function showReplayFrame(index) {
@@ -1037,13 +1066,27 @@ function playReplay() {
 }
 
 async function requestRobotReplay() {
-  if (!state.replay.previewComplete || !els.recordingFileSelect?.value) return;
+  const selectedReplayFile = els.recordingFileSelect?.value || "";
+  if (
+    !state.replay.previewComplete ||
+    !isRobotReplayFileName(selectedReplayFile) ||
+    state.replay.loadedFile !== selectedReplayFile
+  ) {
+    if (els.recordingError) {
+      els.recordingError.textContent =
+        state.sequenceBuilder.active && state.replay.loadedFile === "__sequence_builder__"
+          ? "Save Sequence first; unsaved trajectory drafts are not sent to the physical robot."
+          : "Select a saved trajectory file and complete preview before moving the robot.";
+    }
+    updateReplayUi();
+    return;
+  }
   try {
     const response = await fetch("/api/recording/replay/robot", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        filename: els.recordingFileSelect.value,
+        filename: selectedReplayFile,
         preview_complete: true,
         execute_arm_sdk: true,
       }),

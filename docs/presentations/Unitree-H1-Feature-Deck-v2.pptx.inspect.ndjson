@@ -1,4 +1,4 @@
-{"kind":"deck","id":"pr/qq9rg1","name":"Deck"}
+{"kind":"deck","id":"pr/hlyjg1","name":"Deck"}
 {"kind":"layout","layoutId":"/ppt/slideMasters/slideMaster1.xml","name":"Master","type":"master"}
 {"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout1.xml","name":"Title Slide","type":"title"}
 {"kind":"slide","id":"sl/2x4nap4r","slide":1,"title":"ANA EKRAN","textShapes":10}
@@ -76,28 +76,28 @@
 {"kind":"textbox","id":"sh/ytsvu9kn","slide":5,"name":"telemetry-screenshot-caption","text":"Canlı operatör görünümü: solda sequence listesi, ortada 3D robot replay, üstte güvenlik ve kayıt aksiyonları.","textPreview":"Canlı operatör görünümü: solda sequence listesi, ortada 3D robot replay, üstte güvenlik ve kayıt aksiyonları.","textChars":109,"textLines":1,"bbox":[590,555,640,48]}
 {"kind":"shape","id":"sh/2x4nap4r","slide":5,"name":"telemetry-bottom-safety-band","bbox":[590,630,640,46]}
 {"kind":"textbox","id":"sh/vixczed8","slide":5,"name":"telemetry-bottom-safety-copy","text":"Amaç: hareket komutu gerçek robota gitmeden önce kayıt, görünürlük ve simülasyon doğrulaması tamamlanır.","textPreview":"Amaç: hareket komutu gerçek robota gitmeden önce kayıt, görünürlük ve simülasyon doğrulaması tamamlanır.","textChars":104,"textLines":1,"bbox":[612,641,596,26]}
-{"kind":"image","id":"im/b2hwfyxo","slide":5,"name":"","geometry":"roundRect","bbox":[590.34,72,639.31,464]}
+{"kind":"image","id":"im/b2hwfyxo","slide":5,"name":"","geometry":"rect","bbox":[590.34,72,639.31,464]}
 {"kind":"notes","id":"nt/mlkjm1cf","slide":5,"text":""}
-{"kind":"slide","id":"sl/qbu9p6","slide":6,"title":"XR WALKING CONTROL","textShapes":14}
-{"kind":"shape","id":"sh/bq1oryts","slide":6,"name":"xr-left-panel","bbox":[0,0,548,720]}
-{"kind":"textbox","id":"sh/4byhgn29","slide":6,"name":"xr-eyebrow","text":"XR WALKING CONTROL","textPreview":"XR WALKING CONTROL","textChars":18,"textLines":1,"bbox":[62,44,420,24]}
-{"kind":"textbox","id":"sh/twra5gbq","slide":6,"name":"xr-title","text":"Robotu yürütmenin\nüç yolu","textPreview":"Robotu yürütmenin | üç yolu","textChars":25,"textLines":2,"bbox":[62,88,430,104]}
-{"kind":"textbox","id":"sh/mhk3q5o7","slide":6,"name":"xr-subtitle","text":"Operatör; hassas manuel komut, baş yönüyle sezgisel sürüş veya pozisyon eşleme arasında geçiş yapabiliyor.","textPreview":"Operatör; hassas manuel komut, baş yönüyle sezgisel sürüş veya pozisyon eşleme arasında geçiş yapabiliyor.","textChars":106,"textLines":1,"bbox":[64,206,426,70]}
-{"kind":"shape","id":"sh/b2hwfyxo","slide":6,"name":"xr-control-index-1","bbox":[62,314,34,34]}
-{"kind":"textbox","id":"sh/4nap4r65","slide":6,"name":"xr-control-index-text-1","text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[62,319,34,22]}
-{"kind":"textbox","id":"sh/t83itgfm","slide":6,"name":"xr-control-title-1","text":"Floating VR Control Pad","textPreview":"Floating VR Control Pad","textChars":23,"textLines":1,"bbox":[112,312,392,26]}
-{"kind":"textbox","id":"sh/mp0bi9s3","slide":6,"name":"xr-control-body-1","text":"Sanal joystick/pad ile hız ve yön verilir. Demo, dar alan ve hassas manuel sürüş için uygun.","textPreview":"Sanal joystick/pad ile hız ve yön verilir. Demo, dar alan ve hassas manuel sürüş için uygun.","textChars":92,"textLines":1,"bbox":[112,343,398,54]}
-{"kind":"shape","id":"sh/bat47y1k","slide":6,"name":"xr-control-index-2","bbox":[62,428,34,34]}
-{"kind":"textbox","id":"sh/ji5snelo","slide":6,"name":"xr-control-index-text-2","text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[62,433,34,22]}
-{"kind":"textbox","id":"sh/uxc3ylc7","slide":6,"name":"xr-control-title-2","text":"Head Rotation Control","textPreview":"Head Rotation Control","textChars":21,"textLines":1,"bbox":[112,426,392,26]}
-{"kind":"textbox","id":"sh/1kre1w7m","slide":6,"name":"xr-control-body-2","text":"Başın baktığı yön robotun yürüyüş niyetine çevrilir. Operatör robotu bakışla yönlendirir.","textPreview":"Başın baktığı yön robotun yürüyüş niyetine çevrilir. Operatör robotu bakışla yönlendirir.","textChars":89,"textLines":1,"bbox":[112,457,398,54]}
-{"kind":"shape","id":"sh/c3ylc7u5","slide":6,"name":"xr-control-index-3","bbox":[62,542,34,34]}
-{"kind":"textbox","id":"sh/j6tovaho","slide":6,"name":"xr-control-index-text-3","text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[62,547,34,22]}
-{"kind":"textbox","id":"sh/ulwval87","slide":6,"name":"xr-control-title-3","text":"Motion Mimic / Position Sync","textPreview":"Motion Mimic / Position Sync","textChars":28,"textLines":1,"bbox":[112,540,392,26]}
-{"kind":"textbox","id":"sh/1cfa9w3m","slide":6,"name":"xr-control-body-3","text":"Operatörün pozisyonu ve yönelimi robot hareketine eşlenir. Telepresence hissini güçlendirir.","textPreview":"Operatörün pozisyonu ve yönelimi robot hareketine eşlenir. Telepresence hissini güçlendirir.","textChars":92,"textLines":1,"bbox":[112,571,398,54]}
-{"kind":"shape","id":"sh/j2t83itg","slide":6,"name":"xr-screenshot-outline","bbox":[586,86,650,408]}
-{"kind":"textbox","id":"sh/qh0fepkz","slide":6,"name":"xr-caption","text":"Görüntüde Vision Pro arayüzü robot sahnesinin üzerine bindirilmiş: üç kontrol modu aynı seçim ekranında karşılaştırılıyor.","textPreview":"Görüntüde Vision Pro arayüzü robot sahnesinin üzerine bindirilmiş: üç kontrol modu aynı seçim ekranında karşılaştırılıyor.","textChars":122,"textLines":1,"bbox":[588,520,644,58]}
-{"kind":"shape","id":"sh/i5sneloj","slide":6,"name":"xr-bottom-band","bbox":[586,618,650,56]}
-{"kind":"textbox","id":"sh/7qpg3ex0","slide":6,"name":"xr-bottom-copy","text":"Yürütme katmanı tek bir kontrol biçimine kilitlenmez; görev, ortam ve operatör deneyimine göre mod seçilir.","textPreview":"Yürütme katmanı tek bir kontrol biçimine kilitlenmez; görev, ortam ve operatör deneyimine göre mod seçilir.","textChars":107,"textLines":1,"bbox":[610,631,604,32]}
-{"kind":"image","id":"im/zidonyd0","slide":6,"name":"","geometry":"roundRect","alt":"Vision Pro görünümünde robot yürütme için üç kontrol yöntemi: floating VR pad, head rotation ve motion mimic","bbox":[586,86,650,408]}
-{"kind":"notes","id":"nt/qbu9p6","slide":6,"text":""}
+{"kind":"slide","id":"sl/58z25kb6","slide":6,"title":"XR WALKING CONTROL","textShapes":14}
+{"kind":"shape","id":"sh/9cvixcze","slide":6,"name":"xr-left-panel","bbox":[0,0,548,720]}
+{"kind":"textbox","id":"sh/ylc7u54z","slide":6,"name":"xr-eyebrow","text":"XR WALKING CONTROL","textPreview":"XR WALKING CONTROL","textChars":18,"textLines":1,"bbox":[62,44,420,24]}
+{"kind":"textbox","id":"sh/r65wjudg","slide":6,"name":"xr-title","text":"Robotu yürütmenin\nüç yolu","textPreview":"Robotu yürütmenin | üç yolu","textChars":25,"textLines":2,"bbox":[62,88,430,104]}
+{"kind":"textbox","id":"sh/g3ex0nux","slide":6,"name":"xr-subtitle","text":"Operatör; hassas manuel komut, baş yönüyle sezgisel sürüş veya pozisyon eşleme arasında geçiş yapabiliyor.","textPreview":"Operatör; hassas manuel komut, baş yönüyle sezgisel sürüş veya pozisyon eşleme arasında geçiş yapabiliyor.","textChars":106,"textLines":1,"bbox":[64,206,426,70]}
+{"kind":"shape","id":"sh/5o7qpg3e","slide":6,"name":"xr-control-index-1","bbox":[62,314,34,34]}
+{"kind":"textbox","id":"sh/yxobm58z","slide":6,"name":"xr-control-index-text-1","text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[62,319,34,22]}
+{"kind":"textbox","id":"sh/nih4byhg","slide":6,"name":"xr-control-title-1","text":"Floating VR Control Pad","textPreview":"Floating VR Control Pad","textChars":23,"textLines":1,"bbox":[112,312,392,26]}
+{"kind":"textbox","id":"sh/g7adsji5","slide":6,"name":"xr-control-body-1","text":"Sanal joystick/pad ile hız ve yön verilir. Demo, dar alan ve hassas manuel sürüş için uygun.","textPreview":"Sanal joystick/pad ile hız ve yön verilir. Demo, dar alan ve hassas manuel sürüş için uygun.","textChars":92,"textLines":1,"bbox":[112,343,398,54]}
+{"kind":"shape","id":"sh/9s36hcrm","slide":6,"name":"xr-control-index-2","bbox":[62,428,34,34]}
+{"kind":"textbox","id":"sh/d8v6psfi","slide":6,"name":"xr-control-index-text-2","text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[62,433,34,22]}
+{"kind":"textbox","id":"sh/onyd0z61","slide":6,"name":"xr-control-title-2","text":"Head Rotation Control","textPreview":"Head Rotation Control","textChars":21,"textLines":1,"bbox":[112,426,392,26]}
+{"kind":"textbox","id":"sh/z25kb6xk","slide":6,"name":"xr-control-body-2","text":"Başın baktığı yön robotun yürüyüş niyetine çevrilir. Operatör robotu bakışla yönlendirir.","textPreview":"Başın baktığı yön robotun yürüyüş niyetine çevrilir. Operatör robotu bakışla yönlendirir.","textChars":89,"textLines":1,"bbox":[112,457,398,54]}
+{"kind":"shape","id":"sh/6hcrmhk3","slide":6,"name":"xr-control-index-3","bbox":[62,542,34,34]}
+{"kind":"textbox","id":"sh/dg7adsji","slide":6,"name":"xr-control-index-text-3","text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[62,547,34,22]}
+{"kind":"textbox","id":"sh/ovahoza1","slide":6,"name":"xr-control-title-3","text":"Motion Mimic / Position Sync","textPreview":"Motion Mimic / Position Sync","textChars":28,"textLines":1,"bbox":[112,540,392,26]}
+{"kind":"textbox","id":"sh/vahoza1g","slide":6,"name":"xr-control-body-3","text":"Operatörün pozisyonu ve yönelimi robot hareketine eşlenir. Telepresence hissini güçlendirir.","textPreview":"Operatörün pozisyonu ve yönelimi robot hareketine eşlenir. Telepresence hissini güçlendirir.","textChars":92,"textLines":1,"bbox":[112,571,398,54]}
+{"kind":"shape","id":"sh/dsji5sne","slide":6,"name":"xr-screenshot-outline","bbox":[586,86,650,408]}
+{"kind":"textbox","id":"sh/o7qpg3ex","slide":6,"name":"xr-caption","text":"Görüntüde Vision Pro arayüzü robot sahnesinin üzerine bindirilmiş: üç kontrol modu aynı seçim ekranında karşılaştırılıyor.","textPreview":"Görüntüde Vision Pro arayüzü robot sahnesinin üzerine bindirilmiş: üç kontrol modu aynı seçim ekranında karşılaştırılıyor.","textChars":122,"textLines":1,"bbox":[588,520,644,58]}
+{"kind":"shape","id":"sh/kjm1cfa9","slide":6,"name":"xr-bottom-band","bbox":[586,618,650,56]}
+{"kind":"textbox","id":"sh/94fu18jq","slide":6,"name":"xr-bottom-copy","text":"Yürütme katmanı tek bir kontrol biçimine kilitlenmez; görev, ortam ve operatör deneyimine göre mod seçilir.","textPreview":"Yürütme katmanı tek bir kontrol biçimine kilitlenmez; görev, ortam ve operatör deneyimine göre mod seçilir.","textChars":107,"textLines":1,"bbox":[610,631,604,32]}
+{"kind":"image","id":"im/lc7u54zi","slide":6,"name":"","geometry":"rect","bbox":[586,86,650,408]}
+{"kind":"notes","id":"nt/58z25kb6","slide":6,"text":""}

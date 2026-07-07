@@ -1,0 +1,26 @@
+{"kind":"deck","id":"pr/5kmarv","name":"Deck"}
+{"kind":"layout","layoutId":"37d26f38-6424-4401-9a6c-5684df606d0c","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"92c506a2-4057-48ea-bb9e-c8ad52872282","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/k1o8ry","slide":1,"title":"ROBOT TELEMETRY WORKFLOW","textShapes":13}
+{"kind":"shape","id":"sh/8v6psfil","slide":1,"name":"left-panel-soft-fill","bbox":[0,0,560,720]}
+{"kind":"textbox","id":"sh/fa9w3m94","slide":1,"name":"eyebrow","text":"ROBOT TELEMETRY WORKFLOW","textPreview":"ROBOT TELEMETRY WORKFLOW","textChars":24,"textLines":1,"bbox":[54,44,430,24]}
+{"kind":"textbox","id":"sh/qpg3ex0n","slide":1,"name":"title","text":"Telemetry Recorder\nhareketi doğruluyor","textPreview":"Telemetry Recorder | hareketi doğruluyor","textChars":38,"textLines":2,"bbox":[54,82,468,104]}
+{"kind":"textbox","id":"sh/x4nap4r6","slide":1,"name":"subtitle","text":"Ekran; motor örneklerinden sequence oluşturma, simülasyonla kontrol etme ve güvenli hareketi gerçek robota kaydetme akışını tek yerde topluyor.","textPreview":"Ekran; motor örneklerinden sequence oluşturma, simülasyonla kontrol etme ve güvenli hareketi gerçek robota kaydetme akışını tek yerde top...","textChars":143,"textLines":1,"bbox":[56,208,456,78]}
+{"kind":"shape","id":"sh/8jqh0fep","slide":1,"name":"feature-accent-0","bbox":[54,306,8,78]}
+{"kind":"textbox","id":"sh/fyxobm58","slide":1,"name":"feature-title-0","text":"Sıralı hareket noktaları","textPreview":"Sıralı hareket noktaları","textChars":24,"textLines":1,"bbox":[76,304,442,26]}
+{"kind":"textbox","id":"sh/qd4vmtwr","slide":1,"name":"feature-body-0","text":"Her point; 27 motor, zaman damgası ve replay sırası ile tutuluyor. Seçili point anında izlenebiliyor.","textPreview":"Her point; 27 motor, zaman damgası ve replay sırası ile tutuluyor. Seçili point anında izlenebiliyor.","textChars":101,"textLines":1,"bbox":[76,334,450,52]}
+{"kind":"shape","id":"sh/xs72x4na","slide":1,"name":"feature-accent-1","bbox":[54,404,8,78]}
+{"kind":"textbox","id":"sh/87ed8bat","slide":1,"name":"feature-title-1","text":"IK ve sınır doğrulaması","textPreview":"IK ve sınır doğrulaması","textChars":23,"textLines":1,"bbox":[76,402,442,26]}
+{"kind":"textbox","id":"sh/ed8v6psf","slide":1,"name":"feature-body-1","text":"IK hatası cm seviyesinde gösteriliyor; bounds açıkken güvenli eklem limitleri korunuyor.","textPreview":"IK hatası cm seviyesinde gösteriliyor; bounds açıkken güvenli eklem limitleri korunuyor.","textChars":88,"textLines":1,"bbox":[76,432,450,52]}
+{"kind":"shape","id":"sh/7y1kre1w","slide":1,"name":"feature-accent-2","bbox":[54,502,8,78]}
+{"kind":"textbox","id":"sh/wjudg7ad","slide":1,"name":"feature-title-2","text":"Simülasyon ve replay karşılaştırması","textPreview":"Simülasyon ve replay karşılaştırması","textChars":36,"textLines":1,"bbox":[76,500,442,26]}
+{"kind":"textbox","id":"sh/p4r65wju","slide":1,"name":"feature-body-2","text":"Mavi referans, yeşil simülasyon ve kırmızı hedef hareket aynı sahnede üst üste okunuyor.","textPreview":"Mavi referans, yeşil simülasyon ve kırmızı hedef hareket aynı sahnede üst üste okunuyor.","textChars":88,"textLines":1,"bbox":[76,530,450,52]}
+{"kind":"shape","id":"sh/i5sneloj","slide":1,"name":"feature-accent-3","bbox":[54,600,8,78]}
+{"kind":"textbox","id":"sh/7qpg3ex0","slide":1,"name":"feature-title-3","text":"Gerçek robota aktarım kapısı","textPreview":"Gerçek robota aktarım kapısı","textChars":28,"textLines":1,"bbox":[76,598,442,26]}
+{"kind":"textbox","id":"sh/0bi9s36h","slide":1,"name":"feature-body-3","text":"Add Point, Simulate Trajectory, Move Arms ve Save Real Robot Motion adımları aynı operatör akışında.","textPreview":"Add Point, Simulate Trajectory, Move Arms ve Save Real Robot Motion adımları aynı operatör akışında.","textChars":100,"textLines":1,"bbox":[76,628,450,52]}
+{"kind":"shape","id":"sh/itgfmlkj","slide":1,"name":"screenshot-outline","bbox":[590,72,640,464]}
+{"kind":"textbox","id":"sh/7ed8bat4","slide":1,"name":"screenshot-caption","text":"Canlı operatör görünümü: solda sequence listesi, ortada 3D robot replay, üstte güvenlik ve kayıt aksiyonları.","textPreview":"Canlı operatör görünümü: solda sequence listesi, ortada 3D robot replay, üstte güvenlik ve kayıt aksiyonları.","textChars":109,"textLines":1,"bbox":[590,555,640,48]}
+{"kind":"shape","id":"sh/jqh0fepk","slide":1,"name":"bottom-safety-band","bbox":[590,630,640,46]}
+{"kind":"textbox","id":"sh/q5o7qpg3","slide":1,"name":"bottom-safety-copy","text":"Amaç: hareket komutu gerçek robota gitmeden önce kayıt, görünürlük ve simülasyon doğrulaması tamamlanır.","textPreview":"Amaç: hareket komutu gerçek robota gitmeden önce kayıt, görünürlük ve simülasyon doğrulaması tamamlanır.","textChars":104,"textLines":1,"bbox":[612,641,596,26]}
+{"kind":"image","id":"im/il0rqd4v","slide":1,"name":"","geometry":"roundRect","alt":"Telemetry Recorder ekranında kaydedilmiş robot kol sequence noktaları ve 3D simülasyon görünümü","bbox":[590,72,640,464]}
+{"kind":"notes","id":"nt/k1o8ry","slide":1,"text":""}

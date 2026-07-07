@@ -1091,7 +1091,7 @@ async function requestRobotReplay() {
         execute_arm_sdk: true,
         command_scope: "right_arm",
         closed_loop: true,
-        position_tolerance_rad: 0.03,
+        position_tolerance_rad: 0.05,
       }),
     });
     const payload = await response.json();

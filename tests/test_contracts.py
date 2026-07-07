@@ -261,6 +261,22 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertLessEqual(corrected[joint] - target[joint], server.ARM_REPLAY_MAX_PID_CORRECTION_RAD)
         self.assertEqual(error["max_error_rad"], 0.3)
 
+    def test_smooth_arm_replay_frames_ramp_from_current_position(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        msg = FakeLowState()
+        joint = 20
+        msg.motor_state[joint].q = 0.0
+        frames = [{"motors": [{"index": joint, "name": server.JOINT_NAMES[joint], "q": 1.0}]}]
+
+        smoothed = store._smooth_arm_replay_frames(frames, msg, {joint})
+        first_q = smoothed[0]["motors"][0]["q"]
+        final_q = smoothed[-1]["motors"][0]["q"]
+
+        self.assertGreater(len(smoothed), 100)
+        self.assertGreater(first_q, 0.0)
+        self.assertLess(first_q, 0.001)
+        self.assertAlmostEqual(final_q, 1.0)
+
     def test_replay_planner_includes_parallel_hand_plan_for_finger_motion(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         with TemporaryDirectory() as directory:

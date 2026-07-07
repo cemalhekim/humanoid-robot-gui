@@ -128,11 +128,14 @@ TRAJECTORY_DENSE_MAX_DT = 1.0 / 30.0
 TRAJECTORY_MAX_INTERPOLATED_STEP_RAD = 0.05
 TRAJECTORY_MAX_REPORTED_VIOLATIONS = 20
 ARM_REPLAY_CLOSED_LOOP_DEFAULT = True
-ARM_REPLAY_TOLERANCE_RAD = 0.03
-ARM_REPLAY_SETTLE_SECONDS = 0.45
-ARM_REPLAY_TIMEOUT_SECONDS = 8.0
-ARM_REPLAY_MAX_PID_CORRECTION_RAD = 0.16
-ARM_REPLAY_INTEGRAL_LIMIT = 0.45
+ARM_REPLAY_TOLERANCE_RAD = 0.05
+ARM_REPLAY_SETTLE_SECONDS = 0.6
+ARM_REPLAY_TIMEOUT_SECONDS = 10.0
+ARM_REPLAY_SMOOTH_APPROACH_SECONDS = 4.5
+ARM_REPLAY_MAX_PID_CORRECTION_RAD = 0.04
+ARM_REPLAY_INTEGRAL_LIMIT = 0.2
+ARM_REPLAY_INNER_KP_SCALE = 0.35
+ARM_REPLAY_INNER_KD_SCALE = 1.2
 HAND_STATE_TOPIC = "rt/inspire/state"
 HAND_COMMAND_TOPIC = "rt/inspire/cmd"
 HAND_TRAJECTORY_EPSILON = 0.02
@@ -157,10 +160,10 @@ GAIN_NOMINALS = {
     "wrist": {"step": 0.07, "velocity": 1.2},
 }
 ARM_REPLAY_PID_GAINS = {
-    "shoulder": (0.18, 0.02, 0.01),
-    "elbow": (0.14, 0.015, 0.008),
-    "wrist": (0.1, 0.01, 0.006),
-    "waist": (0.08, 0.0, 0.004),
+    "shoulder": (0.045, 0.004, 0.018),
+    "elbow": (0.035, 0.003, 0.014),
+    "wrist": (0.025, 0.002, 0.012),
+    "waist": (0.02, 0.0, 0.01),
 }
 RIGHT_WRIST_YAW = 26
 ARM_SDK_WEIGHT_SLOT = 27
@@ -1583,7 +1586,10 @@ class TelemetryStore:
             }
 
         gain_by_index = {
-            int(item["index"]): (float(item["kp"]), float(item["kd"]))
+            int(item["index"]): (
+                float(item["kp"]) * ARM_REPLAY_INNER_KP_SCALE,
+                float(item["kd"]) * ARM_REPLAY_INNER_KD_SCALE,
+            )
             for item in plan.get("gain_plan", [])
             if isinstance(item, dict) and "index" in item
         }
@@ -1600,6 +1606,7 @@ class TelemetryStore:
             joint: {"integral": 0.0, "last_error": 0.0}
             for joint in commanded_body_joints
         }
+        execution_frames = self._smooth_arm_replay_frames(frames, msg, commanded_body_joints)
 
         def run_replay() -> None:
             previous_timestamp: float | None = None
@@ -1614,7 +1621,7 @@ class TelemetryStore:
                 (plan.get("duration_seconds", 0.0) or 0.0) + ARM_REPLAY_TIMEOUT_SECONDS,
             )
             try:
-                for frame in frames:
+                for frame in execution_frames:
                     if cancel.is_set():
                         break
                     with self.command_lock:
@@ -1655,9 +1662,9 @@ class TelemetryStore:
                     with self.command_lock:
                         latest_msg = self.lowstate_msg
                         latest_publisher = self.wrist_publisher
-                    if latest_msg is None or latest_publisher is None or not frames:
+                    if latest_msg is None or latest_publisher is None or not execution_frames:
                         break
-                    final_frame = frames[-1]
+                    final_frame = execution_frames[-1]
                     target_by_index = self._arm_replay_frame_targets(final_frame, commanded_body_joints)
                     publish_targets = target_by_index
                     if closed_loop:
@@ -1700,6 +1707,9 @@ class TelemetryStore:
                         "command_scope": plan.get("command_scope"),
                         "control_path": plan.get("control_path"),
                         "writes": writes,
+                        "smooth_approach_seconds": ARM_REPLAY_SMOOTH_APPROACH_SECONDS,
+                        "inner_kp_scale": ARM_REPLAY_INNER_KP_SCALE,
+                        "inner_kd_scale": ARM_REPLAY_INNER_KD_SCALE,
                         "closed_loop": {
                             "enabled": closed_loop,
                             "converged": converged,
@@ -1728,6 +1738,9 @@ class TelemetryStore:
                     "tolerance_rad": position_tolerance,
                     "timeout_seconds": ARM_REPLAY_TIMEOUT_SECONDS,
                     "settle_seconds": ARM_REPLAY_SETTLE_SECONDS,
+                    "smooth_approach_seconds": ARM_REPLAY_SMOOTH_APPROACH_SECONDS,
+                    "inner_kp_scale": ARM_REPLAY_INNER_KP_SCALE,
+                    "inner_kd_scale": ARM_REPLAY_INNER_KD_SCALE,
                 },
             },
         )
@@ -1743,8 +1756,50 @@ class TelemetryStore:
                 "tolerance_rad": position_tolerance,
                 "timeout_seconds": ARM_REPLAY_TIMEOUT_SECONDS,
                 "settle_seconds": ARM_REPLAY_SETTLE_SECONDS,
+                "smooth_approach_seconds": ARM_REPLAY_SMOOTH_APPROACH_SECONDS,
+                "inner_kp_scale": ARM_REPLAY_INNER_KP_SCALE,
+                "inner_kd_scale": ARM_REPLAY_INNER_KD_SCALE,
             },
         }
+
+    def _smooth_arm_replay_frames(
+        self,
+        frames: list[dict[str, Any]],
+        start_msg: Any,
+        commanded_body_joints: set[int],
+    ) -> list[dict[str, Any]]:
+        if not frames:
+            return []
+        first_targets = self._arm_replay_frame_targets(frames[0], commanded_body_joints)
+        if not first_targets:
+            return frames
+        start_by_index = {
+            joint: float(getattr(start_msg.motor_state[joint], "q", 0.0) or 0.0)
+            for joint in first_targets
+        }
+        steps = max(1, math.ceil(ARM_REPLAY_SMOOTH_APPROACH_SECONDS / TRAJECTORY_DEFAULT_DT))
+        smoothed: list[dict[str, Any]] = []
+        for step in range(1, steps + 1):
+            progress = step / steps
+            eased = progress * progress * (3.0 - 2.0 * progress)
+            smoothed.append(
+                {
+                    "motors": [
+                        {
+                            "index": joint,
+                            "name": JOINT_NAMES.get(joint, f"Motor{joint}"),
+                            "q": self._clamp_joint_target(
+                                joint,
+                                start_by_index[joint] + (target_q - start_by_index[joint]) * eased,
+                            ),
+                        }
+                        for joint, target_q in first_targets.items()
+                    ],
+                }
+            )
+        for frame in frames[1:]:
+            smoothed.append({"motors": frame.get("motors", [])})
+        return smoothed
 
     def _arm_replay_frame_targets(self, frame: dict[str, Any], commanded_body_joints: set[int]) -> dict[int, float]:
         return {

@@ -159,6 +159,22 @@ REPLAY_COMMAND_SCOPES = {
     "right_arm": JOINT_GROUPS["right_arm"],
     "left_arm": JOINT_GROUPS["left_arm"],
 }
+JOINT_LIMITS = {
+    13: (-3.14, 1.57),
+    14: (-0.38, 3.4),
+    15: (-2.66, 3.01),
+    16: (-0.95, 3.18),
+    17: (-3.01, 2.75),
+    18: (-0.4625, 0.4625),
+    19: (-1.27, 1.27),
+    20: (-3.14, 1.57),
+    21: (-3.4, 0.38),
+    22: (-3.01, 2.66),
+    23: (-0.95, 3.18),
+    24: (-2.75, 3.01),
+    25: (-0.4625, 0.4625),
+    26: (-1.27, 1.27),
+}
 WRIST_LIMITS = (-1.2, 1.2)
 LOCO_LIMITS = {
     "vx": [-1.0, 1.0],
@@ -1539,6 +1555,8 @@ class TelemetryStore:
 
         def run_replay() -> None:
             previous_timestamp: float | None = None
+            writes = 0
+            hold_until = time.monotonic() + max(TRAJECTORY_APPROACH_SECONDS, plan.get("duration_seconds", 0.0) or 0.0)
             try:
                 for frame in frames:
                     if cancel.is_set():
@@ -1549,7 +1567,7 @@ class TelemetryStore:
                     if latest_msg is None or latest_publisher is None:
                         break
                     target_by_index = {
-                        int(motor["index"]): float(motor.get("q", 0.0))
+                        int(motor["index"]): self._clamp_joint_target(int(motor["index"]), float(motor.get("q", 0.0)))
                         for motor in frame.get("motors", [])
                         if (
                             isinstance(motor, dict)
@@ -1558,7 +1576,10 @@ class TelemetryStore:
                             and int(motor["index"]) in commanded_body_joints
                         )
                     }
-                    latest_publisher.Write(self._build_arm_sdk_trajectory_cmd(latest_msg, target_by_index, gain_by_index, weight=1.0))
+                    latest_publisher.Write(
+                        self._build_arm_sdk_trajectory_cmd(latest_msg, target_by_index, gain_by_index, weight=1.0)
+                    )
+                    writes += 1
                     timestamp = numeric(frame.get("timestamp"))
                     if previous_timestamp is not None and timestamp is not None:
                         time.sleep(max(0.0, min(0.1, timestamp - previous_timestamp)))
@@ -1566,11 +1587,48 @@ class TelemetryStore:
                         time.sleep(TRAJECTORY_DEFAULT_DT)
                     if timestamp is not None:
                         previous_timestamp = timestamp
+                while not cancel.is_set() and time.monotonic() < hold_until:
+                    with self.command_lock:
+                        latest_msg = self.lowstate_msg
+                        latest_publisher = self.wrist_publisher
+                    if latest_msg is None or latest_publisher is None or not frames:
+                        break
+                    final_frame = frames[-1]
+                    target_by_index = {
+                        int(motor["index"]): self._clamp_joint_target(int(motor["index"]), float(motor.get("q", 0.0)))
+                        for motor in final_frame.get("motors", [])
+                        if (
+                            isinstance(motor, dict)
+                            and "index" in motor
+                            and int(motor["index"]) in ARM_SDK_JOINTS
+                            and int(motor["index"]) in commanded_body_joints
+                        )
+                    }
+                    latest_publisher.Write(
+                        self._build_arm_sdk_trajectory_cmd(latest_msg, target_by_index, gain_by_index, weight=1.0)
+                    )
+                    writes += 1
+                    time.sleep(TRAJECTORY_DEFAULT_DT)
             finally:
                 with self.command_lock:
                     if self.replay_cancel is cancel:
                         self.replay_cancel = None
                         self.replay_thread = None
+                self._set_wrist_status(
+                    active=False,
+                    message=(
+                        "arm_sdk trajectory replay cancelled."
+                        if cancel.is_set()
+                        else f"arm_sdk trajectory replay complete ({writes} writes)."
+                    ),
+                    last_command={
+                        "mode": "trajectory",
+                        "recording": path.name,
+                        "command_scope": plan.get("command_scope"),
+                        "control_path": plan.get("control_path"),
+                        "writes": writes,
+                    },
+                )
 
         thread = threading.Thread(target=run_replay, name="arm-sdk-trajectory-replay", daemon=True)
         with self.command_lock:
@@ -1583,6 +1641,14 @@ class TelemetryStore:
             "recording": path.name,
             "plan": plan,
         }
+
+    @staticmethod
+    def _clamp_joint_target(joint: int, q: float) -> float:
+        low_high = JOINT_LIMITS.get(joint)
+        if low_high is None:
+            return q
+        low, high = low_high
+        return max(low, min(high, q))
 
     def plan_replay_control_path(self, path: Path, command_scope: str = "all") -> dict[str, Any]:
         if command_scope not in REPLAY_COMMAND_SCOPES:

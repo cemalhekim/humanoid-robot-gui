@@ -153,6 +153,12 @@ ARM_SDK_WEIGHT_SLOT = 27
 ARM_SDK_JOINTS = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 12]
 ARM_SDK_KP = [120, 120, 80, 50, 50, 50, 50, 120, 120, 80, 50, 50, 50, 50, 200]
 ARM_SDK_KD = [2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0]
+REPLAY_COMMAND_SCOPES = {
+    "all": list(JOINT_NAMES),
+    "arms": JOINT_GROUPS["left_arm"] + JOINT_GROUPS["right_arm"] + JOINT_GROUPS["waist"],
+    "right_arm": JOINT_GROUPS["right_arm"],
+    "left_arm": JOINT_GROUPS["left_arm"],
+}
 WRIST_LIMITS = (-1.2, 1.2)
 LOCO_LIMITS = {
     "vx": [-1.0, 1.0],
@@ -1463,6 +1469,12 @@ class TelemetryStore:
 
     def request_robot_replay(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         filename = str(payload.get("filename", "")).strip()
+        command_scope = str(payload.get("command_scope", "all") or "all").strip()
+        if command_scope not in REPLAY_COMMAND_SCOPES:
+            return 400, {
+                "ok": False,
+                "error": f"command_scope must be one of {', '.join(sorted(REPLAY_COMMAND_SCOPES))}.",
+            }
         if not payload.get("preview_complete"):
             return 400, {"ok": False, "error": "Replay preview must be completed before robot playback is requested."}
         try:
@@ -1471,7 +1483,7 @@ class TelemetryStore:
             return 404, {"ok": False, "error": "Recording file was not found."}
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
-        plan = self.plan_replay_control_path(path)
+        plan = self.plan_replay_control_path(path, command_scope=command_scope)
         if payload.get("dry_run") is True:
             return 200, {"ok": True, "recording": path.name, "plan": plan}
         if payload.get("execute_arm_sdk") is True:
@@ -1517,6 +1529,13 @@ class TelemetryStore:
             if isinstance(item, dict) and "index" in item
         }
         cancel = threading.Event()
+        commanded_body_joints = {
+            int(item["index"])
+            for item in plan.get("commanded_body_joints", [])
+            if isinstance(item, dict) and "index" in item
+        }
+        if not commanded_body_joints:
+            commanded_body_joints = set(ARM_SDK_JOINTS)
 
         def run_replay() -> None:
             previous_timestamp: float | None = None
@@ -1532,7 +1551,12 @@ class TelemetryStore:
                     target_by_index = {
                         int(motor["index"]): float(motor.get("q", 0.0))
                         for motor in frame.get("motors", [])
-                        if isinstance(motor, dict) and "index" in motor and int(motor["index"]) in ARM_SDK_JOINTS
+                        if (
+                            isinstance(motor, dict)
+                            and "index" in motor
+                            and int(motor["index"]) in ARM_SDK_JOINTS
+                            and int(motor["index"]) in commanded_body_joints
+                        )
                     }
                     latest_publisher.Write(self._build_arm_sdk_trajectory_cmd(latest_msg, target_by_index, gain_by_index, weight=1.0))
                     timestamp = numeric(frame.get("timestamp"))
@@ -1560,7 +1584,10 @@ class TelemetryStore:
             "plan": plan,
         }
 
-    def plan_replay_control_path(self, path: Path) -> dict[str, Any]:
+    def plan_replay_control_path(self, path: Path, command_scope: str = "all") -> dict[str, Any]:
+        if command_scope not in REPLAY_COMMAND_SCOPES:
+            raise ValueError(f"command_scope must be one of {', '.join(sorted(REPLAY_COMMAND_SCOPES))}")
+        scoped_joints = set(REPLAY_COMMAND_SCOPES[command_scope])
         frames = self._recording_trajectory_frames(path)
         current_q = self._current_body_q()
         current_lower = {joint: current_q[joint] for joint in LOWER_BODY_JOINTS}
@@ -1584,6 +1611,8 @@ class TelemetryStore:
                 if isinstance(motor, dict) and "index" in motor
             }
             for joint in LOWER_BODY_JOINTS:
+                if joint not in scoped_joints:
+                    continue
                 delta = abs(by_index.get(joint, current_lower[joint]) - current_lower[joint])
                 max_lower_delta = max(max_lower_delta, delta)
                 if delta > TRAJECTORY_ROUTE_EPSILON:
@@ -1598,7 +1627,7 @@ class TelemetryStore:
                 previous_timestamp = float(timestamp)
 
             for joint, target_q in by_index.items():
-                if joint not in JOINT_NAMES:
+                if joint not in JOINT_NAMES or joint not in scoped_joints:
                     continue
                 delta = abs(target_q - previous_q.get(joint, 0.0))
                 total_delta = abs(target_q - current_q.get(joint, 0.0))
@@ -1632,9 +1661,15 @@ class TelemetryStore:
 
         control_path = "lowcmd" if moving_lower_joints else "arm_sdk"
         duration = self._trajectory_duration(frames)
-        hand_plan = self._plan_hand_trajectory(frames)
+        hand_plan = self._plan_hand_trajectory(frames) if command_scope == "all" else self._disabled_hand_plan(
+            "Hand/finger targets are ignored for scoped arm replay."
+        )
         all_violations = [*violations, *hand_plan["violations"]]
         return {
+            "command_scope": command_scope,
+            "commanded_body_joints": [
+                {"index": joint, "name": JOINT_NAMES[joint]} for joint in sorted(scoped_joints) if joint in JOINT_NAMES
+            ],
             "control_path": control_path,
             "reason": (
                 "lower body joints move during the planned trajectory"
@@ -1663,6 +1698,24 @@ class TelemetryStore:
                 "hand_max_velocity": HAND_TRAJECTORY_MAX_VELOCITY,
             },
             "violations": all_violations,
+        }
+
+    @staticmethod
+    def _disabled_hand_plan(note: str) -> dict[str, Any]:
+        return {
+            "enabled": False,
+            "state_topic": HAND_STATE_TOPIC,
+            "command_topic": HAND_COMMAND_TOPIC,
+            "command_type": "unitree_go.msg.dds_.MotorCmds_",
+            "joint_count": len(HAND_JOINT_NAMES),
+            "frame_count": 0,
+            "stationary_threshold": HAND_TRAJECTORY_EPSILON,
+            "max_frame_delta": 0.0,
+            "max_velocity": 0.0,
+            "valid_for_execution": True,
+            "moving_hand_joints": [],
+            "execution_note": note,
+            "violations": [],
         }
 
     def _plan_hand_trajectory(self, frames: list[dict[str, Any]]) -> dict[str, Any]:

@@ -1089,6 +1089,7 @@ async function requestRobotReplay() {
         filename: selectedReplayFile,
         preview_complete: true,
         execute_arm_sdk: true,
+        command_scope: "right_arm",
       }),
     });
     const payload = await response.json();

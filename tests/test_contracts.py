@@ -162,6 +162,36 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(knee_gain["group"], "knee")
         self.assertGreaterEqual(knee_gain["kp"], server.LOWCMD_BASE_GAINS["knee"][0] * 0.75)
 
+    def test_right_arm_replay_scope_ignores_full_body_pose_lower_joints(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            path = server.Path(directory) / "full-body-pose.pose.json"
+            motors = [
+                {"index": index, "name": name, "q": 0.0}
+                for index, name in server.JOINT_NAMES.items()
+            ]
+            motors[3]["q"] = 0.5
+            motors[20]["q"] = 0.25
+            path.write_text(
+                server.json.dumps({"type": "pose_point", "snapshot": {"timestamp": 10.0, "motors": motors}}),
+                encoding="utf-8",
+            )
+
+            full_plan = store.plan_replay_control_path(path)
+            right_arm_plan = store.plan_replay_control_path(path, command_scope="right_arm")
+
+        self.assertEqual(full_plan["control_path"], "lowcmd")
+        self.assertEqual(right_arm_plan["control_path"], "arm_sdk")
+        self.assertEqual(right_arm_plan["moving_lower_body_joints"], [])
+        self.assertEqual(
+            [joint["index"] for joint in right_arm_plan["commanded_body_joints"]],
+            server.JOINT_GROUPS["right_arm"],
+        )
+        self.assertEqual(
+            [joint["index"] for joint in right_arm_plan["moving_joints"]],
+            [20],
+        )
+
     def test_replay_planner_includes_parallel_hand_plan_for_finger_motion(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         with TemporaryDirectory() as directory:

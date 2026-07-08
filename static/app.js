@@ -1119,6 +1119,7 @@ async function requestRobotReplay() {
         execute_arm_sdk: true,
         command_scope: "both_arms",
         closed_loop: replayClosedLoopEnabled(),
+        hold_after_convergence: true,
         position_tolerance_rad: 0.01,
         replay_response: replayResponseValue(),
       }),

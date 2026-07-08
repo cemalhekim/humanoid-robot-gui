@@ -128,6 +128,7 @@ TRAJECTORY_DENSE_MAX_DT = 1.0 / 30.0
 TRAJECTORY_MAX_INTERPOLATED_STEP_RAD = 0.05
 TRAJECTORY_MAX_REPORTED_VIOLATIONS = 20
 ARM_REPLAY_CLOSED_LOOP_DEFAULT = True
+ARM_REPLAY_HOLD_AFTER_CONVERGENCE_DEFAULT = True
 ARM_REPLAY_LOCK_TOLERANCE_M = 0.01
 ARM_REPLAY_LOCK_TOLERANCE_RAD = 0.01
 ARM_REPLAY_TOLERANCE_RAD = ARM_REPLAY_LOCK_TOLERANCE_RAD
@@ -1575,6 +1576,9 @@ class TelemetryStore:
 
         payload = payload or {}
         closed_loop = bool(payload.get("closed_loop", ARM_REPLAY_CLOSED_LOOP_DEFAULT))
+        hold_after_convergence = bool(
+            payload.get("hold_after_convergence", ARM_REPLAY_HOLD_AFTER_CONVERGENCE_DEFAULT)
+        )
         try:
             position_tolerance = float(payload.get("position_tolerance_rad", ARM_REPLAY_TOLERANCE_RAD))
         except (TypeError, ValueError):
@@ -1647,6 +1651,7 @@ class TelemetryStore:
             final_error: dict[str, Any] = {"max_error_rad": None, "per_joint": []}
             converged = False
             timed_out = False
+            hold_announced = False
             consecutive_converged = 0
             settle_cycles = max(1, math.ceil(tuning["settle_seconds"] / TRAJECTORY_DEFAULT_DT))
             hold_until = time.monotonic() + max(TRAJECTORY_APPROACH_SECONDS, plan.get("duration_seconds", 0.0) or 0.0)
@@ -1702,10 +1707,38 @@ class TelemetryStore:
                 while not cancel.is_set():
                     now = time.monotonic()
                     if closed_loop and converged and now >= hold_until:
-                        break
+                        if hold_after_convergence:
+                            if not hold_announced:
+                                self._set_wrist_status(
+                                    active=True,
+                                    message="arm_sdk target reached; holding final pose.",
+                                    last_command={
+                                        "mode": "trajectory",
+                                        "recording": path.name,
+                                        "command_scope": plan.get("command_scope"),
+                                        "control_path": plan.get("control_path"),
+                                        "holding_final_pose": True,
+                                        "direct_replay": False,
+                                        "approach_frame_count": approach_frame_count,
+                                        "writes": writes,
+                                        "replay_response": tuning["response"],
+                                        "tuning": tuning,
+                                        "closed_loop": {
+                                            "enabled": True,
+                                            "converged": True,
+                                            "timed_out": False,
+                                            "tolerance_rad": position_tolerance,
+                                            "settle_seconds": tuning["settle_seconds"],
+                                            "final_error": final_error,
+                                        },
+                                    },
+                                )
+                                hold_announced = True
+                        else:
+                            break
                     if not closed_loop and now >= hold_until:
                         break
-                    if closed_loop and now >= closed_loop_deadline:
+                    if closed_loop and now >= closed_loop_deadline and not (converged and hold_after_convergence):
                         timed_out = True
                         break
                     with self.command_lock:
@@ -1772,6 +1805,7 @@ class TelemetryStore:
                         "command_scope": plan.get("command_scope"),
                         "control_path": plan.get("control_path"),
                         "direct_replay": not closed_loop,
+                        "hold_after_convergence": hold_after_convergence,
                         "approach_frame_count": approach_frame_count,
                         "writes": writes,
                         "replay_response": tuning["response"],
@@ -1800,6 +1834,7 @@ class TelemetryStore:
                 "command_scope": plan.get("command_scope"),
                 "control_path": plan.get("control_path"),
                 "direct_replay": not closed_loop,
+                "hold_after_convergence": hold_after_convergence,
                 "approach_frame_count": approach_frame_count,
                 "xr_suspend": xr_suspend,
                 "closed_loop": {
@@ -1819,6 +1854,7 @@ class TelemetryStore:
             "plan": plan,
             "xr_suspend": xr_suspend,
             "direct_replay": not closed_loop,
+            "hold_after_convergence": hold_after_convergence,
             "approach_frame_count": approach_frame_count,
             "closed_loop": {
                 "enabled": closed_loop,
@@ -2757,10 +2793,13 @@ class TelemetryStore:
     def stop_wrist(self) -> dict[str, Any]:
         with self.command_lock:
             cancel = self.wrist_cancel
+            replay_cancel = self.replay_cancel
             publisher = self.wrist_publisher
             msg = self.lowstate_msg
         if cancel is not None:
             cancel.set()
+        if replay_cancel is not None:
+            replay_cancel.set()
         if publisher is not None and msg is not None:
             try:
                 current_q = float(msg.motor_state[RIGHT_WRIST_YAW].q)

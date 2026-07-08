@@ -103,6 +103,16 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertFalse(oscillate_response["ok"])
         self.assertIn("lowcmd", oscillate_response["error"])
 
+    def test_stop_wrist_cancels_active_replay_hold(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        replay_cancel = server.threading.Event()
+        store.replay_cancel = replay_cancel
+
+        status = store.stop_wrist()
+
+        self.assertTrue(replay_cancel.is_set())
+        self.assertFalse(status.get("active"))
+
     def test_loco_actions_are_kept_in_sync_with_declared_actions(self) -> None:
         self.assertIn("ready", server.LOCO_ACTIONS)
         self.assertIn("zero_torque", server.LOCO_ACTIONS)
@@ -330,6 +340,7 @@ class TelemetryContractsTest(unittest.TestCase):
 
         tuning = store._arm_replay_tuning({})
 
+        self.assertTrue(server.ARM_REPLAY_HOLD_AFTER_CONVERGENCE_DEFAULT)
         self.assertEqual(tuning["response"], server.ARM_REPLAY_RESPONSE_DEFAULT)
         self.assertEqual(tuning["inner_kp_scale"], server.ARM_REPLAY_INNER_KP_SCALE)
         self.assertEqual(tuning["inner_kd_scale"], server.ARM_REPLAY_INNER_KD_SCALE)

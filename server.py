@@ -1588,13 +1588,21 @@ class TelemetryStore:
                 "xr_suspend": xr_suspend,
             }
 
-        gain_by_index = {
-            int(item["index"]): (
-                float(item["kp"]) * (tuning["inner_kp_scale"] if closed_loop else tuning["direct_kp_scale"]),
-                float(item["kd"]) * (tuning["inner_kd_scale"] if closed_loop else tuning["direct_kd_scale"]),
-            )
+        raw_gain_by_index = {
+            int(item["index"]): (float(item["kp"]), float(item["kd"]))
             for item in plan.get("gain_plan", [])
             if isinstance(item, dict) and "index" in item
+        }
+        gain_by_index = {
+            index: (
+                kp * (tuning["inner_kp_scale"] if closed_loop else tuning["direct_kp_scale"]),
+                kd * (tuning["inner_kd_scale"] if closed_loop else tuning["direct_kd_scale"]),
+            )
+            for index, (kp, kd) in raw_gain_by_index.items()
+        }
+        approach_gain_by_index = {
+            index: (kp * tuning["approach_kp_scale"], kd * tuning["approach_kd_scale"])
+            for index, (kp, kd) in raw_gain_by_index.items()
         }
         cancel = threading.Event()
         commanded_body_joints = {
@@ -1609,16 +1617,19 @@ class TelemetryStore:
             joint: {"integral": 0.0, "last_error": 0.0}
             for joint in commanded_body_joints
         }
-        execution_frames = (
-            self._smooth_arm_replay_frames(
+        approach_frame_count = 0
+        if closed_loop:
+            first_targets = self._arm_replay_frame_targets(frames[0], commanded_body_joints) if frames else {}
+            if first_targets:
+                approach_frame_count = max(1, math.ceil(tuning["smooth_approach_seconds"] / TRAJECTORY_DEFAULT_DT))
+            execution_frames = self._smooth_arm_replay_frames(
                 frames,
                 msg,
                 commanded_body_joints,
                 tuning["smooth_approach_seconds"],
             )
-            if closed_loop
-            else frames
-        )
+        else:
+            execution_frames = frames
 
         def run_replay() -> None:
             previous_timestamp: float | None = None
@@ -1653,8 +1664,13 @@ class TelemetryStore:
                         if closed_loop
                         else target_by_index
                     )
+                    frame_gain_by_index = (
+                        approach_gain_by_index
+                        if closed_loop and writes < approach_frame_count
+                        else gain_by_index
+                    )
                     latest_publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(latest_msg, publish_targets, gain_by_index, weight=1.0)
+                        self._build_arm_sdk_trajectory_cmd(latest_msg, publish_targets, frame_gain_by_index, weight=1.0)
                     )
                     writes += 1
                     timestamp = numeric(frame.get("timestamp"))
@@ -1721,6 +1737,7 @@ class TelemetryStore:
                         "command_scope": plan.get("command_scope"),
                         "control_path": plan.get("control_path"),
                         "direct_replay": not closed_loop,
+                        "approach_frame_count": approach_frame_count,
                         "writes": writes,
                         "replay_response": tuning["response"],
                         "tuning": tuning,
@@ -1747,6 +1764,7 @@ class TelemetryStore:
                 "command_scope": plan.get("command_scope"),
                 "control_path": plan.get("control_path"),
                 "direct_replay": not closed_loop,
+                "approach_frame_count": approach_frame_count,
                 "xr_suspend": xr_suspend,
                 "closed_loop": {
                     "enabled": closed_loop,
@@ -1765,6 +1783,7 @@ class TelemetryStore:
             "plan": plan,
             "xr_suspend": xr_suspend,
             "direct_replay": not closed_loop,
+            "approach_frame_count": approach_frame_count,
             "closed_loop": {
                 "enabled": closed_loop,
                 "tolerance_rad": position_tolerance,
@@ -1797,6 +1816,8 @@ class TelemetryStore:
             "inner_kd_scale": self._response_lerp(response, 1.45, ARM_REPLAY_INNER_KD_SCALE, 0.95),
             "direct_kp_scale": self._response_lerp(response, 0.75, 1.0, 1.45),
             "direct_kd_scale": self._response_lerp(response, 1.2, 1.0, 0.9),
+            "approach_kp_scale": self._response_lerp(response, 0.6, 0.75, 1.0),
+            "approach_kd_scale": self._response_lerp(response, 1.2, 1.1, 1.0),
             "playback_speed": self._response_lerp(response, 0.75, 1.0, 2.0),
             "pid_kp_scale": self._response_lerp(response, 0.75, 1.0, 1.6),
             "pid_ki_scale": self._response_lerp(response, 0.75, 1.0, 1.4),

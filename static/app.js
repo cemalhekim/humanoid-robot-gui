@@ -115,8 +115,7 @@ const els = {
   recordingReplayResponse: document.getElementById("recordingReplayResponse"),
   recordingReplayResponseValue: document.getElementById("recordingReplayResponseValue"),
   recordingReplayPid: document.getElementById("recordingReplayPid"),
-  recordingMirrorRightToLeft: document.getElementById("recordingMirrorRightToLeft"),
-  recordingMirrorLeftToRight: document.getElementById("recordingMirrorLeftToRight"),
+  recordingMirrorArms: document.getElementById("recordingMirrorArms"),
   recordingScrub: document.getElementById("recordingScrub"),
   recordingReplayFrame: document.getElementById("recordingReplayFrame"),
   recordingReplayTime: document.getElementById("recordingReplayTime"),
@@ -2464,11 +2463,10 @@ els.recordingFileSelect?.addEventListener("click", () => {
 els.recordingPlay?.addEventListener("click", playReplay);
 els.recordingRobotPlay?.addEventListener("click", requestRobotReplay);
 els.recordingReplayResponse?.addEventListener("input", updateReplayResponseLabel);
-els.recordingMirrorRightToLeft?.addEventListener("click", () => {
-  window.dispatchEvent(new CustomEvent("recording-mirror-arm", { detail: { source: "right", target: "left" } }));
-});
-els.recordingMirrorLeftToRight?.addEventListener("click", () => {
-  window.dispatchEvent(new CustomEvent("recording-mirror-arm", { detail: { source: "left", target: "right" } }));
+els.recordingMirrorArms?.addEventListener("change", () => {
+  window.dispatchEvent(
+    new CustomEvent("recording-arm-mirror-toggle", { detail: { enabled: Boolean(els.recordingMirrorArms.checked) } }),
+  );
 });
 els.recordingScrub?.addEventListener("input", () => {
   pauseReplay();

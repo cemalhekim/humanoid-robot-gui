@@ -193,6 +193,7 @@ class RobotViewer {
     this.started = false;
     this.endEffectorMarker = null;
     this.leftEndEffectorMarker = null;
+    this.mirrorArmsEnabled = false;
     this.collisionDebugVisible = false;
     this.collisionDebugHelpers = [];
     this.draggingEndEffector = false;
@@ -449,7 +450,7 @@ class RobotViewer {
       if (!this.raycaster.ray.intersectPlane(this.dragPlane, target)) return;
       const solved = this.solveArmTo(this.draggingEndEffectorSide, target);
       this.updateEndEffectorMarkerFromIk(this.draggingEndEffectorSide);
-      if (solved) this.emitEditedPose();
+      if (solved && !this.syncMirroredArmFrom(this.draggingEndEffectorSide)) this.emitEditedPose();
     });
 
     const finishDrag = (event) => {
@@ -460,7 +461,7 @@ class RobotViewer {
       this.draggingEndEffectorSide = null;
       this.controls.enabled = true;
       if (side) this.updateEndEffectorMarkerForSide(side);
-      this.emitEditedPose();
+      if (!side || !this.syncMirroredArmFrom(side)) this.emitEditedPose();
     };
     canvas.addEventListener("pointerup", finishDrag);
     canvas.addEventListener("pointercancel", finishDrag);
@@ -517,6 +518,20 @@ class RobotViewer {
     this.emitIkStatus(0, false, collision);
     this.emitEditedPose();
     return true;
+  }
+
+  mirroredSide(side = "right") {
+    return side === "left" ? "right" : "left";
+  }
+
+  syncMirroredArmFrom(source = "right") {
+    if (!this.mirrorArmsEnabled) return false;
+    return this.mirrorArmPose(source, this.mirroredSide(source));
+  }
+
+  setMirrorArmsEnabled(enabled) {
+    this.mirrorArmsEnabled = Boolean(enabled);
+    if (this.mirrorArmsEnabled) this.mirrorArmPose("right", "left");
   }
 
   linkWorldPosition(name) {
@@ -920,6 +935,9 @@ window.addEventListener("recording-mirror-arm", (event) => {
   const target = event.detail?.target === "right" ? "right" : "left";
   replayViewer.mirrorArmPose(source, target);
 });
+window.addEventListener("recording-arm-mirror-toggle", (event) =>
+  replayViewer.setMirrorArmsEnabled(Boolean(event.detail?.enabled)),
+);
 window.addEventListener("telemetry-tab-change", () => {
   setTimeout(() => {
     liveViewer.resize();

@@ -261,6 +261,31 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertLessEqual(corrected[joint] - target[joint], server.ARM_REPLAY_MAX_PID_CORRECTION_RAD)
         self.assertEqual(error["max_error_rad"], 0.3)
 
+    def test_arm_replay_response_tuning_preserves_balanced_default(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+        tuning = store._arm_replay_tuning({})
+
+        self.assertEqual(tuning["response"], server.ARM_REPLAY_RESPONSE_DEFAULT)
+        self.assertEqual(tuning["inner_kp_scale"], server.ARM_REPLAY_INNER_KP_SCALE)
+        self.assertEqual(tuning["inner_kd_scale"], server.ARM_REPLAY_INNER_KD_SCALE)
+        self.assertEqual(tuning["max_pid_correction_rad"], server.ARM_REPLAY_MAX_PID_CORRECTION_RAD)
+        self.assertEqual(tuning["smooth_approach_seconds"], server.ARM_REPLAY_SMOOTH_APPROACH_SECONDS)
+        self.assertEqual(tuning["settle_seconds"], server.ARM_REPLAY_SETTLE_SECONDS)
+
+    def test_arm_replay_response_tuning_clamps_and_increases_responsiveness(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+        damped = store._arm_replay_tuning({"replay_response": -1})
+        responsive = store._arm_replay_tuning({"replay_response": 2})
+
+        self.assertEqual(damped["response"], 0.0)
+        self.assertEqual(responsive["response"], 1.0)
+        self.assertGreater(responsive["inner_kp_scale"], damped["inner_kp_scale"])
+        self.assertLess(responsive["inner_kd_scale"], damped["inner_kd_scale"])
+        self.assertGreater(responsive["max_pid_correction_rad"], damped["max_pid_correction_rad"])
+        self.assertLess(responsive["smooth_approach_seconds"], damped["smooth_approach_seconds"])
+
     def test_smooth_arm_replay_frames_ramp_from_current_position(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         msg = FakeLowState()

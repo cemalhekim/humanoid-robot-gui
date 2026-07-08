@@ -136,6 +136,7 @@ ARM_REPLAY_MAX_PID_CORRECTION_RAD = 0.04
 ARM_REPLAY_INTEGRAL_LIMIT = 0.2
 ARM_REPLAY_INNER_KP_SCALE = 0.35
 ARM_REPLAY_INNER_KD_SCALE = 1.2
+ARM_REPLAY_RESPONSE_DEFAULT = 0.5
 HAND_STATE_TOPIC = "rt/inspire/state"
 HAND_COMMAND_TOPIC = "rt/inspire/cmd"
 HAND_TRAJECTORY_EPSILON = 0.02
@@ -1574,6 +1575,7 @@ class TelemetryStore:
                 "recording": path.name,
                 "plan": plan,
             }
+        tuning = self._arm_replay_tuning(payload)
 
         xr_suspend = self._suspend_xr_motion_publishers()
         if not xr_suspend.get("ok"):
@@ -1587,8 +1589,8 @@ class TelemetryStore:
 
         gain_by_index = {
             int(item["index"]): (
-                float(item["kp"]) * ARM_REPLAY_INNER_KP_SCALE,
-                float(item["kd"]) * ARM_REPLAY_INNER_KD_SCALE,
+                float(item["kp"]) * tuning["inner_kp_scale"],
+                float(item["kd"]) * tuning["inner_kd_scale"],
             )
             for item in plan.get("gain_plan", [])
             if isinstance(item, dict) and "index" in item
@@ -1606,7 +1608,12 @@ class TelemetryStore:
             joint: {"integral": 0.0, "last_error": 0.0}
             for joint in commanded_body_joints
         }
-        execution_frames = self._smooth_arm_replay_frames(frames, msg, commanded_body_joints)
+        execution_frames = self._smooth_arm_replay_frames(
+            frames,
+            msg,
+            commanded_body_joints,
+            tuning["smooth_approach_seconds"],
+        )
 
         def run_replay() -> None:
             previous_timestamp: float | None = None
@@ -1614,11 +1621,11 @@ class TelemetryStore:
             final_error: dict[str, Any] = {"max_error_rad": None, "per_joint": []}
             converged = False
             consecutive_converged = 0
-            settle_cycles = max(1, math.ceil(ARM_REPLAY_SETTLE_SECONDS / TRAJECTORY_DEFAULT_DT))
+            settle_cycles = max(1, math.ceil(tuning["settle_seconds"] / TRAJECTORY_DEFAULT_DT))
             hold_until = time.monotonic() + max(TRAJECTORY_APPROACH_SECONDS, plan.get("duration_seconds", 0.0) or 0.0)
             closed_loop_deadline = time.monotonic() + max(
-                ARM_REPLAY_TIMEOUT_SECONDS,
-                (plan.get("duration_seconds", 0.0) or 0.0) + ARM_REPLAY_TIMEOUT_SECONDS,
+                tuning["timeout_seconds"],
+                (plan.get("duration_seconds", 0.0) or 0.0) + tuning["timeout_seconds"],
             )
             try:
                 for frame in execution_frames:
@@ -1636,6 +1643,7 @@ class TelemetryStore:
                             target_by_index,
                             closed_loop_state,
                             TRAJECTORY_DEFAULT_DT,
+                            tuning,
                         )[0]
                         if closed_loop
                         else target_by_index
@@ -1673,6 +1681,7 @@ class TelemetryStore:
                             target_by_index,
                             closed_loop_state,
                             TRAJECTORY_DEFAULT_DT,
+                            tuning,
                         )
                         max_error = final_error.get("max_error_rad")
                         if isinstance(max_error, (int, float)) and max_error <= position_tolerance:
@@ -1707,14 +1716,13 @@ class TelemetryStore:
                         "command_scope": plan.get("command_scope"),
                         "control_path": plan.get("control_path"),
                         "writes": writes,
-                        "smooth_approach_seconds": ARM_REPLAY_SMOOTH_APPROACH_SECONDS,
-                        "inner_kp_scale": ARM_REPLAY_INNER_KP_SCALE,
-                        "inner_kd_scale": ARM_REPLAY_INNER_KD_SCALE,
+                        "replay_response": tuning["response"],
+                        "tuning": tuning,
                         "closed_loop": {
                             "enabled": closed_loop,
                             "converged": converged,
                             "tolerance_rad": position_tolerance,
-                            "settle_seconds": ARM_REPLAY_SETTLE_SECONDS,
+                            "settle_seconds": tuning["settle_seconds"],
                             "final_error": final_error,
                         },
                     },
@@ -1736,11 +1744,9 @@ class TelemetryStore:
                 "closed_loop": {
                     "enabled": closed_loop,
                     "tolerance_rad": position_tolerance,
-                    "timeout_seconds": ARM_REPLAY_TIMEOUT_SECONDS,
-                    "settle_seconds": ARM_REPLAY_SETTLE_SECONDS,
-                    "smooth_approach_seconds": ARM_REPLAY_SMOOTH_APPROACH_SECONDS,
-                    "inner_kp_scale": ARM_REPLAY_INNER_KP_SCALE,
-                    "inner_kd_scale": ARM_REPLAY_INNER_KD_SCALE,
+                    "timeout_seconds": tuning["timeout_seconds"],
+                    "settle_seconds": tuning["settle_seconds"],
+                    "tuning": tuning,
                 },
             },
         )
@@ -1754,19 +1760,59 @@ class TelemetryStore:
             "closed_loop": {
                 "enabled": closed_loop,
                 "tolerance_rad": position_tolerance,
-                "timeout_seconds": ARM_REPLAY_TIMEOUT_SECONDS,
-                "settle_seconds": ARM_REPLAY_SETTLE_SECONDS,
-                "smooth_approach_seconds": ARM_REPLAY_SMOOTH_APPROACH_SECONDS,
-                "inner_kp_scale": ARM_REPLAY_INNER_KP_SCALE,
-                "inner_kd_scale": ARM_REPLAY_INNER_KD_SCALE,
+                "timeout_seconds": tuning["timeout_seconds"],
+                "settle_seconds": tuning["settle_seconds"],
+                "tuning": tuning,
             },
         }
+
+    @staticmethod
+    def _response_lerp(response: float, damped: float, balanced: float, responsive: float) -> float:
+        if response <= ARM_REPLAY_RESPONSE_DEFAULT:
+            ratio = response / ARM_REPLAY_RESPONSE_DEFAULT if ARM_REPLAY_RESPONSE_DEFAULT else 0.0
+            return damped + (balanced - damped) * ratio
+        ratio = (response - ARM_REPLAY_RESPONSE_DEFAULT) / (1.0 - ARM_REPLAY_RESPONSE_DEFAULT)
+        return balanced + (responsive - balanced) * ratio
+
+    def _arm_replay_tuning(self, payload: dict[str, Any] | None = None) -> dict[str, float]:
+        payload = payload or {}
+        try:
+            response = float(payload.get("replay_response", ARM_REPLAY_RESPONSE_DEFAULT))
+        except (TypeError, ValueError):
+            response = ARM_REPLAY_RESPONSE_DEFAULT
+        if not math.isfinite(response):
+            response = ARM_REPLAY_RESPONSE_DEFAULT
+        response = max(0.0, min(1.0, response))
+        tuning = {
+            "response": response,
+            "inner_kp_scale": self._response_lerp(response, 0.25, ARM_REPLAY_INNER_KP_SCALE, 0.6),
+            "inner_kd_scale": self._response_lerp(response, 1.45, ARM_REPLAY_INNER_KD_SCALE, 0.95),
+            "pid_kp_scale": self._response_lerp(response, 0.75, 1.0, 1.6),
+            "pid_ki_scale": self._response_lerp(response, 0.75, 1.0, 1.4),
+            "pid_kd_scale": self._response_lerp(response, 1.25, 1.0, 0.85),
+            "max_pid_correction_rad": self._response_lerp(
+                response,
+                0.025,
+                ARM_REPLAY_MAX_PID_CORRECTION_RAD,
+                0.08,
+            ),
+            "smooth_approach_seconds": self._response_lerp(
+                response,
+                5.5,
+                ARM_REPLAY_SMOOTH_APPROACH_SECONDS,
+                1.5,
+            ),
+            "settle_seconds": self._response_lerp(response, 0.9, ARM_REPLAY_SETTLE_SECONDS, 0.35),
+            "timeout_seconds": ARM_REPLAY_TIMEOUT_SECONDS,
+        }
+        return {key: round(value, 6) for key, value in tuning.items()}
 
     def _smooth_arm_replay_frames(
         self,
         frames: list[dict[str, Any]],
         start_msg: Any,
         commanded_body_joints: set[int],
+        smooth_approach_seconds: float = ARM_REPLAY_SMOOTH_APPROACH_SECONDS,
     ) -> list[dict[str, Any]]:
         if not frames:
             return []
@@ -1777,7 +1823,7 @@ class TelemetryStore:
             joint: float(getattr(start_msg.motor_state[joint], "q", 0.0) or 0.0)
             for joint in first_targets
         }
-        steps = max(1, math.ceil(ARM_REPLAY_SMOOTH_APPROACH_SECONDS / TRAJECTORY_DEFAULT_DT))
+        steps = max(1, math.ceil(max(0.0, smooth_approach_seconds) / TRAJECTORY_DEFAULT_DT))
         smoothed: list[dict[str, Any]] = []
         for step in range(1, steps + 1):
             progress = step / steps
@@ -1819,7 +1865,9 @@ class TelemetryStore:
         desired_by_index: dict[int, float],
         pid_state: dict[int, dict[str, float]],
         dt: float,
+        tuning: dict[str, float] | None = None,
     ) -> tuple[dict[int, float], dict[str, Any]]:
+        tuning = tuning or self._arm_replay_tuning()
         dt = max(0.001, dt)
         corrected: dict[int, float] = {}
         per_joint = []
@@ -1834,9 +1882,10 @@ class TelemetryStore:
                 -ARM_REPLAY_INTEGRAL_LIMIT,
                 min(ARM_REPLAY_INTEGRAL_LIMIT, state.get("integral", 0.0) + error * dt),
             )
-            kp, ki, kd = self._arm_replay_pid_gain(joint)
+            kp, ki, kd = self._arm_replay_pid_gain(joint, tuning)
             correction = kp * error + ki * state["integral"] - kd * actual_dq
-            correction = max(-ARM_REPLAY_MAX_PID_CORRECTION_RAD, min(ARM_REPLAY_MAX_PID_CORRECTION_RAD, correction))
+            max_correction = tuning["max_pid_correction_rad"]
+            correction = max(-max_correction, min(max_correction, correction))
             corrected[joint] = self._clamp_joint_target(joint, desired_q + correction)
             state["last_error"] = error
             abs_error = abs(error)
@@ -1853,8 +1902,14 @@ class TelemetryStore:
             )
         return corrected, {"max_error_rad": round(max_error, 6), "per_joint": per_joint}
 
-    def _arm_replay_pid_gain(self, joint: int) -> tuple[float, float, float]:
-        return ARM_REPLAY_PID_GAINS.get(self._joint_gain_group(joint), (0.1, 0.0, 0.004))
+    def _arm_replay_pid_gain(self, joint: int, tuning: dict[str, float] | None = None) -> tuple[float, float, float]:
+        tuning = tuning or self._arm_replay_tuning()
+        kp, ki, kd = ARM_REPLAY_PID_GAINS.get(self._joint_gain_group(joint), (0.1, 0.0, 0.004))
+        return (
+            kp * tuning["pid_kp_scale"],
+            ki * tuning["pid_ki_scale"],
+            kd * tuning["pid_kd_scale"],
+        )
 
     def _suspend_xr_motion_publishers(self) -> dict[str, Any]:
         if os.environ.get("RTW_SKIP_XR_SUSPEND") == "1":

@@ -111,6 +111,8 @@ const els = {
   recordingFileSelect: document.getElementById("recordingFileSelect"),
   recordingPlay: document.getElementById("recordingPlay"),
   recordingRobotPlay: document.getElementById("recordingRobotPlay"),
+  recordingReplayResponse: document.getElementById("recordingReplayResponse"),
+  recordingReplayResponseValue: document.getElementById("recordingReplayResponseValue"),
   recordingScrub: document.getElementById("recordingScrub"),
   recordingReplayFrame: document.getElementById("recordingReplayFrame"),
   recordingReplayTime: document.getElementById("recordingReplayTime"),
@@ -982,6 +984,24 @@ function robotReplayLockReason({ canMoveArms, total, selectedReplayFile, savedRe
   return selectedReplayFile ? "Robot replay is locked." : "Select a saved trajectory file.";
 }
 
+function replayResponseValue() {
+  const value = Number(els.recordingReplayResponse?.value ?? 0.5);
+  if (!Number.isFinite(value)) return 0.5;
+  return Math.max(0, Math.min(1, value));
+}
+
+function replayResponseLabel(value = replayResponseValue()) {
+  if (value < 0.34) return "Damped";
+  if (value > 0.66) return "Responsive";
+  return "Balanced";
+}
+
+function updateReplayResponseLabel() {
+  if (!els.recordingReplayResponseValue) return;
+  const value = replayResponseValue();
+  els.recordingReplayResponseValue.textContent = `${replayResponseLabel(value)} ${Math.round(value * 100)}%`;
+}
+
 function showReplayFrame(index) {
   if (!state.replay.frames.length) {
     updateReplayUi();
@@ -1092,6 +1112,7 @@ async function requestRobotReplay() {
         command_scope: "right_arm",
         closed_loop: true,
         position_tolerance_rad: 0.05,
+        replay_response: replayResponseValue(),
       }),
     });
     const payload = await response.json();
@@ -2433,6 +2454,7 @@ els.recordingFileSelect?.addEventListener("click", () => {
 });
 els.recordingPlay?.addEventListener("click", playReplay);
 els.recordingRobotPlay?.addEventListener("click", requestRobotReplay);
+els.recordingReplayResponse?.addEventListener("input", updateReplayResponseLabel);
 els.recordingScrub?.addEventListener("input", () => {
   pauseReplay();
   state.replay.previewComplete = false;
@@ -2484,6 +2506,7 @@ loadRosGraph();
 loadRecordingStatus();
 loadRecordingFiles({ loadSelected: true });
 renderSequenceBuilder();
+updateReplayResponseLabel();
 updateReplayUi();
 window.setInterval(loadRecordingStatus, 2000);
 window.setInterval(loadRecordingFiles, 5000);

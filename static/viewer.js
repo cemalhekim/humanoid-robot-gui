@@ -60,6 +60,16 @@ const LEFT_ARM_IK_JOINTS = [
   "left_wrist_yaw_joint",
 ];
 
+const ARM_MIRROR_JOINTS = [
+  ["left_shoulder_pitch_joint", "right_shoulder_pitch_joint", 1],
+  ["left_shoulder_roll_joint", "right_shoulder_roll_joint", -1],
+  ["left_shoulder_yaw_joint", "right_shoulder_yaw_joint", -1],
+  ["left_elbow_joint", "right_elbow_joint", 1],
+  ["left_wrist_roll_joint", "right_wrist_roll_joint", -1],
+  ["left_wrist_pitch_joint", "right_wrist_pitch_joint", 1],
+  ["left_wrist_yaw_joint", "right_wrist_yaw_joint", -1],
+];
+
 const finger = (joint) => ({ joint, min: 0, max: 1.7 });
 const thumbPitch = (joint, min, max, offset = 0) => ({ joint, min, max, offset });
 
@@ -483,6 +493,32 @@ class RobotViewer {
     this.robotRoot?.updateWorldMatrix(true, true);
   }
 
+  mirrorArmPose(source = "right", target = "left") {
+    if (!this.compare || !this.modelReady || !this.robotRoot || source === target) return false;
+    const previousPose = this.armPoseSnapshot(target);
+    const sourceIndex = source === "left" ? 0 : 1;
+    const targetIndex = target === "left" ? 0 : 1;
+
+    for (const pair of ARM_MIRROR_JOINTS) {
+      const sourceJoint = this.jointGroups.get(pair[sourceIndex]);
+      const targetJointName = pair[targetIndex];
+      if (!sourceJoint || !Number.isFinite(sourceJoint.value)) continue;
+      this.setJointValueIn(this.jointGroups, targetJointName, sourceJoint.value * pair[2]);
+    }
+
+    this.robotRoot.updateWorldMatrix(true, true);
+    const collision = this.armSelfCollision(target);
+    if (collision.colliding) {
+      this.restoreArmPose(previousPose);
+      this.emitIkStatus(Number.POSITIVE_INFINITY, false, collision);
+      return false;
+    }
+    this.updateEndEffectorMarkerForSide(target);
+    this.emitIkStatus(0, false, collision);
+    this.emitEditedPose();
+    return true;
+  }
+
   linkWorldPosition(name) {
     const link = this.linkGroups?.get(name);
     if (!link) return null;
@@ -879,6 +915,11 @@ window.addEventListener("recording-trajectory-visibility", (event) =>
 window.addEventListener("recording-collision-debug", (event) =>
   replayViewer.setCollisionDebugVisible(Boolean(event.detail?.visible)),
 );
+window.addEventListener("recording-mirror-arm", (event) => {
+  const source = event.detail?.source === "left" ? "left" : "right";
+  const target = event.detail?.target === "right" ? "right" : "left";
+  replayViewer.mirrorArmPose(source, target);
+});
 window.addEventListener("telemetry-tab-change", () => {
   setTimeout(() => {
     liveViewer.resize();

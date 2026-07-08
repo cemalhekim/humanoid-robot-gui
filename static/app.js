@@ -28,6 +28,7 @@ const vrViewUrl = "https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012";
 const trajectorySampleRateHz = 60;
 const trajectoryDenseMaxDt = 1 / 30;
 const trajectoryMaxJointStep = 0.05;
+const replayResponseMax = 2.5;
 const currentRobotPoseValue = "__current_robot_pose__";
 const sequenceDraftStorageKey = "h1_sequence_builder_draft_v1";
 const fallbackBodyJointNames = [
@@ -985,21 +986,22 @@ function robotReplayLockReason({ canMoveArms, total, selectedReplayFile, savedRe
 }
 
 function replayResponseValue() {
-  const value = Number(els.recordingReplayResponse?.value ?? 0.1);
-  if (!Number.isFinite(value)) return 0.1;
-  return Math.max(0, Math.min(1, value));
+  const value = Number(els.recordingReplayResponse?.value ?? 0.5);
+  if (!Number.isFinite(value)) return 0.5;
+  return Math.max(0, Math.min(replayResponseMax, value));
 }
 
 function replayResponseLabel(value = replayResponseValue()) {
   if (value < 0.34) return "Damped";
-  if (value > 0.66) return "Responsive";
+  if (value > 1.5) return "Responsive";
   return "Balanced";
 }
 
 function updateReplayResponseLabel() {
   if (!els.recordingReplayResponseValue) return;
   const value = replayResponseValue();
-  els.recordingReplayResponseValue.textContent = `${replayResponseLabel(value)} ${Math.round(value * 100)}%`;
+  const percent = Math.round((value / replayResponseMax) * 100);
+  els.recordingReplayResponseValue.textContent = `${replayResponseLabel(value)} ${percent}%`;
 }
 
 function showReplayFrame(index) {

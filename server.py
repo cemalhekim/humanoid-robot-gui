@@ -137,6 +137,7 @@ ARM_REPLAY_INTEGRAL_LIMIT = 0.2
 ARM_REPLAY_INNER_KP_SCALE = 0.35
 ARM_REPLAY_INNER_KD_SCALE = 1.2
 ARM_REPLAY_RESPONSE_DEFAULT = 0.5
+ARM_REPLAY_RESPONSE_MAX = 2.5
 HAND_STATE_TOPIC = "rt/inspire/state"
 HAND_COMMAND_TOPIC = "rt/inspire/cmd"
 HAND_TRAJECTORY_EPSILON = 0.02
@@ -1771,7 +1772,7 @@ class TelemetryStore:
         if response <= ARM_REPLAY_RESPONSE_DEFAULT:
             ratio = response / ARM_REPLAY_RESPONSE_DEFAULT if ARM_REPLAY_RESPONSE_DEFAULT else 0.0
             return damped + (balanced - damped) * ratio
-        ratio = (response - ARM_REPLAY_RESPONSE_DEFAULT) / (1.0 - ARM_REPLAY_RESPONSE_DEFAULT)
+        ratio = (response - ARM_REPLAY_RESPONSE_DEFAULT) / (ARM_REPLAY_RESPONSE_MAX - ARM_REPLAY_RESPONSE_DEFAULT)
         return balanced + (responsive - balanced) * ratio
 
     def _arm_replay_tuning(self, payload: dict[str, Any] | None = None) -> dict[str, float]:
@@ -1782,7 +1783,7 @@ class TelemetryStore:
             response = ARM_REPLAY_RESPONSE_DEFAULT
         if not math.isfinite(response):
             response = ARM_REPLAY_RESPONSE_DEFAULT
-        response = max(0.0, min(1.0, response))
+        response = max(0.0, min(ARM_REPLAY_RESPONSE_MAX, response))
         tuning = {
             "response": response,
             "inner_kp_scale": self._response_lerp(response, 0.25, ARM_REPLAY_INNER_KP_SCALE, 0.6),

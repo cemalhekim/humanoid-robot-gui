@@ -277,10 +277,10 @@ class TelemetryContractsTest(unittest.TestCase):
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
 
         damped = store._arm_replay_tuning({"replay_response": -1})
-        responsive = store._arm_replay_tuning({"replay_response": 2})
+        responsive = store._arm_replay_tuning({"replay_response": 99})
 
         self.assertEqual(damped["response"], 0.0)
-        self.assertEqual(responsive["response"], 1.0)
+        self.assertEqual(responsive["response"], server.ARM_REPLAY_RESPONSE_MAX)
         self.assertGreater(responsive["inner_kp_scale"], damped["inner_kp_scale"])
         self.assertLess(responsive["inner_kd_scale"], damped["inner_kd_scale"])
         self.assertGreater(responsive["max_pid_correction_rad"], damped["max_pid_correction_rad"])

@@ -50,6 +50,16 @@ const RIGHT_ARM_IK_JOINTS = [
   "right_wrist_yaw_joint",
 ];
 
+const LEFT_ARM_IK_JOINTS = [
+  "left_shoulder_pitch_joint",
+  "left_shoulder_roll_joint",
+  "left_shoulder_yaw_joint",
+  "left_elbow_joint",
+  "left_wrist_roll_joint",
+  "left_wrist_pitch_joint",
+  "left_wrist_yaw_joint",
+];
+
 const finger = (joint) => ({ joint, min: 0, max: 1.7 });
 const thumbPitch = (joint, min, max, offset = 0) => ({ joint, min, max, offset });
 
@@ -172,9 +182,11 @@ class RobotViewer {
     this.autoRotate = false;
     this.started = false;
     this.endEffectorMarker = null;
+    this.leftEndEffectorMarker = null;
     this.collisionDebugVisible = false;
     this.collisionDebugHelpers = [];
     this.draggingEndEffector = false;
+    this.draggingEndEffectorSide = null;
     this.dragPlane = new THREE.Plane();
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -314,27 +326,44 @@ class RobotViewer {
     if (this.trajectoryRoot) this.trajectoryRoot.visible = visible;
   }
 
-  getRightEndEffectorObject() {
+  getEndEffectorObject(side = "right") {
+    if (side === "left") {
+      return this.linkGroups?.get("L_hand_base_link") || this.linkGroups?.get("left_wrist_yaw_link") || null;
+    }
     return this.linkGroups?.get("R_hand_base_link") || this.linkGroups?.get("right_wrist_yaw_link") || null;
   }
 
-  getRightEndEffectorPosition() {
-    const effector = this.getRightEndEffectorObject();
+  getEndEffectorPosition(side = "right") {
+    const effector = this.getEndEffectorObject(side);
     if (!effector) return null;
     effector.updateWorldMatrix(true, false);
     return effector.getWorldPosition(new THREE.Vector3());
   }
 
-  createEndEffectorMarker() {
-    if (!this.compare || this.endEffectorMarker) return;
+  markerForSide(side = "right") {
+    return side === "left" ? this.leftEndEffectorMarker : this.endEffectorMarker;
+  }
+
+  sideForMarkerHit(object) {
+    let node = object;
+    while (node) {
+      if (node.userData?.side) return node.userData.side;
+      node = node.parent;
+    }
+    return "right";
+  }
+
+  createEndEffectorMarkerForSide(side) {
     const marker = new THREE.Group();
-    marker.name = "right_end_effector_target";
+    marker.name = `${side}_end_effector_target`;
+    marker.userData.side = side;
+    const isLeft = side === "left";
 
     const sphere = new THREE.Mesh(
       new THREE.SphereGeometry(0.035, 24, 16),
       new THREE.MeshStandardMaterial({
-        color: 0xff3030,
-        emissive: 0x8c0000,
+        color: isLeft ? 0x40a6ff : 0xff3030,
+        emissive: isLeft ? 0x003b80 : 0x8c0000,
         roughness: 0.42,
         metalness: 0.15,
       }),
@@ -353,16 +382,28 @@ class RobotViewer {
 
     marker.visible = false;
     this.scene.add(marker);
-    this.endEffectorMarker = marker;
+    return marker;
+  }
+
+  createEndEffectorMarker() {
+    if (!this.compare || this.endEffectorMarker) return;
+    this.endEffectorMarker = this.createEndEffectorMarkerForSide("right");
+    this.leftEndEffectorMarker = this.createEndEffectorMarkerForSide("left");
     this.bindEndEffectorDrag();
   }
 
   updateEndEffectorMarker() {
-    if (!this.endEffectorMarker || this.draggingEndEffector) return;
-    const position = this.getRightEndEffectorPosition();
+    this.updateEndEffectorMarkerForSide("right");
+    this.updateEndEffectorMarkerForSide("left");
+  }
+
+  updateEndEffectorMarkerForSide(side) {
+    const marker = this.markerForSide(side);
+    if (!marker || this.draggingEndEffectorSide === side) return;
+    const position = this.getEndEffectorPosition(side);
     if (!position) return;
-    this.endEffectorMarker.position.copy(position);
-    this.endEffectorMarker.visible = true;
+    marker.position.copy(position);
+    marker.visible = true;
   }
 
   setPointerFromEvent(event) {
@@ -377,56 +418,65 @@ class RobotViewer {
     const canvas = this.renderer.domElement;
 
     canvas.addEventListener("pointerdown", (event) => {
-      if (!this.endEffectorMarker?.visible) return;
+      const markers = [this.endEffectorMarker, this.leftEndEffectorMarker].filter((marker) => marker?.visible);
+      if (!markers.length) return;
       this.setPointerFromEvent(event);
-      const hits = this.raycaster.intersectObject(this.endEffectorMarker, true);
+      const hits = this.raycaster.intersectObjects(markers, true);
       if (!hits.length) return;
       event.preventDefault();
       canvas.setPointerCapture?.(event.pointerId);
       this.draggingEndEffector = true;
+      this.draggingEndEffectorSide = this.sideForMarkerHit(hits[0].object);
       this.controls.enabled = false;
       const normal = this.camera.getWorldDirection(new THREE.Vector3()).normalize();
-      this.dragPlane.setFromNormalAndCoplanarPoint(normal, this.endEffectorMarker.position);
+      this.dragPlane.setFromNormalAndCoplanarPoint(normal, this.markerForSide(this.draggingEndEffectorSide).position);
     });
 
     canvas.addEventListener("pointermove", (event) => {
-      if (!this.draggingEndEffector) return;
+      if (!this.draggingEndEffector || !this.draggingEndEffectorSide) return;
       this.setPointerFromEvent(event);
       const target = new THREE.Vector3();
       if (!this.raycaster.ray.intersectPlane(this.dragPlane, target)) return;
-      const solved = this.solveRightArmTo(target);
-      this.updateEndEffectorMarkerFromIk();
+      const solved = this.solveArmTo(this.draggingEndEffectorSide, target);
+      this.updateEndEffectorMarkerFromIk(this.draggingEndEffectorSide);
       if (solved) this.emitEditedPose();
     });
 
     const finishDrag = (event) => {
       if (!this.draggingEndEffector) return;
       canvas.releasePointerCapture?.(event.pointerId);
+      const side = this.draggingEndEffectorSide;
       this.draggingEndEffector = false;
+      this.draggingEndEffectorSide = null;
       this.controls.enabled = true;
-      this.updateEndEffectorMarker();
+      if (side) this.updateEndEffectorMarkerForSide(side);
       this.emitEditedPose();
     };
     canvas.addEventListener("pointerup", finishDrag);
     canvas.addEventListener("pointercancel", finishDrag);
   }
 
-  updateEndEffectorMarkerFromIk() {
-    if (!this.endEffectorMarker) return;
-    const position = this.getRightEndEffectorPosition();
-    if (position) this.endEffectorMarker.position.copy(position);
+  updateEndEffectorMarkerFromIk(side = "right") {
+    const marker = this.markerForSide(side);
+    if (!marker) return;
+    const position = this.getEndEffectorPosition(side);
+    if (position) marker.position.copy(position);
   }
 
-  rightArmPoseSnapshot() {
+  armIkJoints(side = "right") {
+    return side === "left" ? LEFT_ARM_IK_JOINTS : RIGHT_ARM_IK_JOINTS;
+  }
+
+  armPoseSnapshot(side = "right") {
     const snapshot = new Map();
-    for (const jointName of RIGHT_ARM_IK_JOINTS) {
+    for (const jointName of this.armIkJoints(side)) {
       const joint = this.jointGroups.get(jointName);
       if (joint) snapshot.set(jointName, joint.value || 0);
     }
     return snapshot;
   }
 
-  restoreRightArmPose(snapshot) {
+  restoreArmPose(snapshot) {
     for (const [jointName, value] of snapshot) {
       this.setJointValueIn(this.jointGroups, jointName, value);
     }
@@ -440,7 +490,15 @@ class RobotViewer {
     return link.getWorldPosition(new THREE.Vector3());
   }
 
-  rightArmCollisionSpheres() {
+  armCollisionSpheres(side = "right") {
+    if (side === "left") {
+      return [
+        { name: "L_hand_base_link", radius: 0.085, role: "arm" },
+        { name: "left_wrist_yaw_link", radius: 0.075, role: "arm" },
+        { name: "left_wrist_pitch_link", radius: 0.075, role: "arm" },
+        { name: "left_elbow_link", radius: 0.08, role: "arm" },
+      ];
+    }
     return [
       { name: "R_hand_base_link", radius: 0.085, role: "arm" },
       { name: "right_wrist_yaw_link", radius: 0.075, role: "arm" },
@@ -482,7 +540,7 @@ class RobotViewer {
 
   createCollisionDebugHelpers() {
     if (!this.compare || !this.linkGroups || this.collisionDebugHelpers.length) return;
-    for (const sphere of [...this.rightArmCollisionSpheres(), ...this.bodyCollisionSpheres()]) {
+    for (const sphere of [...this.armCollisionSpheres("right"), ...this.armCollisionSpheres("left"), ...this.bodyCollisionSpheres()]) {
       for (const target of this.collisionVisualTargets(sphere.name)) {
         const helper = new THREE.BoxHelper(target, sphere.role === "arm" ? 0xffcf40 : 0x45a3ff);
         helper.name = `collision_bounds_${sphere.name}`;
@@ -505,8 +563,8 @@ class RobotViewer {
     for (const item of this.collisionDebugHelpers) item.helper.update();
   }
 
-  rightArmSelfCollision() {
-    const armBounds = this.collisionBounds(this.rightArmCollisionSpheres());
+  armSelfCollision(side = "right") {
+    const armBounds = this.collisionBounds(this.armCollisionSpheres(side));
     const bodyBounds = this.collisionBounds(this.bodyCollisionSpheres());
 
     for (const arm of armBounds) {
@@ -519,11 +577,11 @@ class RobotViewer {
     return { colliding: false };
   }
 
-  solveRightArmTo(targetPosition) {
+  solveArmTo(side, targetPosition) {
     if (!this.modelReady || !this.robotRoot) return false;
-    const effector = this.getRightEndEffectorObject();
+    const effector = this.getEndEffectorObject(side);
     if (!effector) return false;
-    const previousPose = this.rightArmPoseSnapshot();
+    const previousPose = this.armPoseSnapshot(side);
     let limited = false;
 
     const end = new THREE.Vector3();
@@ -538,7 +596,7 @@ class RobotViewer {
       effector.getWorldPosition(end);
       if (end.distanceTo(targetPosition) < 0.012) break;
 
-      for (const jointName of [...RIGHT_ARM_IK_JOINTS].reverse()) {
+      for (const jointName of [...this.armIkJoints(side)].reverse()) {
         const joint = this.jointGroups.get(jointName);
         if (!joint || joint.type === "fixed") continue;
 
@@ -564,9 +622,9 @@ class RobotViewer {
       }
     }
     effector.getWorldPosition(end);
-    const collision = this.rightArmSelfCollision();
+    const collision = this.armSelfCollision(side);
     if (collision.colliding) {
-      this.restoreRightArmPose(previousPose);
+      this.restoreArmPose(previousPose);
       effector.getWorldPosition(end);
       this.emitIkStatus(end.distanceTo(targetPosition), limited, collision);
       return false;
@@ -596,8 +654,8 @@ class RobotViewer {
     const snapshot = JSON.parse(JSON.stringify(this.latestState));
     snapshot.timestamp = Date.now() / 1000;
     snapshot.type = "telemetry_sample";
-    snapshot.source = "right_end_effector_editor";
-    for (const jointName of RIGHT_ARM_IK_JOINTS) {
+    snapshot.source = "end_effector_editor";
+    for (const jointName of [...LEFT_ARM_IK_JOINTS, ...RIGHT_ARM_IK_JOINTS]) {
       const bodyName = URDF_TO_BODY_JOINT[jointName];
       const joint = this.jointGroups.get(jointName);
       if (!bodyName || !joint) continue;

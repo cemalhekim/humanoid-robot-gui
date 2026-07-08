@@ -1308,7 +1308,7 @@ function renderSequenceBuilder() {
             `;
           })
           .join("")
-      : `<div class="sequence-point"><span><strong>No points yet</strong><small>Move the right hand marker, then Save Pose.</small></span></div>`;
+      : `<div class="sequence-point"><span><strong>No points yet</strong><small>Move either hand marker, then Save Pose.</small></span></div>`;
   }
   updateReplayUi();
 }

@@ -114,6 +114,7 @@ const els = {
   recordingRobotPlay: document.getElementById("recordingRobotPlay"),
   recordingReplayResponse: document.getElementById("recordingReplayResponse"),
   recordingReplayResponseValue: document.getElementById("recordingReplayResponseValue"),
+  recordingReplayPid: document.getElementById("recordingReplayPid"),
   recordingScrub: document.getElementById("recordingScrub"),
   recordingReplayFrame: document.getElementById("recordingReplayFrame"),
   recordingReplayTime: document.getElementById("recordingReplayTime"),
@@ -1004,6 +1005,10 @@ function updateReplayResponseLabel() {
   els.recordingReplayResponseValue.textContent = `${replayResponseLabel(value)} ${percent}%`;
 }
 
+function replayClosedLoopEnabled() {
+  return els.recordingReplayPid?.checked !== false;
+}
+
 function showReplayFrame(index) {
   if (!state.replay.frames.length) {
     updateReplayUi();
@@ -1112,7 +1117,7 @@ async function requestRobotReplay() {
         preview_complete: true,
         execute_arm_sdk: true,
         command_scope: "right_arm",
-        closed_loop: true,
+        closed_loop: replayClosedLoopEnabled(),
         position_tolerance_rad: 0.05,
         replay_response: replayResponseValue(),
       }),

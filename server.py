@@ -1590,8 +1590,8 @@ class TelemetryStore:
 
         gain_by_index = {
             int(item["index"]): (
-                float(item["kp"]) * tuning["inner_kp_scale"],
-                float(item["kd"]) * tuning["inner_kd_scale"],
+                float(item["kp"]) * tuning["inner_kp_scale"] if closed_loop else float(item["kp"]),
+                float(item["kd"]) * tuning["inner_kd_scale"] if closed_loop else float(item["kd"]),
             )
             for item in plan.get("gain_plan", [])
             if isinstance(item, dict) and "index" in item
@@ -1609,11 +1609,15 @@ class TelemetryStore:
             joint: {"integral": 0.0, "last_error": 0.0}
             for joint in commanded_body_joints
         }
-        execution_frames = self._smooth_arm_replay_frames(
-            frames,
-            msg,
-            commanded_body_joints,
-            tuning["smooth_approach_seconds"],
+        execution_frames = (
+            self._smooth_arm_replay_frames(
+                frames,
+                msg,
+                commanded_body_joints,
+                tuning["smooth_approach_seconds"],
+            )
+            if closed_loop
+            else frames
         )
 
         def run_replay() -> None:
@@ -1716,6 +1720,7 @@ class TelemetryStore:
                         "recording": path.name,
                         "command_scope": plan.get("command_scope"),
                         "control_path": plan.get("control_path"),
+                        "direct_replay": not closed_loop,
                         "writes": writes,
                         "replay_response": tuning["response"],
                         "tuning": tuning,
@@ -1741,6 +1746,7 @@ class TelemetryStore:
                 "recording": path.name,
                 "command_scope": plan.get("command_scope"),
                 "control_path": plan.get("control_path"),
+                "direct_replay": not closed_loop,
                 "xr_suspend": xr_suspend,
                 "closed_loop": {
                     "enabled": closed_loop,
@@ -1758,6 +1764,7 @@ class TelemetryStore:
             "recording": path.name,
             "plan": plan,
             "xr_suspend": xr_suspend,
+            "direct_replay": not closed_loop,
             "closed_loop": {
                 "enabled": closed_loop,
                 "tolerance_rad": position_tolerance,

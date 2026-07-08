@@ -307,13 +307,13 @@
                 <div class="recording-replay-toolbar">
                   <select id="recordingFileSelect" aria-label="Recording file"></select>
                   <span id="endEffectorStatus" class="ik-status is-hidden">IK idle</span>
+                  <label class="slider-row recording-response-row">
+                    <span>Arm replay response <strong id="recordingReplayResponseValue">Balanced</strong></span>
+                    <input id="recordingReplayResponse" type="range" min="0" max="1" value="0.5" step="0.05" aria-label="Arm replay response">
+                  </label>
                   <button id="recordingPlay" class="chill-button compact" type="button">Simulate Trajectory</button>
                   <button id="recordingRobotPlay" class="emergency-button compact" type="button" disabled>Move Arms</button>
                 </div>
-                <label class="slider-row recording-response-row">
-                  <span>Arm replay response <strong id="recordingReplayResponseValue">Balanced</strong></span>
-                  <input id="recordingReplayResponse" type="range" min="0" max="1" value="0.5" step="0.05" aria-label="Arm replay response">
-                </label>
                 <div id="recordingReplayCanvas" class="recording-replay-canvas"></div>
                 <div class="recording-legend">
                   <span><i class="reference"></i>Actual robot / reference</span>

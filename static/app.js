@@ -1116,7 +1116,7 @@ async function requestRobotReplay() {
         filename: selectedReplayFile,
         preview_complete: true,
         execute_arm_sdk: true,
-        command_scope: "right_arm",
+        command_scope: "both_arms",
         closed_loop: replayClosedLoopEnabled(),
         position_tolerance_rad: 0.05,
         replay_response: replayResponseValue(),

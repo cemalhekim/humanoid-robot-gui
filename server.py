@@ -175,6 +175,7 @@ ARM_SDK_KD = [2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1
 REPLAY_COMMAND_SCOPES = {
     "all": list(JOINT_NAMES),
     "arms": JOINT_GROUPS["left_arm"] + JOINT_GROUPS["right_arm"] + JOINT_GROUPS["waist"],
+    "both_arms": JOINT_GROUPS["left_arm"] + JOINT_GROUPS["right_arm"],
     "right_arm": JOINT_GROUPS["right_arm"],
     "left_arm": JOINT_GROUPS["left_arm"],
 }

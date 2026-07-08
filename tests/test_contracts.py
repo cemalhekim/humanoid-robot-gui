@@ -108,6 +108,13 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertIn("velocity", server.LOCO_ACTIONS)
         self.assertIn("set_target_position", server.LOCO_ACTIONS)
 
+    def test_both_arms_replay_scope_excludes_waist(self) -> None:
+        self.assertEqual(
+            server.REPLAY_COMMAND_SCOPES["both_arms"],
+            server.JOINT_GROUPS["left_arm"] + server.JOINT_GROUPS["right_arm"],
+        )
+        self.assertNotIn(12, server.REPLAY_COMMAND_SCOPES["both_arms"])
+
     def test_telemetry_recorder_writes_ordered_jsonl_records(self) -> None:
         with TemporaryDirectory() as directory:
             recorder = server.TelemetryRecorder(server.Path(directory))

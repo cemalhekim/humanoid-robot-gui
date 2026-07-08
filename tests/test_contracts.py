@@ -8,9 +8,10 @@ import server
 
 
 class FakeMotorState:
-    def __init__(self, q: float = 0.0, dq: float = 0.0) -> None:
+    def __init__(self, q: float = 0.0, dq: float = 0.0, tau_est: float = 0.0) -> None:
         self.q = q
         self.dq = dq
+        self.tau_est = tau_est
 
 
 class FakeLowState:
@@ -262,12 +263,13 @@ class TelemetryContractsTest(unittest.TestCase):
         target = {joint: 0.5}
         state: dict[int, dict[str, float]] = {}
 
-        corrected, error = store._closed_loop_arm_targets(msg, target, state, 1.0 / 60.0)
+        corrected, error, feedforward_tau = store._closed_loop_arm_targets(msg, target, state, 1.0 / 60.0)
 
         self.assertGreater(corrected[joint], target[joint])
         self.assertLessEqual(corrected[joint] - target[joint], server.ARM_REPLAY_MAX_PID_CORRECTION_RAD)
         self.assertEqual(error["max_error_rad"], 0.3)
         self.assertGreater(error["per_joint"][0]["correction_rad"], 0.0)
+        self.assertEqual(feedforward_tau[joint], 0.0)
 
     def test_closed_loop_arm_targets_drive_lagging_joint_to_target(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
@@ -279,7 +281,7 @@ class TelemetryContractsTest(unittest.TestCase):
         max_error = 1.0
 
         for _ in range(240):
-            corrected, error = store._closed_loop_arm_targets(msg, target, state, dt)
+            corrected, error, _feedforward_tau = store._closed_loop_arm_targets(msg, target, state, dt)
             command_q = corrected[joint]
             previous_q = msg.motor_state[joint].q
             msg.motor_state[joint].q += (command_q - previous_q) * 0.12
@@ -287,6 +289,7 @@ class TelemetryContractsTest(unittest.TestCase):
             max_error = error["max_error_rad"]
 
         self.assertLessEqual(max_error, server.ARM_REPLAY_TOLERANCE_RAD)
+        self.assertTrue(error["all_locked"])
         self.assertAlmostEqual(msg.motor_state[joint].q, target[joint], delta=server.ARM_REPLAY_TOLERANCE_RAD)
 
     def test_closed_loop_arm_targets_reset_integral_when_target_changes(self) -> None:
@@ -304,6 +307,24 @@ class TelemetryContractsTest(unittest.TestCase):
 
         self.assertLessEqual(abs(state[joint]["integral"]), abs(-0.2 - msg.motor_state[joint].q) * dt)
 
+    def test_closed_loop_arm_targets_lock_exact_target_with_gravity_feedforward(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        msg = FakeLowState()
+        joint = 20
+        msg.motor_state[joint].q = 0.496
+        msg.motor_state[joint].dq = 0.0
+        msg.motor_state[joint].tau_est = 8.0
+        target = {joint: 0.5}
+
+        corrected, error, feedforward_tau = store._closed_loop_arm_targets(msg, target, {}, 1.0 / 60.0)
+
+        self.assertEqual(corrected[joint], target[joint])
+        self.assertTrue(error["all_locked"])
+        self.assertTrue(error["per_joint"][0]["locked"])
+        self.assertGreater(feedforward_tau[joint], 0.0)
+        self.assertLessEqual(feedforward_tau[joint], server.ARM_REPLAY_GRAVITY_TAU_LIMITS["shoulder"])
+        self.assertGreater(error["per_joint"][0]["gravity_tau"], 0.0)
+
     def test_arm_replay_response_tuning_preserves_balanced_default(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
 
@@ -317,6 +338,8 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(tuning["approach_kp_scale"], 0.75)
         self.assertEqual(tuning["approach_kd_scale"], 1.1)
         self.assertEqual(tuning["playback_speed"], 1.0)
+        self.assertEqual(tuning["lock_tolerance_rad"], server.ARM_REPLAY_LOCK_TOLERANCE_RAD)
+        self.assertEqual(tuning["lock_tolerance_m"], server.ARM_REPLAY_LOCK_TOLERANCE_M)
         self.assertEqual(tuning["max_pid_correction_rad"], server.ARM_REPLAY_MAX_PID_CORRECTION_RAD)
         self.assertEqual(tuning["smooth_approach_seconds"], server.ARM_REPLAY_SMOOTH_APPROACH_SECONDS)
         self.assertEqual(tuning["settle_seconds"], server.ARM_REPLAY_SETTLE_SECONDS)

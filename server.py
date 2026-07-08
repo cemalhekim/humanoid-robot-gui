@@ -128,12 +128,15 @@ TRAJECTORY_DENSE_MAX_DT = 1.0 / 30.0
 TRAJECTORY_MAX_INTERPOLATED_STEP_RAD = 0.05
 TRAJECTORY_MAX_REPORTED_VIOLATIONS = 20
 ARM_REPLAY_CLOSED_LOOP_DEFAULT = True
-ARM_REPLAY_TOLERANCE_RAD = 0.02
+ARM_REPLAY_LOCK_TOLERANCE_M = 0.01
+ARM_REPLAY_LOCK_TOLERANCE_RAD = 0.01
+ARM_REPLAY_TOLERANCE_RAD = ARM_REPLAY_LOCK_TOLERANCE_RAD
 ARM_REPLAY_SETTLE_SECONDS = 0.6
 ARM_REPLAY_TIMEOUT_SECONDS = 10.0
 ARM_REPLAY_SMOOTH_APPROACH_SECONDS = 4.5
 ARM_REPLAY_MAX_PID_CORRECTION_RAD = 0.12
 ARM_REPLAY_INTEGRAL_LIMIT = 0.35
+ARM_REPLAY_GRAVITY_TAU_FILTER_SECONDS = 0.25
 ARM_REPLAY_INNER_KP_SCALE = 0.35
 ARM_REPLAY_INNER_KD_SCALE = 1.2
 ARM_REPLAY_RESPONSE_DEFAULT = 0.5
@@ -166,6 +169,12 @@ ARM_REPLAY_PID_GAINS = {
     "elbow": (0.24, 0.03, 0.014),
     "wrist": (0.18, 0.02, 0.012),
     "waist": (0.12, 0.01, 0.01),
+}
+ARM_REPLAY_GRAVITY_TAU_LIMITS = {
+    "shoulder": 10.0,
+    "elbow": 7.0,
+    "wrist": 3.0,
+    "waist": 3.0,
 }
 RIGHT_WRIST_YAW = 26
 ARM_SDK_WEIGHT_SLOT = 27
@@ -1655,6 +1664,7 @@ class TelemetryStore:
                     if latest_msg is None or latest_publisher is None:
                         break
                     target_by_index = self._arm_replay_frame_targets(frame, commanded_body_joints)
+                    feedforward_tau_by_index: dict[int, float] = {}
                     publish_targets = (
                         self._closed_loop_arm_targets(
                             latest_msg,
@@ -1662,17 +1672,24 @@ class TelemetryStore:
                             closed_loop_state,
                             TRAJECTORY_DEFAULT_DT,
                             tuning,
-                        )[0]
+                        )
                         if closed_loop
-                        else target_by_index
+                        else (target_by_index, {}, {})
                     )
+                    target_by_index, _, feedforward_tau_by_index = publish_targets
                     frame_gain_by_index = (
                         approach_gain_by_index
                         if closed_loop and writes < approach_frame_count
                         else gain_by_index
                     )
                     latest_publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(latest_msg, publish_targets, frame_gain_by_index, weight=1.0)
+                        self._build_arm_sdk_trajectory_cmd(
+                            latest_msg,
+                            target_by_index,
+                            frame_gain_by_index,
+                            feedforward_tau_by_index,
+                            weight=1.0,
+                        )
                     )
                     writes += 1
                     timestamp = numeric(frame.get("timestamp"))
@@ -1699,8 +1716,9 @@ class TelemetryStore:
                     final_frame = execution_frames[-1]
                     target_by_index = self._arm_replay_frame_targets(final_frame, commanded_body_joints)
                     publish_targets = target_by_index
+                    feedforward_tau_by_index = {}
                     if closed_loop:
-                        publish_targets, final_error = self._closed_loop_arm_targets(
+                        publish_targets, final_error, feedforward_tau_by_index = self._closed_loop_arm_targets(
                             latest_msg,
                             target_by_index,
                             closed_loop_state,
@@ -1708,13 +1726,23 @@ class TelemetryStore:
                             tuning,
                         )
                         max_error = final_error.get("max_error_rad")
-                        if isinstance(max_error, (int, float)) and max_error <= position_tolerance:
+                        if (
+                            isinstance(max_error, (int, float))
+                            and max_error <= position_tolerance
+                            and final_error.get("all_locked") is True
+                        ):
                             consecutive_converged += 1
                         else:
                             consecutive_converged = 0
                         converged = consecutive_converged >= settle_cycles
                     latest_publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(latest_msg, publish_targets, gain_by_index, weight=1.0)
+                        self._build_arm_sdk_trajectory_cmd(
+                            latest_msg,
+                            publish_targets,
+                            gain_by_index,
+                            feedforward_tau_by_index,
+                            weight=1.0,
+                        )
                     )
                     writes += 1
                     time.sleep(TRAJECTORY_DEFAULT_DT)
@@ -1830,6 +1858,11 @@ class TelemetryStore:
             "pid_kp_scale": self._response_lerp(response, 0.75, 1.0, 1.6),
             "pid_ki_scale": self._response_lerp(response, 0.75, 1.0, 1.4),
             "pid_kd_scale": self._response_lerp(response, 1.25, 1.0, 0.85),
+            "gravity_feedforward_scale": self._response_lerp(response, 0.15, 0.25, 0.35),
+            "gravity_lock_feedforward_scale": self._response_lerp(response, 0.45, 0.65, 0.8),
+            "gravity_tau_filter_seconds": ARM_REPLAY_GRAVITY_TAU_FILTER_SECONDS,
+            "lock_tolerance_rad": ARM_REPLAY_LOCK_TOLERANCE_RAD,
+            "lock_tolerance_m": ARM_REPLAY_LOCK_TOLERANCE_M,
             "max_pid_correction_rad": self._response_lerp(
                 response,
                 0.025,
@@ -1906,32 +1939,55 @@ class TelemetryStore:
         pid_state: dict[int, dict[str, float]],
         dt: float,
         tuning: dict[str, float] | None = None,
-    ) -> tuple[dict[int, float], dict[str, Any]]:
+    ) -> tuple[dict[int, float], dict[str, Any], dict[int, float]]:
         tuning = tuning or self._arm_replay_tuning()
         dt = max(0.001, dt)
         corrected: dict[int, float] = {}
+        feedforward_tau: dict[int, float] = {}
         per_joint = []
         max_error = 0.0
+        locked_count = 0
+        lock_tolerance = float(tuning.get("lock_tolerance_rad", ARM_REPLAY_LOCK_TOLERANCE_RAD))
         for joint, desired_q in desired_by_index.items():
             motor_state = msg.motor_state[joint]
             actual_q = float(getattr(motor_state, "q", 0.0) or 0.0)
             actual_dq = float(getattr(motor_state, "dq", 0.0) or 0.0)
+            actual_tau = float(getattr(motor_state, "tau_est", getattr(motor_state, "tau", 0.0)) or 0.0)
             error = desired_q - actual_q
-            state = pid_state.setdefault(joint, {"integral": 0.0, "last_error": 0.0, "last_desired_q": math.nan})
+            state = pid_state.setdefault(
+                joint,
+                {"integral": 0.0, "last_error": 0.0, "last_desired_q": math.nan, "gravity_tau": 0.0},
+            )
             last_desired_q = state.get("last_desired_q", math.nan)
             if not math.isfinite(last_desired_q) or abs(desired_q - last_desired_q) > 0.02:
                 state["integral"] = 0.0
                 state["last_error"] = error
+                state["gravity_tau"] = actual_tau
             state["integral"] = max(
                 -ARM_REPLAY_INTEGRAL_LIMIT,
                 min(ARM_REPLAY_INTEGRAL_LIMIT, state.get("integral", 0.0) + error * dt),
             )
+            tau_alpha = min(1.0, dt / max(0.001, tuning.get("gravity_tau_filter_seconds", ARM_REPLAY_GRAVITY_TAU_FILTER_SECONDS)))
+            state["gravity_tau"] = state.get("gravity_tau", 0.0) + (actual_tau - state.get("gravity_tau", 0.0)) * tau_alpha
             kp, ki, kd = self._arm_replay_pid_gain(joint, tuning)
             derivative = (error - state.get("last_error", error)) / dt
-            correction = kp * error + ki * state["integral"] + kd * derivative
+            locked = abs(error) <= lock_tolerance
+            if locked:
+                correction = 0.0
+                locked_count += 1
+            else:
+                correction = kp * error + ki * state["integral"] + kd * derivative
             max_correction = tuning["max_pid_correction_rad"]
             correction = max(-max_correction, min(max_correction, correction))
             corrected[joint] = self._clamp_joint_target(joint, desired_q + correction)
+            gravity_scale = (
+                tuning.get("gravity_lock_feedforward_scale", 0.65)
+                if locked and abs(actual_dq) <= 0.25
+                else tuning.get("gravity_feedforward_scale", 0.25)
+            )
+            tau_limit = self._arm_replay_gravity_tau_limit(joint)
+            gravity_tau = max(-tau_limit, min(tau_limit, state.get("gravity_tau", 0.0) * gravity_scale))
+            feedforward_tau[joint] = gravity_tau
             state["last_error"] = error
             state["last_desired_q"] = desired_q
             abs_error = abs(error)
@@ -1943,12 +1999,23 @@ class TelemetryStore:
                     "target_q": round(desired_q, 6),
                     "actual_q": round(actual_q, 6),
                     "actual_dq": round(actual_dq, 6),
+                    "actual_tau_est": round(actual_tau, 6),
                     "error_rad": round(error, 6),
+                    "locked": locked,
                     "correction_rad": round(correction, 6),
+                    "gravity_tau": round(gravity_tau, 6),
                     "command_q": round(corrected[joint], 6),
                 }
             )
-        return corrected, {"max_error_rad": round(max_error, 6), "per_joint": per_joint}
+        return corrected, {
+            "max_error_rad": round(max_error, 6),
+            "lock_tolerance_rad": round(lock_tolerance, 6),
+            "lock_tolerance_m": tuning.get("lock_tolerance_m", ARM_REPLAY_LOCK_TOLERANCE_M),
+            "locked_joints": locked_count,
+            "joint_count": len(desired_by_index),
+            "all_locked": bool(desired_by_index) and locked_count == len(desired_by_index),
+            "per_joint": per_joint,
+        }, feedforward_tau
 
     def _arm_replay_pid_gain(self, joint: int, tuning: dict[str, float] | None = None) -> tuple[float, float, float]:
         tuning = tuning or self._arm_replay_tuning()
@@ -1958,6 +2025,9 @@ class TelemetryStore:
             ki * tuning["pid_ki_scale"],
             kd * tuning["pid_kd_scale"],
         )
+
+    def _arm_replay_gravity_tau_limit(self, joint: int) -> float:
+        return ARM_REPLAY_GRAVITY_TAU_LIMITS.get(self._joint_gain_group(joint), 3.0)
 
     def _suspend_xr_motion_publishers(self) -> dict[str, Any]:
         if os.environ.get("RTW_SKIP_XR_SUSPEND") == "1":
@@ -2611,6 +2681,7 @@ class TelemetryStore:
         msg: Any,
         target_by_index: dict[int, float],
         gain_by_index: dict[int, tuple[float, float]],
+        feedforward_tau_by_index: dict[int, float] | None = None,
         weight: float = 1.0,
     ) -> Any:
         if self.lowcmd_factory is None or self.crc is None:
@@ -2630,13 +2701,14 @@ class TelemetryStore:
 
         cmd.motor_cmd[ARM_SDK_WEIGHT_SLOT].q = float(weight)
         if weight > 0:
+            feedforward_tau_by_index = feedforward_tau_by_index or {}
             for joint, fallback_kp, fallback_kd in zip(ARM_SDK_JOINTS, ARM_SDK_KP, ARM_SDK_KD):
                 motor = cmd.motor_cmd[joint]
                 kp, kd = gain_by_index.get(joint, (float(fallback_kp), float(fallback_kd)))
                 motor.mode = 1
                 motor.q = float(target_by_index.get(joint, getattr(msg.motor_state[joint], "q", 0.0) or 0.0))
                 motor.dq = 0.0
-                motor.tau = 0.0
+                motor.tau = float(feedforward_tau_by_index.get(joint, 0.0))
                 motor.kp = kp
                 motor.kd = kd
 

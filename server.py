@@ -1590,8 +1590,8 @@ class TelemetryStore:
 
         gain_by_index = {
             int(item["index"]): (
-                float(item["kp"]) * tuning["inner_kp_scale"] if closed_loop else float(item["kp"]),
-                float(item["kd"]) * tuning["inner_kd_scale"] if closed_loop else float(item["kd"]),
+                float(item["kp"]) * (tuning["inner_kp_scale"] if closed_loop else tuning["direct_kp_scale"]),
+                float(item["kd"]) * (tuning["inner_kd_scale"] if closed_loop else tuning["direct_kd_scale"]),
             )
             for item in plan.get("gain_plan", [])
             if isinstance(item, dict) and "index" in item
@@ -1659,9 +1659,9 @@ class TelemetryStore:
                     writes += 1
                     timestamp = numeric(frame.get("timestamp"))
                     if previous_timestamp is not None and timestamp is not None:
-                        time.sleep(max(0.0, min(0.1, timestamp - previous_timestamp)))
+                        time.sleep(max(0.0, min(0.1, timestamp - previous_timestamp) / tuning["playback_speed"]))
                     else:
-                        time.sleep(TRAJECTORY_DEFAULT_DT)
+                        time.sleep(TRAJECTORY_DEFAULT_DT / tuning["playback_speed"])
                     if timestamp is not None:
                         previous_timestamp = timestamp
                 while not cancel.is_set():
@@ -1795,6 +1795,9 @@ class TelemetryStore:
             "response": response,
             "inner_kp_scale": self._response_lerp(response, 0.25, ARM_REPLAY_INNER_KP_SCALE, 0.6),
             "inner_kd_scale": self._response_lerp(response, 1.45, ARM_REPLAY_INNER_KD_SCALE, 0.95),
+            "direct_kp_scale": self._response_lerp(response, 0.75, 1.0, 1.45),
+            "direct_kd_scale": self._response_lerp(response, 1.2, 1.0, 0.9),
+            "playback_speed": self._response_lerp(response, 0.75, 1.0, 2.0),
             "pid_kp_scale": self._response_lerp(response, 0.75, 1.0, 1.6),
             "pid_ki_scale": self._response_lerp(response, 0.75, 1.0, 1.4),
             "pid_kd_scale": self._response_lerp(response, 1.25, 1.0, 0.85),

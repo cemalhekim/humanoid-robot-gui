@@ -128,12 +128,12 @@ TRAJECTORY_DENSE_MAX_DT = 1.0 / 30.0
 TRAJECTORY_MAX_INTERPOLATED_STEP_RAD = 0.05
 TRAJECTORY_MAX_REPORTED_VIOLATIONS = 20
 ARM_REPLAY_CLOSED_LOOP_DEFAULT = True
-ARM_REPLAY_TOLERANCE_RAD = 0.05
+ARM_REPLAY_TOLERANCE_RAD = 0.02
 ARM_REPLAY_SETTLE_SECONDS = 0.6
 ARM_REPLAY_TIMEOUT_SECONDS = 10.0
 ARM_REPLAY_SMOOTH_APPROACH_SECONDS = 4.5
-ARM_REPLAY_MAX_PID_CORRECTION_RAD = 0.04
-ARM_REPLAY_INTEGRAL_LIMIT = 0.2
+ARM_REPLAY_MAX_PID_CORRECTION_RAD = 0.12
+ARM_REPLAY_INTEGRAL_LIMIT = 0.35
 ARM_REPLAY_INNER_KP_SCALE = 0.35
 ARM_REPLAY_INNER_KD_SCALE = 1.2
 ARM_REPLAY_RESPONSE_DEFAULT = 0.5
@@ -162,10 +162,10 @@ GAIN_NOMINALS = {
     "wrist": {"step": 0.07, "velocity": 1.2},
 }
 ARM_REPLAY_PID_GAINS = {
-    "shoulder": (0.045, 0.004, 0.018),
-    "elbow": (0.035, 0.003, 0.014),
-    "wrist": (0.025, 0.002, 0.012),
-    "waist": (0.02, 0.0, 0.01),
+    "shoulder": (0.28, 0.035, 0.018),
+    "elbow": (0.24, 0.03, 0.014),
+    "wrist": (0.18, 0.02, 0.012),
+    "waist": (0.12, 0.01, 0.01),
 }
 RIGHT_WRIST_YAW = 26
 ARM_SDK_WEIGHT_SLOT = 27
@@ -1615,7 +1615,7 @@ class TelemetryStore:
             commanded_body_joints = set(ARM_SDK_JOINTS)
 
         closed_loop_state: dict[int, dict[str, float]] = {
-            joint: {"integral": 0.0, "last_error": 0.0}
+            joint: {"integral": 0.0, "last_error": 0.0, "last_desired_q": math.nan}
             for joint in commanded_body_joints
         }
         approach_frame_count = 0
@@ -1637,6 +1637,7 @@ class TelemetryStore:
             writes = 0
             final_error: dict[str, Any] = {"max_error_rad": None, "per_joint": []}
             converged = False
+            timed_out = False
             consecutive_converged = 0
             settle_cycles = max(1, math.ceil(tuning["settle_seconds"] / TRAJECTORY_DEFAULT_DT))
             hold_until = time.monotonic() + max(TRAJECTORY_APPROACH_SECONDS, plan.get("duration_seconds", 0.0) or 0.0)
@@ -1688,6 +1689,7 @@ class TelemetryStore:
                     if not closed_loop and now >= hold_until:
                         break
                     if closed_loop and now >= closed_loop_deadline:
+                        timed_out = True
                         break
                     with self.command_lock:
                         latest_msg = self.lowstate_msg
@@ -1729,7 +1731,11 @@ class TelemetryStore:
                         else (
                             f"arm_sdk closed-loop replay converged ({writes} writes)."
                             if closed_loop and converged
-                            else f"arm_sdk trajectory replay complete ({writes} writes)."
+                            else (
+                                f"arm_sdk closed-loop replay timed out ({writes} writes)."
+                                if closed_loop and timed_out
+                                else f"arm_sdk trajectory replay complete ({writes} writes)."
+                            )
                         )
                     ),
                     last_command={
@@ -1745,6 +1751,7 @@ class TelemetryStore:
                         "closed_loop": {
                             "enabled": closed_loop,
                             "converged": converged,
+                            "timed_out": timed_out,
                             "tolerance_rad": position_tolerance,
                             "settle_seconds": tuning["settle_seconds"],
                             "final_error": final_error,
@@ -1910,17 +1917,23 @@ class TelemetryStore:
             actual_q = float(getattr(motor_state, "q", 0.0) or 0.0)
             actual_dq = float(getattr(motor_state, "dq", 0.0) or 0.0)
             error = desired_q - actual_q
-            state = pid_state.setdefault(joint, {"integral": 0.0, "last_error": 0.0})
+            state = pid_state.setdefault(joint, {"integral": 0.0, "last_error": 0.0, "last_desired_q": math.nan})
+            last_desired_q = state.get("last_desired_q", math.nan)
+            if not math.isfinite(last_desired_q) or abs(desired_q - last_desired_q) > 0.02:
+                state["integral"] = 0.0
+                state["last_error"] = error
             state["integral"] = max(
                 -ARM_REPLAY_INTEGRAL_LIMIT,
                 min(ARM_REPLAY_INTEGRAL_LIMIT, state.get("integral", 0.0) + error * dt),
             )
             kp, ki, kd = self._arm_replay_pid_gain(joint, tuning)
-            correction = kp * error + ki * state["integral"] - kd * actual_dq
+            derivative = (error - state.get("last_error", error)) / dt
+            correction = kp * error + ki * state["integral"] + kd * derivative
             max_correction = tuning["max_pid_correction_rad"]
             correction = max(-max_correction, min(max_correction, correction))
             corrected[joint] = self._clamp_joint_target(joint, desired_q + correction)
             state["last_error"] = error
+            state["last_desired_q"] = desired_q
             abs_error = abs(error)
             max_error = max(max_error, abs_error)
             per_joint.append(
@@ -1929,7 +1942,9 @@ class TelemetryStore:
                     "name": JOINT_NAMES.get(joint, f"Motor{joint}"),
                     "target_q": round(desired_q, 6),
                     "actual_q": round(actual_q, 6),
+                    "actual_dq": round(actual_dq, 6),
                     "error_rad": round(error, 6),
+                    "correction_rad": round(correction, 6),
                     "command_q": round(corrected[joint], 6),
                 }
             )

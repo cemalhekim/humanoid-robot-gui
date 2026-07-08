@@ -267,6 +267,42 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertGreater(corrected[joint], target[joint])
         self.assertLessEqual(corrected[joint] - target[joint], server.ARM_REPLAY_MAX_PID_CORRECTION_RAD)
         self.assertEqual(error["max_error_rad"], 0.3)
+        self.assertGreater(error["per_joint"][0]["correction_rad"], 0.0)
+
+    def test_closed_loop_arm_targets_drive_lagging_joint_to_target(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        msg = FakeLowState()
+        joint = 20
+        target = {joint: 0.5}
+        state: dict[int, dict[str, float]] = {}
+        dt = 1.0 / 60.0
+        max_error = 1.0
+
+        for _ in range(240):
+            corrected, error = store._closed_loop_arm_targets(msg, target, state, dt)
+            command_q = corrected[joint]
+            previous_q = msg.motor_state[joint].q
+            msg.motor_state[joint].q += (command_q - previous_q) * 0.12
+            msg.motor_state[joint].dq = (msg.motor_state[joint].q - previous_q) / dt
+            max_error = error["max_error_rad"]
+
+        self.assertLessEqual(max_error, server.ARM_REPLAY_TOLERANCE_RAD)
+        self.assertAlmostEqual(msg.motor_state[joint].q, target[joint], delta=server.ARM_REPLAY_TOLERANCE_RAD)
+
+    def test_closed_loop_arm_targets_reset_integral_when_target_changes(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        msg = FakeLowState()
+        joint = 20
+        state: dict[int, dict[str, float]] = {}
+        dt = 1.0 / 60.0
+
+        for _ in range(120):
+            store._closed_loop_arm_targets(msg, {joint: 0.5}, state, dt)
+
+        self.assertGreater(state[joint]["integral"], 0.0)
+        store._closed_loop_arm_targets(msg, {joint: -0.2}, state, dt)
+
+        self.assertLessEqual(abs(state[joint]["integral"]), abs(-0.2 - msg.motor_state[joint].q) * dt)
 
     def test_arm_replay_response_tuning_preserves_balanced_default(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")

@@ -1621,8 +1621,8 @@ class TelemetryStore:
                 "ok": False,
                 "error": f"command_scope must be one of {', '.join(sorted(REPLAY_COMMAND_SCOPES))}.",
             }
-        if not payload.get("preview_complete"):
-            return 400, {"ok": False, "error": "Replay preview must be completed before robot playback is requested."}
+        # Preview/simulate is no longer required before robot playback; the other
+        # gates (arm_sdk-only, trajectory validity, XR suspend, gains) still apply.
         try:
             path = self.recording_file_path(filename)
         except FileNotFoundError:

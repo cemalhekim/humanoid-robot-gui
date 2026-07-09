@@ -953,7 +953,6 @@ function updateReplayUi() {
   }
   if (els.recordingRobotPlay) {
     const canMoveArms =
-      state.replay.previewComplete &&
       total > 0 &&
       Boolean(state.latest?.connected) &&
       savedReplaySelected &&
@@ -982,8 +981,7 @@ function robotReplayLockReason({ canMoveArms, total, selectedReplayFile, savedRe
     return "Save Sequence first so the robot receives a validated .sequence.json trajectory.";
   }
   if (!savedReplaySelected) return "Select a saved recording, pose, or sequence file before moving the robot.";
-  if (!replayMatchesSelection) return "Run Simulate Trajectory for the selected file before moving the robot.";
-  if (!state.replay.previewComplete) return "Locked until trajectory preview is complete.";
+  if (!replayMatchesSelection) return "Load the selected file before moving the robot.";
   return selectedReplayFile ? "Robot replay is locked." : "Select a saved trajectory file.";
 }
 
@@ -1096,7 +1094,6 @@ function playReplay() {
 async function requestRobotReplay() {
   const selectedReplayFile = els.recordingFileSelect?.value || "";
   if (
-    !state.replay.previewComplete ||
     !isRobotReplayFileName(selectedReplayFile) ||
     state.replay.loadedFile !== selectedReplayFile
   ) {
@@ -1104,7 +1101,7 @@ async function requestRobotReplay() {
       els.recordingError.textContent =
         state.sequenceBuilder.active && state.replay.loadedFile === "__sequence_builder__"
           ? "Save Sequence first; unsaved trajectory drafts are not sent to the physical robot."
-          : "Select a saved trajectory file and complete preview before moving the robot.";
+          : "Select a saved trajectory file before moving the robot.";
     }
     updateReplayUi();
     return;
@@ -1115,7 +1112,6 @@ async function requestRobotReplay() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         filename: selectedReplayFile,
-        preview_complete: true,
         execute_arm_sdk: true,
         command_scope: "both_arms",
         closed_loop: replayClosedLoopEnabled(),

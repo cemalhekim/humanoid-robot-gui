@@ -138,7 +138,12 @@ ARM_REPLAY_TIMEOUT_SECONDS = 10.0
 ARM_REPLAY_SMOOTH_APPROACH_SECONDS = 4.5
 ARM_REPLAY_MAX_PID_CORRECTION_RAD = 0.12
 ARM_REPLAY_INTEGRAL_LIMIT = 0.35
-ARM_REPLAY_GRAVITY_TAU_FILTER_SECONDS = 0.25
+# Gravity feed-forward low-pass time constant. Kept fairly slow on purpose: the
+# feed-forward is derived from measured torque (which contains the PD reaction),
+# so a fast filter lets it chase the control loop and limit-cycle. A slower
+# filter makes the feed-forward a steadier gravity estimate; the adaptive learn
+# term supplies the accurate steady holding torque.
+ARM_REPLAY_GRAVITY_TAU_FILTER_SECONDS = 0.4
 ARM_REPLAY_INNER_KP_SCALE = 0.35
 ARM_REPLAY_INNER_KD_SCALE = 1.2
 ARM_REPLAY_RESPONSE_DEFAULT = 0.5
@@ -152,10 +157,25 @@ ARM_REPLAY_GRAVITY_HOLD_SCALE = 0.95
 ARM_REPLAY_GRAVITY_MOVE_SCALE = 0.5
 # The hold/move blend is driven by how STATIONARY the joint is, not by whether
 # it is already locked: as any joint slows near its target it gets near-full
-# gravity support, so even low-kp joints settle inside the lock band (where the
-# old scheme left them stuck a couple of degrees short). Full hold scale kicks
-# in below converge_velocity; it fades to move scale by this multiple of it.
-ARM_REPLAY_GRAVITY_RAMP_VEL_FACTOR = 5.0
+# gravity support. The velocity threshold is deliberately HIGH so that only a
+# genuinely fast reaching motion reduces support -- the small velocities of a
+# holding joint that starts to sag keep near-full gravity support, otherwise
+# support gets cut exactly when the arm starts to fall and it limit-cycles
+# (sag 1-2 cm -> catch -> sag) at the hold point.
+ARM_REPLAY_GRAVITY_RAMP_VEL_FACTOR = 30.0
+# Stiff active "hold": there is no mechanical brake, so during the hold phase we
+# raise position stiffness (kp) so a given feed-forward error maps to a smaller
+# sag. We deliberately do NOT raise kd much: the gravity feed-forward is built
+# from MEASURED torque, which already contains the controller's own PD reaction,
+# so a high kd feeds its own damping torque back through the feed-forward and
+# amplifies the bob (positive feedback). Expressed relative to the raw nominal
+# arm_sdk gains; kp stays below nominal, kd stays near nominal.
+ARM_REPLAY_HOLD_KP_SCALE = 0.55
+ARM_REPLAY_HOLD_KD_SCALE = 1.2
+# Hold-loop rate: run the settle/hold loop faster than the 60 Hz playback so the
+# setpoint + gravity feed-forward refresh sooner and the arm is caught before it
+# can drift far.
+ARM_REPLAY_HOLD_HZ = 120.0
 # Adaptive gravity "learning": a bounded integral ON THE FEED-FORWARD TORQUE
 # that nulls residual holding error WITHOUT moving the commanded setpoint off
 # the target, so the joint keeps driving its true error toward zero. Engages in
@@ -1698,6 +1718,12 @@ class TelemetryStore:
             index: (kp * tuning["approach_kp_scale"], kd * tuning["approach_kd_scale"])
             for index, (kp, kd) in raw_gain_by_index.items()
         }
+        # Stiffer, better-damped gains used during the settle/hold phase so the
+        # arm actively resists sagging at the target instead of bobbing.
+        hold_gain_by_index = {
+            index: (kp * ARM_REPLAY_HOLD_KP_SCALE, kd * ARM_REPLAY_HOLD_KD_SCALE)
+            for index, (kp, kd) in raw_gain_by_index.items()
+        }
         cancel = threading.Event()
         commanded_body_joints = {
             int(item["index"])
@@ -1790,6 +1816,10 @@ class TelemetryStore:
                 # error is small, or a safety fault / operator cancel occurs.
                 phase_b_start = time.monotonic()
                 last_progress_t = phase_b_start
+                # Run the hold loop faster than playback so the arm is caught
+                # before it can drift; keep the settle window the same wall-clock.
+                hold_dt = 1.0 / ARM_REPLAY_HOLD_HZ
+                settle_cycles = max(1, math.ceil(tuning["settle_seconds"] / hold_dt))
                 open_loop_hold_until = phase_b_start + max(
                     TRAJECTORY_APPROACH_SECONDS, plan.get("duration_seconds", 0.0) or 0.0
                 )
@@ -1808,7 +1838,7 @@ class TelemetryStore:
                             latest_msg,
                             target_by_index,
                             closed_loop_state,
-                            TRAJECTORY_DEFAULT_DT,
+                            hold_dt,
                             tuning,
                             escalation,
                         )
@@ -1852,7 +1882,7 @@ class TelemetryStore:
                         self._build_arm_sdk_trajectory_cmd(
                             latest_msg,
                             publish_targets,
-                            gain_by_index,
+                            hold_gain_by_index,
                             feedforward_tau_by_index,
                             weight=1.0,
                         )
@@ -1898,7 +1928,7 @@ class TelemetryStore:
                         if not hold_after_convergence:
                             fault_reason = "ceiling_not_converged"
                             break
-                    time.sleep(TRAJECTORY_DEFAULT_DT)
+                    time.sleep(hold_dt)
             finally:
                 with self.command_lock:
                     if self.replay_cancel is cancel:

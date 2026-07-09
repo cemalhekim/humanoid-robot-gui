@@ -284,6 +284,16 @@ JOINT_LIMITS = {
     26: (-1.27, 1.27),
 }
 WRIST_LIMITS = (-1.2, 1.2)
+# Torso ("belly") twist about WaistYaw (joint 12). Mechanical range is +/-2.35 rad;
+# we use a conservative subset because twisting the torso shifts the CoM and can
+# affect balance while standing. Commanded through the arm_sdk path (waist gains),
+# velocity-slewed so a fast UI drag still yields a smooth twist.
+TORSO_YAW_JOINT = 12
+TORSO_LIMITS = (-1.0, 1.0)
+TORSO_TWIST_KP = 200.0
+TORSO_TWIST_KD = 4.0
+TORSO_TWIST_MAX_VEL_RAD_S = 0.7
+TORSO_TWIST_RATE_HZ = 120.0
 LOCO_LIMITS = {
     "vx": [-1.0, 1.0],
     "vy": [-0.5, 0.5],
@@ -1419,6 +1429,17 @@ class TelemetryStore:
         self.wrist_thread: threading.Thread | None = None
         self.replay_cancel: threading.Event | None = None
         self.replay_thread: threading.Thread | None = None
+        self.torso_cancel: threading.Event | None = None
+        self.torso_thread: threading.Thread | None = None
+        self.torso_target_q: float = 0.0
+        self.torso_status: dict[str, Any] = {
+            "available": False,
+            "active": False,
+            "message": "Torso twist idle.",
+            "target_q": 0.0,
+            "last_command": None,
+            "updated_at": None,
+        }
         self.wrist_status: dict[str, Any] = {
             "available": False,
             "active": False,
@@ -1672,6 +1693,7 @@ class TelemetryStore:
             publisher = self.wrist_publisher
             msg = self.lowstate_msg
             previous_cancel = self.replay_cancel
+            torso_cancel = self.torso_cancel
         if publisher is None:
             return 503, {"ok": False, "error": "DDS arm_sdk publisher is not available.", "recording": path.name, "plan": plan}
         if msg is None:
@@ -1680,6 +1702,8 @@ class TelemetryStore:
             return 503, {"ok": False, "error": "DDS command factory is not available.", "recording": path.name, "plan": plan}
         if previous_cancel is not None:
             previous_cancel.set()
+        if torso_cancel is not None:
+            torso_cancel.set()
 
         payload = payload or {}
         closed_loop = bool(payload.get("closed_loop", ARM_REPLAY_CLOSED_LOOP_DEFAULT))
@@ -2880,6 +2904,139 @@ class TelemetryStore:
         with self.command_lock:
             self.wrist_status = {**self.wrist_status, **updates, "updated_at": time.time()}
 
+    def torso_snapshot(self) -> dict[str, Any]:
+        snapshot = self.snapshot()
+        motors = snapshot.get("motors") or []
+        torso = next((motor for motor in motors if motor.get("index") == TORSO_YAW_JOINT), None)
+        with self.command_lock:
+            status = dict(self.torso_status)
+            available = self.wrist_publisher is not None
+        return {
+            **status,
+            "available": available,
+            "joint": {
+                "index": TORSO_YAW_JOINT,
+                "name": JOINT_NAMES[TORSO_YAW_JOINT],
+                "limits": {"min": TORSO_LIMITS[0], "max": TORSO_LIMITS[1]},
+                "telemetry": torso,
+            },
+        }
+
+    def _set_torso_status(self, **updates: Any) -> None:
+        with self.command_lock:
+            self.torso_status = {**self.torso_status, **updates, "updated_at": time.time()}
+
+    def command_torso_twist(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        if not has_risk_ack(payload):
+            return 400, {"ok": False, "error": "Command requires armed=true and i_understand_risk=true."}
+        try:
+            raw_target = float(payload.get("target_q", 0.0))
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "target_q must be a number."}
+        if not math.isfinite(raw_target):
+            return 400, {"ok": False, "error": "target_q must be a finite number."}
+        target_q = max(TORSO_LIMITS[0], min(TORSO_LIMITS[1], raw_target))
+
+        with self.command_lock:
+            publisher = self.wrist_publisher
+            msg = self.lowstate_msg
+            running = self.torso_thread is not None and self.torso_thread.is_alive()
+            self.torso_target_q = target_q
+            wrist_cancel = self.wrist_cancel
+            replay_cancel = self.replay_cancel
+        if publisher is None:
+            return 503, {"ok": False, "error": "DDS arm_sdk publisher is not available."}
+        if msg is None:
+            return 503, {"ok": False, "error": "No rt/lowstate sample is available yet."}
+        if self.lowcmd_factory is None or self.crc is None:
+            return 503, {"ok": False, "error": "DDS command factory is not available."}
+
+        # Live update: a running twist just adopts the new shared target.
+        if running:
+            self._set_torso_status(
+                active=True,
+                message="Torso twisting.",
+                target_q=round(target_q, 6),
+                last_command={"target_q": round(target_q, 6)},
+            )
+            return 202, {"ok": True, "status": self.torso_snapshot()}
+
+        # Start a fresh persistent twist: make sure no other arm_sdk writer runs.
+        if wrist_cancel is not None:
+            wrist_cancel.set()
+        if replay_cancel is not None:
+            replay_cancel.set()
+
+        cancel = threading.Event()
+        arm_hold = {
+            joint: float(msg.motor_state[joint].q)
+            for joint in ARM_SDK_JOINTS
+            if joint != TORSO_YAW_JOINT
+        }
+        gains = {TORSO_YAW_JOINT: (TORSO_TWIST_KP, TORSO_TWIST_KD)}
+
+        def run_torso() -> None:
+            dt = 1.0 / TORSO_TWIST_RATE_HZ
+            max_step = TORSO_TWIST_MAX_VEL_RAD_S * dt
+            commanded = float(msg.motor_state[TORSO_YAW_JOINT].q)
+            writes = 0
+            self._set_torso_status(
+                available=True, active=True, message="Torso twisting.",
+                target_q=round(self.torso_target_q, 6),
+                last_command={"target_q": round(self.torso_target_q, 6)},
+            )
+            try:
+                while not cancel.is_set():
+                    with self.command_lock:
+                        latest_msg = self.lowstate_msg
+                        latest_publisher = self.wrist_publisher
+                        target = max(TORSO_LIMITS[0], min(TORSO_LIMITS[1], self.torso_target_q))
+                    if latest_msg is None or latest_publisher is None:
+                        break
+                    if commanded < target:
+                        commanded = min(target, commanded + max_step)
+                    elif commanded > target:
+                        commanded = max(target, commanded - max_step)
+                    targets = {**arm_hold, TORSO_YAW_JOINT: commanded}
+                    latest_publisher.Write(
+                        self._build_arm_sdk_trajectory_cmd(latest_msg, targets, gains, {}, weight=1.0)
+                    )
+                    writes += 1
+                    time.sleep(dt)
+            finally:
+                with self.command_lock:
+                    if self.torso_cancel is cancel:
+                        self.torso_cancel = None
+                        self.torso_thread = None
+                self._set_torso_status(
+                    active=False,
+                    message="Torso twist stopped." if cancel.is_set() else "Torso twist ended.",
+                    last_command={"target_q": round(self.torso_target_q, 6), "writes": writes},
+                )
+
+        thread = threading.Thread(target=run_torso, name="torso-twist", daemon=True)
+        with self.command_lock:
+            self.torso_cancel = cancel
+            self.torso_thread = thread
+        thread.start()
+        return 202, {"ok": True, "status": self.torso_snapshot()}
+
+    def stop_torso(self) -> dict[str, Any]:
+        with self.command_lock:
+            cancel = self.torso_cancel
+            publisher = self.wrist_publisher
+            msg = self.lowstate_msg
+        if cancel is not None:
+            cancel.set()
+        if publisher is not None and msg is not None:
+            with contextlib.suppress(Exception):
+                release = self._build_arm_sdk_cmd(msg, 0.0, 0.0, 0.0, weight=0.0)
+                for _ in range(10):
+                    publisher.Write(release)
+                    time.sleep(0.01)
+        self._set_torso_status(active=False, message="Torso released to onboard controller.")
+        return self.torso_snapshot()
+
     def _append_loco_history(self, command: dict[str, Any]) -> None:
         history = [command, *list(self.loco_status.get("history") or [])]
         self.loco_status = {**self.loco_status, "history": history[:12]}
@@ -3041,12 +3198,15 @@ class TelemetryStore:
         with self.command_lock:
             cancel = self.wrist_cancel
             replay_cancel = self.replay_cancel
+            torso_cancel = self.torso_cancel
             publisher = self.wrist_publisher
             msg = self.lowstate_msg
         if cancel is not None:
             cancel.set()
         if replay_cancel is not None:
             replay_cancel.set()
+        if torso_cancel is not None:
+            torso_cancel.set()
         if publisher is not None and msg is not None:
             try:
                 current_q = float(msg.motor_state[RIGHT_WRIST_YAW].q)
@@ -3470,6 +3630,7 @@ finally:
             motion_switcher = self.motion_switcher
             msg = self.lowstate_msg
             previous_cancel = self.wrist_cancel
+            torso_cancel = self.torso_cancel
         if self.lowcmd_factory is None or self.crc is None:
             return 503, {"ok": False, "error": "DDS command factory is not available."}
         if control_path == "lowcmd" and lowcmd_publisher is None:
@@ -3480,6 +3641,8 @@ finally:
             return 503, {"ok": False, "error": "No rt/lowstate sample is available yet."}
         if previous_cancel is not None:
             previous_cancel.set()
+        if torso_cancel is not None:
+            torso_cancel.set()
 
         start_q = float(msg.motor_state[RIGHT_WRIST_YAW].q)
         if mode == "relative":
@@ -3756,6 +3919,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_file(path, "application/xml; charset=utf-8")
         elif request_path == "/api/wrist/status":
             self._send_json(self.store.wrist_snapshot())
+        elif request_path == "/api/torso/status":
+            self._send_json(self.store.torso_snapshot())
         elif request_path == "/api/loco/status":
             self._send_json(self.store.loco_snapshot())
         elif request_path == "/camera.mjpg":
@@ -3772,6 +3937,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         if request_path not in (
             "/api/wrist/command",
             "/api/wrist/stop",
+            "/api/torso/twist",
+            "/api/torso/stop",
             "/api/robot/chill",
             "/api/robot/home",
             "/api/robot/straight",
@@ -3789,6 +3956,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         payload: dict[str, Any] = {}
         if request_path in (
             "/api/wrist/command",
+            "/api/torso/twist",
             "/api/robot/chill",
             "/api/loco/command",
             "/api/xr/mode",
@@ -3844,6 +4012,15 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/wrist/stop":
             self._send_json(self.store.stop_wrist())
+            return
+
+        if request_path == "/api/torso/twist":
+            status, response = self.store.command_torso_twist(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/torso/stop":
+            self._send_json(self.store.stop_torso())
             return
 
         if request_path == "/api/robot/chill":

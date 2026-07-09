@@ -113,6 +113,28 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertTrue(replay_cancel.is_set())
         self.assertFalse(status.get("active"))
 
+    def test_torso_twist_requires_risk_flags_and_clamps_to_limits(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+        status, response = store.command_torso_twist({"target_q": 0.3})
+        self.assertEqual(status, 400)
+        self.assertFalse(response["ok"])
+        self.assertIn("armed=true", response["error"])
+
+        status, response = store.command_torso_twist(
+            {"target_q": 0.3, "armed": True, "i_understand_risk": True}
+        )
+        self.assertEqual(status, 503)
+        self.assertIn("arm_sdk publisher", response["error"])
+
+        self.assertEqual(server.TORSO_YAW_JOINT, 12)
+        self.assertEqual(server.JOINT_NAMES[server.TORSO_YAW_JOINT], "WaistYaw")
+        self.assertIn(server.TORSO_YAW_JOINT, server.ARM_SDK_JOINTS)
+        snapshot = store.torso_snapshot()
+        self.assertEqual(snapshot["joint"]["index"], 12)
+        self.assertEqual(snapshot["joint"]["limits"]["min"], server.TORSO_LIMITS[0])
+        self.assertEqual(snapshot["joint"]["limits"]["max"], server.TORSO_LIMITS[1])
+
     def test_loco_actions_are_kept_in_sync_with_declared_actions(self) -> None:
         self.assertIn("ready", server.LOCO_ACTIONS)
         self.assertIn("zero_torque", server.LOCO_ACTIONS)

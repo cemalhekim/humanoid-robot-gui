@@ -136,6 +136,13 @@ ARM_REPLAY_TOLERANCE_RAD = ARM_REPLAY_LOCK_TOLERANCE_RAD
 ARM_REPLAY_SETTLE_SECONDS = 0.6
 ARM_REPLAY_TIMEOUT_SECONDS = 10.0
 ARM_REPLAY_SMOOTH_APPROACH_SECONDS = 4.5
+# The initial move from the robot's current pose to the FIRST frame (of a pose or
+# a sequence) is velocity-bounded, not just time-bounded, so it is always smooth
+# regardless of how far the first frame is or how high the response dial is. The
+# ramp duration is stretched so the smootherstep PEAK joint velocity stays under
+# this cap (smootherstep peak = 1.875x average), with a small floor for tiny moves.
+ARM_REPLAY_APPROACH_PEAK_VEL_RAD_S = 0.6
+ARM_REPLAY_APPROACH_MIN_SECONDS = 2.0
 ARM_REPLAY_MAX_PID_CORRECTION_RAD = 0.12
 ARM_REPLAY_INTEGRAL_LIMIT = 0.35
 # Gravity feed-forward low-pass time constant. Kept fairly slow on purpose: the
@@ -2073,7 +2080,20 @@ class TelemetryStore:
             joint: float(getattr(start_msg.motor_state[joint], "q", 0.0) or 0.0)
             for joint in first_targets
         }
-        steps = max(1, math.ceil(max(0.0, smooth_approach_seconds) / TRAJECTORY_DEFAULT_DT))
+        # Velocity-bound the approach: stretch the ramp so the smootherstep peak
+        # joint velocity (1.875x the average) stays under the cap, so the move to
+        # the first frame is always smooth however far it is / whatever the dial.
+        max_distance = max(
+            (abs(target_q - start_by_index[joint]) for joint, target_q in first_targets.items()),
+            default=0.0,
+        )
+        velocity_bounded_seconds = 1.875 * max_distance / ARM_REPLAY_APPROACH_PEAK_VEL_RAD_S
+        approach_seconds = max(
+            ARM_REPLAY_APPROACH_MIN_SECONDS,
+            velocity_bounded_seconds,
+            max(0.0, smooth_approach_seconds),
+        )
+        steps = max(1, math.ceil(approach_seconds / TRAJECTORY_DEFAULT_DT))
         smoothed: list[dict[str, Any]] = []
         for step in range(1, steps + 1):
             progress = step / steps

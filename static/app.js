@@ -986,8 +986,8 @@ function robotReplayLockReason({ canMoveArms, total, selectedReplayFile, savedRe
 }
 
 function replayResponseValue() {
-  const value = Number(els.recordingReplayResponse?.value ?? 0.5);
-  if (!Number.isFinite(value)) return 0.5;
+  const value = Number(els.recordingReplayResponse?.value ?? replayResponseMax);
+  if (!Number.isFinite(value)) return replayResponseMax;
   return Math.max(0, Math.min(replayResponseMax, value));
 }
 

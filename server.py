@@ -285,6 +285,15 @@ JOINT_LIMITS = {
     26: (-1.27, 1.27),
 }
 WRIST_LIMITS = (-1.2, 1.2)
+# Waist ("torso") yaw is NOT part of the H1-2 arm_sdk joint set (H1_2_JointArmIndex
+# is 13-26 only), so it cannot be moved through rt/arm_sdk. It is driven separately
+# via rt/lowcmd commanding ONLY joint 12 -- legs and arms get mode=0 (no signal),
+# and the arms keep running on arm_sdk. No motion-mode release is performed.
+WAIST_YAW_JOINT = 12
+WAIST_LOWCMD_KP = 200.0
+WAIST_LOWCMD_KD = 5.0
+WAIST_LOWCMD_MAX_VEL_RAD_S = 0.6
+WAIST_REPLAY_EPSILON = 0.01
 LOCO_LIMITS = {
     "vx": [-1.0, 1.0],
     "vy": [-0.5, 0.5],
@@ -1740,6 +1749,27 @@ class TelemetryStore:
         }
         if not commanded_body_joints:
             commanded_body_joints = set(ARM_SDK_JOINTS)
+        # arm_sdk cannot drive the waist on H1-2, so drop it from the arm_sdk
+        # target/convergence set (otherwise convergence would wait forever for a
+        # joint arm_sdk never moves) and co-drive it via lowcmd instead.
+        commanded_body_joints.discard(WAIST_YAW_JOINT)
+        with self.command_lock:
+            lowcmd_publisher = self.lowcmd_publisher
+        waist_target: float | None = None
+        if frames:
+            final_waist = next(
+                (
+                    float(motor.get("q", 0.0))
+                    for motor in frames[-1].get("motors", [])
+                    if isinstance(motor, dict) and int(motor.get("index", -1)) == WAIST_YAW_JOINT
+                ),
+                None,
+            )
+            if final_waist is not None and lowcmd_publisher is not None:
+                candidate = self._clamp_joint_target(WAIST_YAW_JOINT, final_waist)
+                current_waist = float(msg.motor_state[WAIST_YAW_JOINT].q)
+                if abs(candidate - current_waist) > WAIST_REPLAY_EPSILON:
+                    waist_target = candidate
 
         closed_loop_state: dict[int, dict[str, float]] = {
             joint: {"integral": 0.0, "last_error": 0.0, "last_desired_q": math.nan}
@@ -1772,6 +1802,30 @@ class TelemetryStore:
             best_error = float("inf")
             settle_cycles = max(1, math.ceil(tuning["settle_seconds"] / TRAJECTORY_DEFAULT_DT))
             per_joint_latched: dict[int, bool] = {joint: False for joint in commanded_body_joints}
+            commanded_waist = float(msg.motor_state[WAIST_YAW_JOINT].q)
+
+            def drive_waist(step_dt: float) -> None:
+                # Co-drive the waist via rt/lowcmd (joint 12 only; legs/arms get no
+                # signal) toward the pose's waist target, velocity-slewed for a
+                # smooth twist. Runs alongside the arm_sdk arm replay.
+                nonlocal commanded_waist
+                if waist_target is None:
+                    return
+                with self.command_lock:
+                    waist_pub = self.lowcmd_publisher
+                    waist_msg = self.lowstate_msg
+                if waist_pub is None or waist_msg is None:
+                    return
+                step = WAIST_LOWCMD_MAX_VEL_RAD_S * max(0.0, step_dt)
+                if commanded_waist < waist_target:
+                    commanded_waist = min(waist_target, commanded_waist + step)
+                elif commanded_waist > waist_target:
+                    commanded_waist = max(waist_target, commanded_waist - step)
+                with contextlib.suppress(Exception):
+                    waist_pub.Write(
+                        self._build_lowcmd_waist_cmd(waist_msg, commanded_waist, WAIST_LOWCMD_KP, WAIST_LOWCMD_KD)
+                    )
+
             try:
                 for frame in execution_frames:
                     if cancel.is_set():
@@ -1809,6 +1863,7 @@ class TelemetryStore:
                             weight=1.0,
                         )
                     )
+                    drive_waist(TRAJECTORY_DEFAULT_DT)
                     writes += 1
                     timestamp = numeric(frame.get("timestamp"))
                     if previous_timestamp is not None and timestamp is not None:
@@ -1895,6 +1950,7 @@ class TelemetryStore:
                             weight=1.0,
                         )
                     )
+                    drive_waist(hold_dt)
                     writes += 1
                     if converged:
                         if hold_after_convergence:
@@ -3021,6 +3077,35 @@ class TelemetryStore:
                 motor.kp = 25.0
                 motor.kd = 0.8
             motor.reserve = 0
+        cmd.crc = self.crc.Crc(cmd)
+        return cmd
+
+    def _build_lowcmd_waist_cmd(self, msg: Any, target_q: float, kp: float, kd: float) -> Any:
+        # rt/lowcmd commanding ONLY the waist yaw (joint 12). Every other motor is
+        # left at mode=0 with zero gains, so NO signal is sent to the legs or arms:
+        # the legs stay under the onboard controller and the arms keep running on
+        # arm_sdk. No motion-mode release is performed.
+        if self.lowcmd_factory is None or self.crc is None:
+            raise RuntimeError("LowCmd factory is not initialized")
+        cmd = self.lowcmd_factory()
+        cmd.mode_pr = 0
+        cmd.mode_machine = int(getattr(msg, "mode_machine", 0) or 0)
+        for i in range(35):
+            motor = cmd.motor_cmd[i]
+            motor.mode = 0
+            motor.q = 0.0
+            motor.dq = 0.0
+            motor.tau = 0.0
+            motor.kp = 0.0
+            motor.kd = 0.0
+            motor.reserve = 0
+        waist = cmd.motor_cmd[WAIST_YAW_JOINT]
+        waist.mode = 1
+        waist.q = float(target_q)
+        waist.dq = 0.0
+        waist.tau = 0.0
+        waist.kp = float(kp)
+        waist.kd = float(kd)
         cmd.crc = self.crc.Crc(cmd)
         return cmd
 

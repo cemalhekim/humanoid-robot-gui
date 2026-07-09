@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/styles.css">
+<script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/controls/OrbitControls.js":"/vendor/three/OrbitControls.js","three/addons/loaders/STLLoader.js":"/vendor/three/STLLoader.js"}}</script>
+<style>body{margin:0;background:#0b0e11} #recordingReplayCanvas{width:900px;height:640px} #robotCanvas{width:1px;height:1px;position:absolute;left:-9999px}</style></head>
+<body>
+<div id="robotCanvas"></div><dl id="viewerFields"></dl>
+<div id="recordingReplayCanvas"></div><dl id="recordingReplayFields"></dl>
+<script type="module">
+import "/viewer.js";
+const snap = {"motors": [{"index": 0, "name": "LeftHipYaw", "q": 0.0}, {"index": 1, "name": "LeftHipPitch", "q": 0.0}, {"index": 2, "name": "LeftHipRoll", "q": 0.0}, {"index": 3, "name": "LeftKnee", "q": 0.0}, {"index": 4, "name": "LeftAnklePitch", "q": 0.0}, {"index": 5, "name": "LeftAnkleRoll", "q": 0.0}, {"index": 6, "name": "RightHipYaw", "q": 0.0}, {"index": 7, "name": "RightHipPitch", "q": 0.0}, {"index": 8, "name": "RightHipRoll", "q": 0.0}, {"index": 9, "name": "RightKnee", "q": 0.0}, {"index": 10, "name": "RightAnklePitch", "q": 0.0}, {"index": 11, "name": "RightAnkleRoll", "q": 0.0}, {"index": 12, "name": "WaistYaw", "q": 0.6}, {"index": 13, "name": "LeftShoulderPitch", "q": 0.0}, {"index": 14, "name": "LeftShoulderRoll", "q": 0.0}, {"index": 15, "name": "LeftShoulderYaw", "q": 0.0}, {"index": 16, "name": "LeftElbow", "q": 0.0}, {"index": 17, "name": "LeftWristRoll", "q": 0.0}, {"index": 18, "name": "LeftWristPitch", "q": 0.0}, {"index": 19, "name": "LeftWristYaw", "q": 0.0}, {"index": 20, "name": "RightShoulderPitch", "q": 0.0}, {"index": 21, "name": "RightShoulderRoll", "q": 0.0}, {"index": 22, "name": "RightShoulderYaw", "q": 0.0}, {"index": 23, "name": "RightElbow", "q": 0.0}, {"index": 24, "name": "RightWristRoll", "q": 0.0}, {"index": 25, "name": "RightWristPitch", "q": 0.0}, {"index": 26, "name": "RightWristYaw", "q": 0.0}], "hands": {"joints": []}, "timestamp": 1.0, "connected": true};
+setTimeout(()=>{ window.dispatchEvent(new CustomEvent("telemetry-state",{detail:{snapshot:snap}}));
+  window.dispatchEvent(new CustomEvent("recording-replay-target",{detail:{snapshot:snap}})); }, 300);
+</script></body></html>

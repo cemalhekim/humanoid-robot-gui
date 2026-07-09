@@ -40,6 +40,11 @@ const URDF_TO_BODY_JOINT = Object.fromEntries(
   Object.entries(BODY_JOINTS).map(([bodyName, urdfName]) => [urdfName, bodyName]),
 );
 
+// Torso ("belly") twist: a grab-ring around the waist rotates WaistYaw in the
+// editor, exactly like the hand IK markers. Clamped to a conservative range.
+const TORSO_TWIST_JOINT = "torso_joint";
+const TORSO_TWIST_LIMIT = 1.2; // rad (±)
+
 const RIGHT_ARM_IK_JOINTS = [
   "right_shoulder_pitch_joint",
   "right_shoulder_roll_joint",
@@ -201,6 +206,13 @@ class RobotViewer {
     this.dragPlane = new THREE.Plane();
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
+    this.torsoRing = null;
+    this.draggingTorso = false;
+    this.torsoDragPlane = new THREE.Plane();
+    this.torsoPivot = new THREE.Vector3();
+    this.torsoAxisWorld = new THREE.Vector3();
+    this.torsoStartVec = new THREE.Vector3();
+    this.torsoStartValue = 0;
   }
 
   setFields(data) {
@@ -400,7 +412,70 @@ class RobotViewer {
     if (!this.compare || this.endEffectorMarker) return;
     this.endEffectorMarker = this.createEndEffectorMarkerForSide("right");
     this.leftEndEffectorMarker = this.createEndEffectorMarkerForSide("left");
+    this.createTorsoRing();
     this.bindEndEffectorDrag();
+  }
+
+  createTorsoRing() {
+    if (!this.compare || this.torsoRing) return;
+    const torso = this.jointGroups.get(TORSO_TWIST_JOINT);
+    if (!torso || !torso.group) return;
+
+    const group = new THREE.Group();
+    group.name = "torso_twist_ring";
+    group.userData.torsoRing = true;
+    // Lie the ring in the plane perpendicular to the yaw axis, lifted to belly height.
+    const axis = torso.axis.clone().normalize();
+    group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+    group.position.copy(axis).multiplyScalar(0.16);
+
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x35e08a,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+    });
+    group.add(new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.012, 12, 56), ringMat));
+
+    const knob = new THREE.Mesh(
+      new THREE.SphereGeometry(0.03, 20, 14),
+      new THREE.MeshStandardMaterial({ color: 0x35e08a, emissive: 0x0b5a34, roughness: 0.4, metalness: 0.1 }),
+    );
+    knob.position.set(0, 0.2, 0);
+    group.add(knob);
+
+    // Invisible thicker torus so the ring is easy to grab (raycast target only).
+    const hit = new THREE.Mesh(
+      new THREE.TorusGeometry(0.2, 0.05, 8, 40),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    );
+    hit.userData.torsoRing = true;
+    group.add(hit);
+
+    torso.group.add(group);
+    this.torsoRing = group;
+  }
+
+  beginTorsoDrag() {
+    const torso = this.jointGroups.get(TORSO_TWIST_JOINT);
+    if (!torso || !torso.group) return false;
+    this.draggingTorso = true;
+    this.controls.enabled = false;
+    torso.group.updateWorldMatrix(true, false);
+    this.torsoPivot.copy(torso.group.getWorldPosition(new THREE.Vector3()));
+    this.torsoAxisWorld
+      .copy(torso.axis)
+      .applyQuaternion(torso.group.getWorldQuaternion(new THREE.Quaternion()))
+      .normalize();
+    this.torsoDragPlane.setFromNormalAndCoplanarPoint(this.torsoAxisWorld, this.torsoPivot);
+    const hit = new THREE.Vector3();
+    if (this.raycaster.ray.intersectPlane(this.torsoDragPlane, hit)) {
+      this.torsoStartVec.copy(hit.sub(this.torsoPivot)).normalize();
+    } else {
+      this.torsoStartVec.set(1, 0, 0);
+    }
+    this.torsoStartValue = torso.value || 0;
+    return true;
   }
 
   updateEndEffectorMarker() {
@@ -429,9 +504,18 @@ class RobotViewer {
     const canvas = this.renderer.domElement;
 
     canvas.addEventListener("pointerdown", (event) => {
+      this.setPointerFromEvent(event);
+      // Torso grab-ring takes priority when hit.
+      if (this.torsoRing && this.torsoRing.visible !== false) {
+        const torsoHits = this.raycaster.intersectObject(this.torsoRing, true);
+        if (torsoHits.length && this.beginTorsoDrag()) {
+          event.preventDefault();
+          canvas.setPointerCapture?.(event.pointerId);
+          return;
+        }
+      }
       const markers = [this.endEffectorMarker, this.leftEndEffectorMarker].filter((marker) => marker?.visible);
       if (!markers.length) return;
-      this.setPointerFromEvent(event);
       const hits = this.raycaster.intersectObjects(markers, true);
       if (!hits.length) return;
       event.preventDefault();
@@ -444,6 +528,21 @@ class RobotViewer {
     });
 
     canvas.addEventListener("pointermove", (event) => {
+      if (this.draggingTorso) {
+        this.setPointerFromEvent(event);
+        const hit = new THREE.Vector3();
+        if (!this.raycaster.ray.intersectPlane(this.torsoDragPlane, hit)) return;
+        const current = hit.sub(this.torsoPivot).normalize();
+        const cross = new THREE.Vector3().crossVectors(this.torsoStartVec, current);
+        const delta = Math.atan2(cross.dot(this.torsoAxisWorld), this.torsoStartVec.dot(current));
+        let value = this.torsoStartValue + delta;
+        value = Math.max(-TORSO_TWIST_LIMIT, Math.min(TORSO_TWIST_LIMIT, value));
+        this.setJointValueIn(this.jointGroups, TORSO_TWIST_JOINT, value);
+        this.robotRoot?.updateWorldMatrix(true, true);
+        this.updateEndEffectorMarker();
+        this.emitEditedPose();
+        return;
+      }
       if (!this.draggingEndEffector || !this.draggingEndEffectorSide) return;
       this.setPointerFromEvent(event);
       const target = new THREE.Vector3();
@@ -454,6 +553,14 @@ class RobotViewer {
     });
 
     const finishDrag = (event) => {
+      if (this.draggingTorso) {
+        canvas.releasePointerCapture?.(event.pointerId);
+        this.draggingTorso = false;
+        this.controls.enabled = true;
+        this.updateEndEffectorMarker();
+        this.emitEditedPose();
+        return;
+      }
       if (!this.draggingEndEffector) return;
       canvas.releasePointerCapture?.(event.pointerId);
       const side = this.draggingEndEffectorSide;
@@ -706,7 +813,7 @@ class RobotViewer {
     snapshot.timestamp = Date.now() / 1000;
     snapshot.type = "telemetry_sample";
     snapshot.source = "end_effector_editor";
-    for (const jointName of [...LEFT_ARM_IK_JOINTS, ...RIGHT_ARM_IK_JOINTS]) {
+    for (const jointName of [...LEFT_ARM_IK_JOINTS, ...RIGHT_ARM_IK_JOINTS, TORSO_TWIST_JOINT]) {
       const bodyName = URDF_TO_BODY_JOINT[jointName];
       const joint = this.jointGroups.get(jointName);
       if (!bodyName || !joint) continue;
@@ -834,6 +941,7 @@ class RobotViewer {
       this.trajectoryRoot.visible = false;
       this.robotRoot = this.buildRobot(xml, { name: "h1_2_replay", tone: "replay", targetGroups: this.jointGroups });
       this.createEndEffectorMarker();
+      if (this.torsoRing) this.torsoRing.visible = true;
       this.setCollisionDebugVisible(this.collisionDebugVisible);
     } else {
       this.robotRoot = this.buildRobot(xml, { name: "h1_2", tone: "default", targetGroups: this.jointGroups });

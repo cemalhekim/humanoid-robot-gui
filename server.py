@@ -268,6 +268,7 @@ REPLAY_COMMAND_SCOPES = {
     "left_arm": JOINT_GROUPS["left_arm"],
 }
 JOINT_LIMITS = {
+    12: (-1.2, 1.2),  # WaistYaw: conservative torso-twist clamp (mechanical is +/-2.35)
     13: (-3.14, 1.57),
     14: (-0.38, 3.4),
     15: (-2.66, 3.01),

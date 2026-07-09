@@ -1113,7 +1113,7 @@ async function requestRobotReplay() {
       body: JSON.stringify({
         filename: selectedReplayFile,
         execute_arm_sdk: true,
-        command_scope: "both_arms",
+        command_scope: "arms",
         closed_loop: replayClosedLoopEnabled(),
         hold_after_convergence: true,
         position_tolerance_rad: 0.01,

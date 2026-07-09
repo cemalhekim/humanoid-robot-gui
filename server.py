@@ -1771,6 +1771,14 @@ class TelemetryStore:
                 if abs(candidate - current_waist) > WAIST_REPLAY_EPSILON:
                     waist_target = candidate
 
+        # The waist cannot be moved via arm_sdk (H1-2), and commanding it via
+        # lowcmd while the onboard controller is active just fights it (squeals,
+        # no motion). So when the pose twists the torso, release the motion mode
+        # and drive the whole body via lowcmd: legs + arms HELD at their current
+        # pose, only the waist turned. Requires a physically supported robot.
+        if waist_target is not None:
+            return self.execute_lowcmd_pose(path, plan, payload, frames, msg, waist_target)
+
         closed_loop_state: dict[int, dict[str, float]] = {
             joint: {"integral": 0.0, "last_error": 0.0, "last_desired_q": math.nan}
             for joint in commanded_body_joints
@@ -1802,30 +1810,6 @@ class TelemetryStore:
             best_error = float("inf")
             settle_cycles = max(1, math.ceil(tuning["settle_seconds"] / TRAJECTORY_DEFAULT_DT))
             per_joint_latched: dict[int, bool] = {joint: False for joint in commanded_body_joints}
-            commanded_waist = float(msg.motor_state[WAIST_YAW_JOINT].q)
-
-            def drive_waist(step_dt: float) -> None:
-                # Co-drive the waist via rt/lowcmd (joint 12 only; legs/arms get no
-                # signal) toward the pose's waist target, velocity-slewed for a
-                # smooth twist. Runs alongside the arm_sdk arm replay.
-                nonlocal commanded_waist
-                if waist_target is None:
-                    return
-                with self.command_lock:
-                    waist_pub = self.lowcmd_publisher
-                    waist_msg = self.lowstate_msg
-                if waist_pub is None or waist_msg is None:
-                    return
-                step = WAIST_LOWCMD_MAX_VEL_RAD_S * max(0.0, step_dt)
-                if commanded_waist < waist_target:
-                    commanded_waist = min(waist_target, commanded_waist + step)
-                elif commanded_waist > waist_target:
-                    commanded_waist = max(waist_target, commanded_waist - step)
-                with contextlib.suppress(Exception):
-                    waist_pub.Write(
-                        self._build_lowcmd_waist_cmd(waist_msg, commanded_waist, WAIST_LOWCMD_KP, WAIST_LOWCMD_KD)
-                    )
-
             try:
                 for frame in execution_frames:
                     if cancel.is_set():
@@ -1863,7 +1847,6 @@ class TelemetryStore:
                             weight=1.0,
                         )
                     )
-                    drive_waist(TRAJECTORY_DEFAULT_DT)
                     writes += 1
                     timestamp = numeric(frame.get("timestamp"))
                     if previous_timestamp is not None and timestamp is not None:
@@ -1950,7 +1933,6 @@ class TelemetryStore:
                             weight=1.0,
                         )
                     )
-                    drive_waist(hold_dt)
                     writes += 1
                     if converged:
                         if hold_after_convergence:
@@ -3080,34 +3062,127 @@ class TelemetryStore:
         cmd.crc = self.crc.Crc(cmd)
         return cmd
 
-    def _build_lowcmd_waist_cmd(self, msg: Any, target_q: float, kp: float, kd: float) -> Any:
-        # rt/lowcmd commanding ONLY the waist yaw (joint 12). Every other motor is
-        # left at mode=0 with zero gains, so NO signal is sent to the legs or arms:
-        # the legs stay under the onboard controller and the arms keep running on
-        # arm_sdk. No motion-mode release is performed.
+    def _build_lowcmd_waist_hold_cmd(self, msg: Any, hold_q: list[float], waist_q: float, kp: float, kd: float) -> Any:
+        # rt/lowcmd holding every body joint (legs + arms) at hold_q and turning
+        # ONLY the waist to waist_q. Used AFTER the motion mode is released, so the
+        # legs are held stiff (robot must be supported) and the waist is free of
+        # the onboard controller and actually turns.
         if self.lowcmd_factory is None or self.crc is None:
             raise RuntimeError("LowCmd factory is not initialized")
         cmd = self.lowcmd_factory()
         cmd.mode_pr = 0
         cmd.mode_machine = int(getattr(msg, "mode_machine", 0) or 0)
-        for i in range(35):
+        for i in range(27):
             motor = cmd.motor_cmd[i]
-            motor.mode = 0
-            motor.q = 0.0
+            motor.mode = 1
+            motor.q = waist_q if i == WAIST_YAW_JOINT else hold_q[i]
             motor.dq = 0.0
             motor.tau = 0.0
-            motor.kp = 0.0
-            motor.kd = 0.0
+            if i == WAIST_YAW_JOINT:
+                motor.kp = float(kp)
+                motor.kd = float(kd)
+            elif i < 12:  # legs
+                motor.kp = 70.0
+                motor.kd = 1.0
+            else:  # arms (13-26)
+                motor.kp = 25.0
+                motor.kd = 0.8
             motor.reserve = 0
-        waist = cmd.motor_cmd[WAIST_YAW_JOINT]
-        waist.mode = 1
-        waist.q = float(target_q)
-        waist.dq = 0.0
-        waist.tau = 0.0
-        waist.kp = float(kp)
-        waist.kd = float(kd)
         cmd.crc = self.crc.Crc(cmd)
         return cmd
+
+    def execute_lowcmd_pose(
+        self,
+        path: Path,
+        plan: dict[str, Any],
+        payload: dict[str, Any] | None,
+        frames: list[dict[str, Any]],
+        msg: Any,
+        waist_target: float,
+    ) -> tuple[int, dict[str, Any]]:
+        with self.command_lock:
+            lowcmd_publisher = self.lowcmd_publisher
+            motion_switcher = self.motion_switcher
+            previous_cancel = self.replay_cancel
+            wrist_cancel = self.wrist_cancel
+            torso_cancel = self.torso_cancel
+        if lowcmd_publisher is None or self.lowcmd_factory is None or self.crc is None:
+            return 503, {"ok": False, "error": "DDS lowcmd publisher is not available.", "recording": path.name, "plan": plan}
+        for other in (previous_cancel, wrist_cancel, torso_cancel):
+            if other is not None:
+                other.set()
+
+        hold_q = [float(msg.motor_state[i].q) for i in range(27)]
+        cancel = threading.Event()
+        command = {
+            "mode": "torso_lowcmd",
+            "recording": path.name,
+            "control_path": "lowcmd_waist",
+            "waist_target": round(waist_target, 6),
+            "waist_start": round(hold_q[WAIST_YAW_JOINT], 6),
+        }
+
+        def run_lowcmd_pose() -> None:
+            released = False
+            writes = 0
+            commanded_waist = hold_q[WAIST_YAW_JOINT]
+            dt = 1.0 / 120.0
+            step = WAIST_LOWCMD_MAX_VEL_RAD_S * dt
+            self._set_wrist_status(
+                available=True, active=True,
+                message="lowcmd torso: releasing motion mode; legs+arms held, waist turning.",
+                last_command=command,
+            )
+            try:
+                if motion_switcher is not None:
+                    with contextlib.suppress(Exception):
+                        code, result = motion_switcher.CheckMode()
+                        if code == 0 and result and result.get("name"):
+                            motion_switcher.ReleaseMode()
+                            released = True
+                            time.sleep(0.2)
+                while not cancel.is_set():
+                    with self.command_lock:
+                        latest_msg = self.lowstate_msg
+                        publisher = self.lowcmd_publisher
+                    if latest_msg is None or publisher is None:
+                        break
+                    if commanded_waist < waist_target:
+                        commanded_waist = min(waist_target, commanded_waist + step)
+                    elif commanded_waist > waist_target:
+                        commanded_waist = max(waist_target, commanded_waist - step)
+                    publisher.Write(
+                        self._build_lowcmd_waist_hold_cmd(latest_msg, hold_q, commanded_waist, WAIST_LOWCMD_KP, WAIST_LOWCMD_KD)
+                    )
+                    writes += 1
+                    time.sleep(dt)
+            finally:
+                with self.command_lock:
+                    if self.replay_cancel is cancel:
+                        self.replay_cancel = None
+                        self.replay_thread = None
+                if released and motion_switcher is not None:
+                    with contextlib.suppress(Exception):
+                        motion_switcher.SelectMode("ai")
+                self._set_wrist_status(
+                    active=False,
+                    message=f"lowcmd torso pose stopped ({writes} writes; motion mode restored={released}).",
+                    last_command={**command, "writes": writes},
+                )
+
+        thread = threading.Thread(target=run_lowcmd_pose, name="lowcmd-torso-pose", daemon=True)
+        with self.command_lock:
+            self.replay_cancel = cancel
+            self.replay_thread = thread
+        thread.start()
+        return 202, {
+            "ok": True,
+            "message": "lowcmd torso pose started: motion mode released, waist turning via lowcmd (legs + arms held).",
+            "recording": path.name,
+            "plan": plan,
+            "waist_target": round(waist_target, 6),
+            "control_path": "lowcmd_waist",
+        }
 
     @staticmethod
     def _auto_wrist_gains(mode: str, start_q: float, target_q: float, delta: float, period: float) -> tuple[float, float]:

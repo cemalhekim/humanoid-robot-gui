@@ -3881,6 +3881,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_file(STATIC_DIR / "viewer.js", "application/javascript; charset=utf-8")
         elif request_path == "/diagram.js":
             self._send_file(STATIC_DIR / "diagram.js", "application/javascript; charset=utf-8")
+        elif request_path == "/torso.js":
+            self._send_file(STATIC_DIR / "torso.js", "application/javascript; charset=utf-8")
         elif request_path == "/styles.css":
             self._send_file(STATIC_DIR / "styles.css", "text/css; charset=utf-8")
         elif request_path == "/api/state":

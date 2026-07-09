@@ -59,6 +59,7 @@
           <a class="nav-item" href="#motorPage"><span class="nav-icon">▤</span>Motor Data</a>
           <a class="nav-item" href="#locoPage"><span class="nav-icon">↕</span>Loco Control</a>
           <a class="nav-item" href="#wristPage"><span class="nav-icon">◌</span>Right Wrist</a>
+          <a class="nav-item" href="#torsoPage"><span class="nav-icon">⟳</span>Torso Twist</a>
           <a class="nav-item" href="#diagramPage"><span class="nav-icon">◈</span>Diagrams</a>
         </nav>
         <div class="sidebar-signal">
@@ -329,6 +330,47 @@
                   <span id="recordingReplayTime">--</span>
                 </div>
               </section>
+            </div>
+          </section>
+
+          <section id="torsoPage" class="torso-page panel">
+            <div class="section-head">
+              <div>
+                <h2>Torso Twist</h2>
+                <p class="panel-subtitle">Hold and twist the dial to rotate the upper body about the waist (WaistYaw)</p>
+              </div>
+              <div class="wrist-actions">
+                <span id="torsoState" class="pill bad">Disarmed</span>
+                <label class="inline-toggle"><input id="torsoArm" type="checkbox"> Arm torso control</label>
+                <button id="torsoCenter" class="ghost-button compact" type="button">Center</button>
+                <button id="torsoRelease" class="emergency-button compact" type="button">Release</button>
+              </div>
+            </div>
+            <div class="torso-layout">
+              <div class="torso-dial-wrap">
+                <svg id="torsoDial" class="torso-dial" viewBox="0 0 240 240" aria-label="Torso twist dial">
+                  <defs>
+                    <marker id="torsoArrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                      <path d="M0 0 L10 5 L0 10 z" fill="currentColor"></path>
+                    </marker>
+                  </defs>
+                  <circle cx="120" cy="120" r="100" class="torso-ring"></circle>
+                  <path class="torso-range" d="M 40.1 68.7 A 95 95 0 0 1 199.9 68.7"></path>
+                  <path class="torso-dblarrow" d="M 25.7 59.5 A 112 112 0 0 1 214.3 59.5" marker-start="url(#torsoArrow)" marker-end="url(#torsoArrow)"></path>
+                  <circle cx="120" cy="120" r="6" class="torso-hub"></circle>
+                  <g id="torsoHandle">
+                    <line id="torsoPointer" x1="120" y1="120" x2="120" y2="25" class="torso-pointerline"></line>
+                    <circle id="torsoKnob" cx="120" cy="25" r="14" class="torso-knob"></circle>
+                  </g>
+                  <text x="120" y="150" text-anchor="middle" class="torso-center-label">TWIST</text>
+                </svg>
+                <div class="torso-readout"><strong id="torsoAngle">0.0°</strong><span>target — hold &amp; drag</span></div>
+              </div>
+              <div class="torso-info">
+                <div class="torso-info-row"><span>Live waist angle</span><strong id="torsoLive">--</strong></div>
+                <div class="torso-info-row"><span>Range</span><strong id="torsoLimits">±57°</strong></div>
+                <p class="torso-note">Twisting the torso shifts the robot's balance. Enable <em>Arm torso control</em>, keep an E-stop ready, and start with small twists. <strong>Release</strong> hands control back to the onboard controller.</p>
+              </div>
             </div>
           </section>
 
@@ -674,6 +716,7 @@
     </div>
 
     <script src="/app.js"></script>
+    <script src="/torso.js"></script>
     <script src="/diagram.js"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);

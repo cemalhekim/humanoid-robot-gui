@@ -552,6 +552,113 @@ h1 {
   grid-template-rows: 54px minmax(0, 1fr);
 }
 
+.diagram-page {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  display: none;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  z-index: 5;
+}
+
+.diagram-page:target {
+  display: grid;
+}
+
+.dashboard:has(.diagram-page:target) > :not(.diagram-page) {
+  display: none;
+}
+
+.diagram-page .section-head {
+  flex-wrap: wrap;
+}
+
+.diagram-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.diagram-actions select {
+  flex: 1 1 320px;
+  min-width: 240px;
+  max-width: 520px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font: inherit;
+}
+
+.diagram-actions #diagramPageSelect {
+  flex: 0 1 200px;
+  min-width: 140px;
+}
+
+.diagram-zoom-label {
+  min-width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.diagram-canvas {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background-color: #f4f5f7;
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.diagram-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+.diagram-canvas svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.diagram-canvas .diagram-label {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  box-sizing: border-box;
+  padding: 2px 5px;
+  overflow: hidden;
+  line-height: 1.25;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  color: #1a1a1a;
+}
+
+.diagram-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: #55606a;
+  font-size: 14px;
+  pointer-events: none;
+}
+
 .recording-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

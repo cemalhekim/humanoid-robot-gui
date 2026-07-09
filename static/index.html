@@ -59,6 +59,7 @@
           <a class="nav-item" href="#motorPage"><span class="nav-icon">▤</span>Motor Data</a>
           <a class="nav-item" href="#locoPage"><span class="nav-icon">↕</span>Loco Control</a>
           <a class="nav-item" href="#wristPage"><span class="nav-icon">◌</span>Right Wrist</a>
+          <a class="nav-item" href="#diagramPage"><span class="nav-icon">◈</span>Diagrams</a>
         </nav>
         <div class="sidebar-signal">
           <div class="signal-rings" aria-hidden="true"></div>
@@ -328,6 +329,27 @@
                   <span id="recordingReplayTime">--</span>
                 </div>
               </section>
+            </div>
+          </section>
+
+          <section id="diagramPage" class="diagram-page panel">
+            <div class="section-head">
+              <div>
+                <h2>Diagrams</h2>
+                <p class="panel-subtitle">Browse .drawio diagrams from the repo docs folder — scroll to zoom, drag to pan</p>
+              </div>
+              <div class="diagram-actions">
+                <select id="diagramFileSelect" aria-label="Diagram file"></select>
+                <select id="diagramPageSelect" class="is-hidden" aria-label="Diagram page"></select>
+                <button id="diagramRefresh" class="ghost-button compact" type="button" title="Refresh file list">⟳</button>
+                <button id="diagramZoomOut" class="ghost-button compact" type="button" aria-label="Zoom out">−</button>
+                <button id="diagramZoomIn" class="ghost-button compact" type="button" aria-label="Zoom in">+</button>
+                <button id="diagramFit" class="ghost-button compact" type="button">Fit</button>
+                <span id="diagramZoomLabel" class="diagram-zoom-label">100%</span>
+              </div>
+            </div>
+            <div id="diagramCanvas" class="diagram-canvas">
+              <div id="diagramEmpty" class="diagram-empty">Select a diagram to view.</div>
             </div>
           </section>
 
@@ -652,6 +674,7 @@
     </div>
 
     <script src="/app.js"></script>
+    <script src="/diagram.js"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);
       const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());

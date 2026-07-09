@@ -43,6 +43,7 @@ APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 CAMERA_JPEG_PATH = Path("/tmp/robot_telemetry_front_camera.jpg")
 RECORDINGS_DIR = APP_DIR / "recordings"
+DOCS_DIR = APP_DIR / "docs"
 XR_TELEOP_MODE_DROPIN = Path.home() / ".config/systemd/user/xr-teleop.service.d/10-control-mode.conf"
 XR_MOTION_SERVICES = ("xr-home-watchdog.service", "xr-teleop.service")
 XR_TELEOP_PROCESS_PATTERN = "teleop_hand_and_arm.py"
@@ -142,6 +143,50 @@ ARM_REPLAY_INNER_KP_SCALE = 0.35
 ARM_REPLAY_INNER_KD_SCALE = 1.2
 ARM_REPLAY_RESPONSE_DEFAULT = 0.5
 ARM_REPLAY_RESPONSE_MAX = 2.5
+# --- Convergence / holding upgrade (drive the arm ONTO the recorded pose) ---
+# Gravity feed-forward completeness. When a joint is inside the lock band and
+# steady we feed forward (almost) the full measured holding torque, so the
+# inner motor PD needs ~zero standing error to hold. Blended CONTINUOUSLY with
+# |error| (no destabilising jump at the lock boundary like the old 0.65/0.25).
+ARM_REPLAY_GRAVITY_HOLD_SCALE = 0.95
+ARM_REPLAY_GRAVITY_MOVE_SCALE = 0.5
+# The hold/move blend is driven by how STATIONARY the joint is, not by whether
+# it is already locked: as any joint slows near its target it gets near-full
+# gravity support, so even low-kp joints settle inside the lock band (where the
+# old scheme left them stuck a couple of degrees short). Full hold scale kicks
+# in below converge_velocity; it fades to move scale by this multiple of it.
+ARM_REPLAY_GRAVITY_RAMP_VEL_FACTOR = 5.0
+# Adaptive gravity "learning": a bounded integral ON THE FEED-FORWARD TORQUE
+# that nulls residual holding error WITHOUT moving the commanded setpoint off
+# the target, so the joint keeps driving its true error toward zero. Engages in
+# a band around the target (not only when fully locked) so it also erases the
+# approach residual. Bounded by the same per-joint gravity tau limits, so it can
+# never exceed existing safety envelopes.
+ARM_REPLAY_GRAVITY_LEARN_GAIN = 22.0
+ARM_REPLAY_GRAVITY_LEARN_LIMIT = 4.0
+ARM_REPLAY_LEARN_BAND_FACTOR = 3.0
+# A joint only counts as "settled" when inside the band AND nearly stationary.
+ARM_REPLAY_CONVERGE_VELOCITY_RAD_S = 0.05
+# Hysteresis so one noisy joint cannot reset the whole convergence latch.
+ARM_REPLAY_SETTLE_HYSTERESIS = 1.6
+# Cartesian "silhouette" proxy: weight each joint by an approximate lever arm
+# and require the weighted end-effector error to be small too, so convergence
+# tracks the visible red/blue gap rather than joint angles alone.
+ARM_REPLAY_CARTESIAN_TOLERANCE_M = 0.006
+ARM_REPLAY_JOINT_LEVER_M = {
+    13: 0.55, 14: 0.55, 15: 0.42, 16: 0.32, 17: 0.20, 18: 0.14, 19: 0.08,
+    20: 0.55, 21: 0.55, 22: 0.42, 23: 0.32, 24: 0.20, 25: 0.14, 26: 0.08,
+    12: 0.60,
+}
+# Stall escalation: if error plateaus above the band, ramp gravity learning and
+# correction authority (bounded) instead of stalling forever.
+ARM_REPLAY_STALL_SECONDS = 2.5
+ARM_REPLAY_ESCALATION_MAX = 2.0
+ARM_REPLAY_ESCALATION_STEP = 0.25
+# Convergence is the ONLY success exit. If the arm still has not converged after
+# this absolute ceiling it enters a FLAGGED safe-hold (keeps holding, reports
+# converged=false) -- it never claims success or releases at the wrong pose.
+ARM_REPLAY_ABSOLUTE_CEILING_SECONDS = 90.0
 HAND_STATE_TOPIC = "rt/inspire/state"
 HAND_COMMAND_TOPIC = "rt/inspire/cmd"
 HAND_TRAJECTORY_EPSILON = 0.02
@@ -171,11 +216,17 @@ ARM_REPLAY_PID_GAINS = {
     "wrist": (0.18, 0.02, 0.012),
     "waist": (0.12, 0.01, 0.01),
 }
+# Per-joint gravity feed-forward magnitude clamp (Nm). Sized to cover the real
+# worst-case static gravity of an outstretched H1-2 arm (shoulder ~12 Nm) with
+# margin, while still bounding the feed-forward so a measured-torque spike (e.g.
+# contact) cannot command an unbounded push. NOTE: feeding measured torque
+# forward is unsafe on hard contact -- model-based gravity + collision detection
+# is the recommended hardware-validated follow-up.
 ARM_REPLAY_GRAVITY_TAU_LIMITS = {
-    "shoulder": 10.0,
-    "elbow": 7.0,
-    "wrist": 3.0,
-    "waist": 3.0,
+    "shoulder": 15.0,
+    "elbow": 10.0,
+    "wrist": 4.0,
+    "waist": 6.0,
 }
 RIGHT_WRIST_YAW = 26
 ARM_SDK_WEIGHT_SLOT = 27
@@ -1435,6 +1486,35 @@ class TelemetryStore:
             raise FileNotFoundError(name)
         return path
 
+    def diagram_files(self) -> dict[str, Any]:
+        DOCS_DIR.mkdir(parents=True, exist_ok=True)
+        files = []
+        for path in sorted(DOCS_DIR.glob("*.drawio"), key=lambda item: item.name.lower()):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            files.append(
+                {
+                    "name": path.name,
+                    "size": stat.st_size,
+                    "modified_at": stat.st_mtime,
+                }
+            )
+        return {"files": files}
+
+    def diagram_file_path(self, filename: str) -> Path:
+        name = Path(filename).name
+        if not name.endswith(".drawio"):
+            raise ValueError("Diagram filename must end with .drawio")
+        path = (DOCS_DIR / name).resolve()
+        root = DOCS_DIR.resolve()
+        if root not in path.parents:
+            raise ValueError("Diagram path is outside the docs directory")
+        if not path.exists():
+            raise FileNotFoundError(name)
+        return path
+
     def start_recording(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         label = str(payload.get("label", "telemetry")).strip() if payload else "telemetry"
         status = self.recorder.start(label)
@@ -1650,15 +1730,14 @@ class TelemetryStore:
             writes = 0
             final_error: dict[str, Any] = {"max_error_rad": None, "per_joint": []}
             converged = False
-            timed_out = False
+            fault_reason: str | None = None
             hold_announced = False
+            ceiling_announced = False
             consecutive_converged = 0
+            escalation = 1.0
+            best_error = float("inf")
             settle_cycles = max(1, math.ceil(tuning["settle_seconds"] / TRAJECTORY_DEFAULT_DT))
-            hold_until = time.monotonic() + max(TRAJECTORY_APPROACH_SECONDS, plan.get("duration_seconds", 0.0) or 0.0)
-            closed_loop_deadline = time.monotonic() + max(
-                tuning["timeout_seconds"],
-                (plan.get("duration_seconds", 0.0) or 0.0) + tuning["timeout_seconds"],
-            )
+            per_joint_latched: dict[int, bool] = {joint: False for joint in commanded_body_joints}
             try:
                 for frame in execution_frames:
                     if cancel.is_set():
@@ -1704,52 +1783,26 @@ class TelemetryStore:
                         time.sleep(TRAJECTORY_DEFAULT_DT / tuning["playback_speed"])
                     if timestamp is not None:
                         previous_timestamp = timestamp
+                # Phase B: converge onto the recorded pose and hold. Convergence
+                # is the ONLY normal success exit; the loop never terminates at a
+                # wrong pose on a timer. It keeps servoing (escalating effort if it
+                # stalls) until every joint is settled and the weighted end-effector
+                # error is small, or a safety fault / operator cancel occurs.
+                phase_b_start = time.monotonic()
+                last_progress_t = phase_b_start
+                open_loop_hold_until = phase_b_start + max(
+                    TRAJECTORY_APPROACH_SECONDS, plan.get("duration_seconds", 0.0) or 0.0
+                )
                 while not cancel.is_set():
                     now = time.monotonic()
-                    if closed_loop and converged and now >= hold_until:
-                        if hold_after_convergence:
-                            if not hold_announced:
-                                self._set_wrist_status(
-                                    active=True,
-                                    message="arm_sdk target reached; holding final pose.",
-                                    last_command={
-                                        "mode": "trajectory",
-                                        "recording": path.name,
-                                        "command_scope": plan.get("command_scope"),
-                                        "control_path": plan.get("control_path"),
-                                        "holding_final_pose": True,
-                                        "direct_replay": False,
-                                        "approach_frame_count": approach_frame_count,
-                                        "writes": writes,
-                                        "replay_response": tuning["response"],
-                                        "tuning": tuning,
-                                        "closed_loop": {
-                                            "enabled": True,
-                                            "converged": True,
-                                            "timed_out": False,
-                                            "tolerance_rad": position_tolerance,
-                                            "settle_seconds": tuning["settle_seconds"],
-                                            "final_error": final_error,
-                                        },
-                                    },
-                                )
-                                hold_announced = True
-                        else:
-                            break
-                    if not closed_loop and now >= hold_until:
-                        break
-                    if closed_loop and now >= closed_loop_deadline and not (converged and hold_after_convergence):
-                        timed_out = True
-                        break
                     with self.command_lock:
                         latest_msg = self.lowstate_msg
                         latest_publisher = self.wrist_publisher
                     if latest_msg is None or latest_publisher is None or not execution_frames:
+                        fault_reason = "telemetry_lost"
                         break
                     final_frame = execution_frames[-1]
                     target_by_index = self._arm_replay_frame_targets(final_frame, commanded_body_joints)
-                    publish_targets = target_by_index
-                    feedforward_tau_by_index = {}
                     if closed_loop:
                         publish_targets, final_error, feedforward_tau_by_index = self._closed_loop_arm_targets(
                             latest_msg,
@@ -1757,17 +1810,44 @@ class TelemetryStore:
                             closed_loop_state,
                             TRAJECTORY_DEFAULT_DT,
                             tuning,
+                            escalation,
                         )
-                        max_error = final_error.get("max_error_rad")
-                        if (
-                            isinstance(max_error, (int, float))
-                            and max_error <= position_tolerance
-                            and final_error.get("all_locked") is True
-                        ):
+                        # Per-joint settle latch with hysteresis so one noisy joint
+                        # cannot repeatedly reset the whole convergence counter.
+                        for pj in final_error.get("per_joint", []):
+                            joint_index = pj["index"]
+                            joint_error = abs(pj.get("error_rad", 0.0))
+                            if per_joint_latched.get(joint_index):
+                                if joint_error > position_tolerance * ARM_REPLAY_SETTLE_HYSTERESIS:
+                                    per_joint_latched[joint_index] = False
+                            elif joint_error <= position_tolerance and pj.get("stationary"):
+                                per_joint_latched[joint_index] = True
+                        all_latched = bool(per_joint_latched) and all(per_joint_latched.values())
+                        cartesian_error = final_error.get("cartesian_proxy_error_m")
+                        cartesian_ok = not isinstance(cartesian_error, (int, float)) or cartesian_error <= final_error.get(
+                            "cartesian_tolerance_m", ARM_REPLAY_CARTESIAN_TOLERANCE_M
+                        )
+                        velocity_ok = final_error.get("max_velocity_rad_s", 0.0) <= tuning.get(
+                            "converge_velocity_rad_s", ARM_REPLAY_CONVERGE_VELOCITY_RAD_S
+                        )
+                        if all_latched and cartesian_ok and velocity_ok:
                             consecutive_converged += 1
                         else:
                             consecutive_converged = 0
                         converged = consecutive_converged >= settle_cycles
+                        # Stall escalation: if the error plateaus above the band,
+                        # ramp gravity learning + correction authority (bounded).
+                        current_error = final_error.get("max_error_rad")
+                        if isinstance(current_error, (int, float)) and current_error < best_error - 1e-4:
+                            best_error = current_error
+                            last_progress_t = now
+                        elif not converged and (now - last_progress_t) > ARM_REPLAY_STALL_SECONDS:
+                            escalation = min(ARM_REPLAY_ESCALATION_MAX, escalation + ARM_REPLAY_ESCALATION_STEP)
+                            last_progress_t = now
+                    else:
+                        publish_targets = target_by_index
+                        feedforward_tau_by_index = {}
+                        converged = now >= open_loop_hold_until
                     latest_publisher.Write(
                         self._build_arm_sdk_trajectory_cmd(
                             latest_msg,
@@ -1778,6 +1858,46 @@ class TelemetryStore:
                         )
                     )
                     writes += 1
+                    if converged:
+                        if hold_after_convergence:
+                            if not hold_announced:
+                                self._set_wrist_status(
+                                    active=True,
+                                    message="arm_sdk target reached; holding final pose.",
+                                    last_command=self._arm_replay_status_payload(
+                                        path, plan, tuning, approach_frame_count,
+                                        writes=writes, closed_loop=closed_loop,
+                                        hold_after_convergence=hold_after_convergence,
+                                        position_tolerance=position_tolerance,
+                                        final_error=final_error, converged=True,
+                                        escalation=escalation, holding=True,
+                                    ),
+                                )
+                                hold_announced = True
+                        else:
+                            break
+                    elif (now - phase_b_start) > ARM_REPLAY_ABSOLUTE_CEILING_SECONDS:
+                        # Absolute ceiling reached without convergence: never report
+                        # success or release at the wrong pose. Flag it and keep
+                        # holding the best pose (or stop, if holding is disabled).
+                        if not ceiling_announced:
+                            self._set_wrist_status(
+                                active=True,
+                                message="arm_sdk NOT converged within ceiling; holding best pose (not at target).",
+                                last_command=self._arm_replay_status_payload(
+                                    path, plan, tuning, approach_frame_count,
+                                    writes=writes, closed_loop=closed_loop,
+                                    hold_after_convergence=hold_after_convergence,
+                                    position_tolerance=position_tolerance,
+                                    final_error=final_error, converged=False,
+                                    escalation=escalation, holding=True,
+                                    ceiling_reached=True,
+                                ),
+                            )
+                            ceiling_announced = True
+                        if not hold_after_convergence:
+                            fault_reason = "ceiling_not_converged"
+                            break
                     time.sleep(TRAJECTORY_DEFAULT_DT)
             finally:
                 with self.command_lock:
@@ -1793,32 +1913,21 @@ class TelemetryStore:
                             f"arm_sdk closed-loop replay converged ({writes} writes)."
                             if closed_loop and converged
                             else (
-                                f"arm_sdk closed-loop replay timed out ({writes} writes)."
-                                if closed_loop and timed_out
+                                f"arm_sdk replay stopped: {fault_reason} ({writes} writes)."
+                                if fault_reason
                                 else f"arm_sdk trajectory replay complete ({writes} writes)."
                             )
                         )
                     ),
-                    last_command={
-                        "mode": "trajectory",
-                        "recording": path.name,
-                        "command_scope": plan.get("command_scope"),
-                        "control_path": plan.get("control_path"),
-                        "direct_replay": not closed_loop,
-                        "hold_after_convergence": hold_after_convergence,
-                        "approach_frame_count": approach_frame_count,
-                        "writes": writes,
-                        "replay_response": tuning["response"],
-                        "tuning": tuning,
-                        "closed_loop": {
-                            "enabled": closed_loop,
-                            "converged": converged,
-                            "timed_out": timed_out,
-                            "tolerance_rad": position_tolerance,
-                            "settle_seconds": tuning["settle_seconds"],
-                            "final_error": final_error,
-                        },
-                    },
+                    last_command=self._arm_replay_status_payload(
+                        path, plan, tuning, approach_frame_count,
+                        writes=writes, closed_loop=closed_loop,
+                        hold_after_convergence=hold_after_convergence,
+                        position_tolerance=position_tolerance,
+                        final_error=final_error, converged=converged,
+                        escalation=escalation, holding=False,
+                        fault_reason=fault_reason,
+                    ),
                 )
 
         thread = threading.Thread(target=run_replay, name="arm-sdk-trajectory-replay", daemon=True)
@@ -1894,8 +2003,6 @@ class TelemetryStore:
             "pid_kp_scale": self._response_lerp(response, 0.75, 1.0, 1.6),
             "pid_ki_scale": self._response_lerp(response, 0.75, 1.0, 1.4),
             "pid_kd_scale": self._response_lerp(response, 1.25, 1.0, 0.85),
-            "gravity_feedforward_scale": self._response_lerp(response, 0.15, 0.25, 0.35),
-            "gravity_lock_feedforward_scale": self._response_lerp(response, 0.45, 0.65, 0.8),
             "gravity_tau_filter_seconds": ARM_REPLAY_GRAVITY_TAU_FILTER_SECONDS,
             "lock_tolerance_rad": ARM_REPLAY_LOCK_TOLERANCE_RAD,
             "lock_tolerance_m": ARM_REPLAY_LOCK_TOLERANCE_M,
@@ -1913,6 +2020,10 @@ class TelemetryStore:
             ),
             "settle_seconds": self._response_lerp(response, 0.9, ARM_REPLAY_SETTLE_SECONDS, 0.35),
             "timeout_seconds": ARM_REPLAY_TIMEOUT_SECONDS,
+            "gravity_hold_scale": ARM_REPLAY_GRAVITY_HOLD_SCALE,
+            "gravity_move_scale": ARM_REPLAY_GRAVITY_MOVE_SCALE,
+            "converge_velocity_rad_s": ARM_REPLAY_CONVERGE_VELOCITY_RAD_S,
+            "cartesian_tolerance_m": ARM_REPLAY_CARTESIAN_TOLERANCE_M,
         }
         return {key: round(value, 6) for key, value in tuning.items()}
 
@@ -1968,6 +2079,49 @@ class TelemetryStore:
             )
         }
 
+    def _arm_replay_status_payload(
+        self,
+        path: Path,
+        plan: dict[str, Any],
+        tuning: dict[str, float],
+        approach_frame_count: int,
+        *,
+        writes: int,
+        closed_loop: bool,
+        hold_after_convergence: bool,
+        position_tolerance: float,
+        final_error: dict[str, Any],
+        converged: bool,
+        escalation: float = 1.0,
+        holding: bool = False,
+        ceiling_reached: bool = False,
+        fault_reason: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "mode": "trajectory",
+            "recording": path.name,
+            "command_scope": plan.get("command_scope"),
+            "control_path": plan.get("control_path"),
+            "direct_replay": not closed_loop,
+            "hold_after_convergence": hold_after_convergence,
+            "holding_final_pose": holding,
+            "approach_frame_count": approach_frame_count,
+            "writes": writes,
+            "replay_response": tuning["response"],
+            "tuning": tuning,
+            "closed_loop": {
+                "enabled": closed_loop,
+                "converged": converged,
+                "ceiling_reached": ceiling_reached,
+                "fault_reason": fault_reason,
+                "escalation": round(float(escalation), 3),
+                "tolerance_rad": position_tolerance,
+                "cartesian_tolerance_m": tuning.get("cartesian_tolerance_m", ARM_REPLAY_CARTESIAN_TOLERANCE_M),
+                "settle_seconds": tuning["settle_seconds"],
+                "final_error": final_error,
+            },
+        }
+
     def _closed_loop_arm_targets(
         self,
         msg: Any,
@@ -1975,15 +2129,25 @@ class TelemetryStore:
         pid_state: dict[int, dict[str, float]],
         dt: float,
         tuning: dict[str, float] | None = None,
+        escalation: float = 1.0,
     ) -> tuple[dict[int, float], dict[str, Any], dict[int, float]]:
         tuning = tuning or self._arm_replay_tuning()
         dt = max(0.001, dt)
+        escalation = max(1.0, min(ARM_REPLAY_ESCALATION_MAX, float(escalation)))
         corrected: dict[int, float] = {}
         feedforward_tau: dict[int, float] = {}
         per_joint = []
         max_error = 0.0
+        max_velocity = 0.0
         locked_count = 0
+        stationary_count = 0
+        settled_count = 0
+        cartesian_sq = 0.0
         lock_tolerance = float(tuning.get("lock_tolerance_rad", ARM_REPLAY_LOCK_TOLERANCE_RAD))
+        converge_velocity = float(tuning.get("converge_velocity_rad_s", ARM_REPLAY_CONVERGE_VELOCITY_RAD_S))
+        hold_scale = float(tuning.get("gravity_hold_scale", ARM_REPLAY_GRAVITY_HOLD_SCALE))
+        move_scale = float(tuning.get("gravity_move_scale", ARM_REPLAY_GRAVITY_MOVE_SCALE))
+        learn_gain = ARM_REPLAY_GRAVITY_LEARN_GAIN * escalation
         for joint, desired_q in desired_by_index.items():
             motor_state = msg.motor_state[joint]
             actual_q = float(getattr(motor_state, "q", 0.0) or 0.0)
@@ -1992,13 +2156,15 @@ class TelemetryStore:
             error = desired_q - actual_q
             state = pid_state.setdefault(
                 joint,
-                {"integral": 0.0, "last_error": 0.0, "last_desired_q": math.nan, "gravity_tau": 0.0},
+                {"integral": 0.0, "last_error": 0.0, "last_desired_q": math.nan, "gravity_tau": 0.0, "gravity_learn": 0.0},
             )
             last_desired_q = state.get("last_desired_q", math.nan)
-            if not math.isfinite(last_desired_q) or abs(desired_q - last_desired_q) > 0.02:
+            jump = (not math.isfinite(last_desired_q)) or abs(desired_q - last_desired_q) > 0.02
+            if jump:
                 state["integral"] = 0.0
                 state["last_error"] = error
                 state["gravity_tau"] = actual_tau
+                state["gravity_learn"] = 0.0
             state["integral"] = max(
                 -ARM_REPLAY_INTEGRAL_LIMIT,
                 min(ARM_REPLAY_INTEGRAL_LIMIT, state.get("integral", 0.0) + error * dt),
@@ -2008,26 +2174,47 @@ class TelemetryStore:
             kp, ki, kd = self._arm_replay_pid_gain(joint, tuning)
             derivative = (error - state.get("last_error", error)) / dt
             locked = abs(error) <= lock_tolerance
+            stationary = abs(actual_dq) <= converge_velocity
             if locked:
                 correction = 0.0
                 locked_count += 1
             else:
                 correction = kp * error + ki * state["integral"] + kd * derivative
-            max_correction = tuning["max_pid_correction_rad"]
+            max_correction = tuning["max_pid_correction_rad"] * escalation
             correction = max(-max_correction, min(max_correction, correction))
             corrected[joint] = self._clamp_joint_target(joint, desired_q + correction)
-            gravity_scale = (
-                tuning.get("gravity_lock_feedforward_scale", 0.65)
-                if locked and abs(actual_dq) <= 0.25
-                else tuning.get("gravity_feedforward_scale", 0.25)
-            )
+            # Continuous gravity feed-forward scale, ramped by how STATIONARY the
+            # joint is (not by lock state): a joint slowing toward its target gets
+            # near-full gravity support, so it settles inside the band instead of a
+            # couple of degrees short. No jump at the lock boundary.
+            v_ramp = max(1e-6, converge_velocity * ARM_REPLAY_GRAVITY_RAMP_VEL_FACTOR)
+            blend = max(0.0, min(1.0, 1.0 - abs(actual_dq) / v_ramp))
+            gravity_scale = move_scale + (hold_scale - move_scale) * blend
+            learned = state.get("gravity_learn", 0.0)
+            base_gravity = state.get("gravity_tau", 0.0) * gravity_scale
             tau_limit = self._arm_replay_gravity_tau_limit(joint)
-            gravity_tau = max(-tau_limit, min(tau_limit, state.get("gravity_tau", 0.0) * gravity_scale))
+            gravity_tau = max(-tau_limit, min(tau_limit, base_gravity + learned))
             feedforward_tau[joint] = gravity_tau
+            # Learn the residual holding torque while stationary and inside a small
+            # band around the target, never on a jump/approach frame -- so it stays
+            # exactly 0 during the reach (keeps the tau=0 approach path and the
+            # exact-target lock contract intact) but erases the settling residual.
+            near_band = abs(error) <= lock_tolerance * ARM_REPLAY_LEARN_BAND_FACTOR
+            if near_band and stationary and not jump:
+                new_learn = learned + learn_gain * error * dt
+                state["gravity_learn"] = max(-ARM_REPLAY_GRAVITY_LEARN_LIMIT, min(ARM_REPLAY_GRAVITY_LEARN_LIMIT, new_learn))
             state["last_error"] = error
             state["last_desired_q"] = desired_q
             abs_error = abs(error)
             max_error = max(max_error, abs_error)
+            max_velocity = max(max_velocity, abs(actual_dq))
+            settled = locked and stationary
+            if stationary:
+                stationary_count += 1
+            if settled:
+                settled_count += 1
+            lever = ARM_REPLAY_JOINT_LEVER_M.get(joint, 0.2)
+            cartesian_sq += (lever * error) ** 2
             per_joint.append(
                 {
                     "index": joint,
@@ -2038,18 +2225,28 @@ class TelemetryStore:
                     "actual_tau_est": round(actual_tau, 6),
                     "error_rad": round(error, 6),
                     "locked": locked,
+                    "stationary": stationary,
+                    "settled": settled,
                     "correction_rad": round(correction, 6),
                     "gravity_tau": round(gravity_tau, 6),
                     "command_q": round(corrected[joint], 6),
                 }
             )
+        joint_count = len(desired_by_index)
         return corrected, {
             "max_error_rad": round(max_error, 6),
+            "max_velocity_rad_s": round(max_velocity, 6),
+            "cartesian_proxy_error_m": round(math.sqrt(cartesian_sq), 6),
             "lock_tolerance_rad": round(lock_tolerance, 6),
             "lock_tolerance_m": tuning.get("lock_tolerance_m", ARM_REPLAY_LOCK_TOLERANCE_M),
+            "cartesian_tolerance_m": tuning.get("cartesian_tolerance_m", ARM_REPLAY_CARTESIAN_TOLERANCE_M),
             "locked_joints": locked_count,
-            "joint_count": len(desired_by_index),
-            "all_locked": bool(desired_by_index) and locked_count == len(desired_by_index),
+            "stationary_joints": stationary_count,
+            "settled_joints": settled_count,
+            "joint_count": joint_count,
+            "all_locked": bool(desired_by_index) and locked_count == joint_count,
+            "all_settled": bool(desired_by_index) and settled_count == joint_count,
+            "escalation": round(escalation, 3),
             "per_joint": per_joint,
         }, feedforward_tau
 
@@ -3469,6 +3666,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_file(STATIC_DIR / "app.js", "application/javascript; charset=utf-8")
         elif request_path == "/viewer.js":
             self._send_file(STATIC_DIR / "viewer.js", "application/javascript; charset=utf-8")
+        elif request_path == "/diagram.js":
+            self._send_file(STATIC_DIR / "diagram.js", "application/javascript; charset=utf-8")
         elif request_path == "/styles.css":
             self._send_file(STATIC_DIR / "styles.css", "text/css; charset=utf-8")
         elif request_path == "/api/state":
@@ -3492,6 +3691,19 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                 self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
                 return
             self._send_file(path, "application/x-ndjson; charset=utf-8")
+        elif request_path == "/api/diagrams":
+            self._send_json(self.store.diagram_files())
+        elif request_path.startswith("/api/diagrams/"):
+            filename = unquote(request_path.removeprefix("/api/diagrams/"))
+            try:
+                path = self.store.diagram_file_path(filename)
+            except FileNotFoundError:
+                self.send_error(HTTPStatus.NOT_FOUND, "Diagram not found")
+                return
+            except ValueError as exc:
+                self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            self._send_file(path, "application/xml; charset=utf-8")
         elif request_path == "/api/wrist/status":
             self._send_json(self.store.wrist_snapshot())
         elif request_path == "/api/loco/status":

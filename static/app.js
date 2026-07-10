@@ -219,6 +219,7 @@ const els = {
   chatInput: document.getElementById("chatInput"),
   chatSend: document.getElementById("chatSend"),
   chatStatus: document.getElementById("chatStatus"),
+  chatHint: document.getElementById("chatHint"),
 };
 
 function fmt(value, suffix = "") {
@@ -2571,6 +2572,8 @@ function setupChat() {
   async function send() {
     const text = els.chatInput.value.trim();
     if (!text || busy) return;
+    const viaVoice = sendViaVoice;
+    sendViaVoice = false;
     busy = true;
     els.chatSend.disabled = true;
     els.chatInput.value = "";
@@ -2592,6 +2595,7 @@ function setupChat() {
       pending.card.classList.remove("pending");
       pending.p.textContent = payload.reply;
       history.push({ role: "assistant", content: payload.reply });
+      if (viaVoice) speak(payload.reply);
     } catch (error) {
       pending.card.classList.remove("pending");
       pending.card.classList.remove("assistant-card");
@@ -2605,7 +2609,139 @@ function setupChat() {
       busy = false;
       els.chatSend.disabled = false;
       els.chatLog.scrollTop = els.chatLog.scrollHeight;
-      els.chatInput.focus();
+      // A voice message returns the button to mic mode; a typed one keeps the
+      // keyboard ready for the next message.
+      if (viaVoice) {
+        els.chatInput.blur();
+        updateMode();
+      } else {
+        els.chatInput.focus();
+      }
+    }
+  }
+
+  // --- Voice: the action button morphs between Send (while typing) and Mic
+  // (push-to-talk) depending on whether the cursor is active in the box. ---
+  let voiceInput = false;
+  let voiceOutput = false;
+  let recording = false;
+  let mediaRecorder = null;
+  let mediaStream = null;
+  let chunks = [];
+  let sendViaVoice = false;
+  const player = new Audio();
+
+  function setHint(text) {
+    if (els.chatHint) els.chatHint.textContent = text || "";
+  }
+
+  function micModeActive() {
+    // Mic when the operator is not actively editing an empty message box.
+    return document.activeElement !== els.chatInput && els.chatInput.value.trim() === "";
+  }
+
+  function updateMode() {
+    if (recording) return;
+    const mic = micModeActive();
+    els.chatSend.classList.toggle("mic-mode", mic);
+    els.chatSend.type = mic ? "button" : "submit";
+    els.chatSend.title = mic ? "Hold to talk" : "Send message";
+    els.chatSend.setAttribute("aria-label", mic ? "Hold to record a voice message" : "Send message");
+    if (!recording) setHint(mic ? (voiceInput ? "Hold to talk" : "") : "");
+  }
+
+  async function startRecording() {
+    if (recording || busy) return;
+    if (!voiceInput) {
+      setHint("Voice input isn't set up yet.");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setHint("This browser can't record audio.");
+      return;
+    }
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      setHint("Microphone permission denied.");
+      return;
+    }
+    chunks = [];
+    const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    mediaRecorder = new MediaRecorder(mediaStream, mime ? { mimeType: mime } : undefined);
+    mediaRecorder.addEventListener("dataavailable", (event) => {
+      if (event.data && event.data.size) chunks.push(event.data);
+    });
+    mediaRecorder.addEventListener("stop", handleRecordingStop);
+    mediaRecorder.start();
+    recording = true;
+    els.chatSend.classList.add("recording");
+    els.chatSend.classList.add("mic-mode");
+    setHint("Recording… release to send 🎙️");
+  }
+
+  function stopRecording() {
+    if (!recording) return;
+    recording = false;
+    els.chatSend.classList.remove("recording");
+    try {
+      if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+    } catch (error) {
+      /* ignore */
+    }
+    if (mediaStream) mediaStream.getTracks().forEach((track) => track.stop());
+    mediaStream = null;
+  }
+
+  async function handleRecordingStop() {
+    const type = (mediaRecorder && mediaRecorder.mimeType) || "audio/webm";
+    const blob = new Blob(chunks, { type });
+    chunks = [];
+    if (blob.size < 1200) {
+      setHint("Too short — hold the mic to talk.");
+      updateMode();
+      return;
+    }
+    setHint("Transcribing…");
+    try {
+      const response = await fetch("/api/stt", {
+        method: "POST",
+        headers: { "Content-Type": type },
+        body: blob,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Transcription failed.");
+      if (!data.text) {
+        setHint("Didn't catch that — try again.");
+        updateMode();
+        return;
+      }
+      setHint("");
+      sendViaVoice = true;
+      els.chatInput.value = data.text;
+      send();
+    } catch (error) {
+      setHint(error instanceof Error ? error.message : "Transcription failed.");
+      updateMode();
+    }
+  }
+
+  async function speak(text) {
+    if (!voiceOutput || !text) return;
+    try {
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) return;
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      player.src = url;
+      player.onended = () => URL.revokeObjectURL(url);
+      player.play().catch(() => URL.revokeObjectURL(url));
+    } catch (error) {
+      /* speech playback is best-effort */
     }
   }
 
@@ -2613,7 +2749,12 @@ function setupChat() {
     event.preventDefault();
     send();
   });
-  els.chatInput.addEventListener("input", autosize);
+  els.chatInput.addEventListener("input", () => {
+    autosize();
+    updateMode();
+  });
+  els.chatInput.addEventListener("focus", updateMode);
+  els.chatInput.addEventListener("blur", () => window.setTimeout(updateMode, 0));
   els.chatInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -2621,22 +2762,45 @@ function setupChat() {
     }
   });
 
+  // Push-to-talk: hold the mic button to record, release to transcribe + send.
+  els.chatSend.addEventListener("pointerdown", (event) => {
+    if (!els.chatSend.classList.contains("mic-mode")) return;
+    event.preventDefault();
+    try {
+      els.chatSend.setPointerCapture(event.pointerId);
+    } catch (error) {
+      /* ignore */
+    }
+    startRecording();
+  });
+  const endHold = () => stopRecording();
+  els.chatSend.addEventListener("pointerup", endHold);
+  els.chatSend.addEventListener("pointercancel", endHold);
+  els.chatSend.addEventListener("lostpointercapture", endHold);
+  window.addEventListener("blur", endHold);
+
   fetch("/api/chat/status")
     .then((response) => response.json())
     .then((status) => {
-      if (!els.chatStatus) return;
-      if (status.enabled) {
-        els.chatStatus.textContent = "Assistant online";
-        els.chatStatus.title = `Model: ${status.model}`;
-      } else {
-        els.chatStatus.textContent = "Assistant offline";
-        els.chatStatus.classList.add("offline");
-        els.chatInput.disabled = true;
-        els.chatSend.disabled = true;
-        els.chatInput.placeholder = "Assistant is disabled";
+      voiceInput = Boolean(status.voice_input);
+      voiceOutput = Boolean(status.voice_output);
+      if (els.chatStatus) {
+        if (status.enabled) {
+          els.chatStatus.textContent = "Assistant online";
+          els.chatStatus.title = `Model: ${status.model}`;
+        } else {
+          els.chatStatus.textContent = "Assistant offline";
+          els.chatStatus.classList.add("offline");
+          els.chatInput.disabled = true;
+          els.chatSend.disabled = true;
+          els.chatInput.placeholder = "Assistant is disabled";
+        }
       }
+      updateMode();
     })
-    .catch(() => {});
+    .catch(() => updateMode());
+
+  updateMode();
 }
 
 syncActiveNav();

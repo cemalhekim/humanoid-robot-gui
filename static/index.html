@@ -107,8 +107,17 @@
               </div>
               <form id="chatForm" class="chat-input" autocomplete="off">
                 <textarea id="chatInput" rows="1" placeholder="Ask about the robot…" aria-label="Message the assistant"></textarea>
-                <button id="chatSend" type="submit" title="Send">Send</button>
+                <button id="chatSend" type="submit" class="chat-action" title="Send message" aria-label="Send message">
+                  <svg class="icon icon-send" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12 2-12 2z" fill="currentColor"/>
+                  </svg>
+                  <svg class="icon icon-mic" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" fill="currentColor"/>
+                    <path d="M18 12a6 6 0 0 1-12 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                </button>
               </form>
+              <p id="chatHint" class="chat-hint"></p>
             </div>
           </section>
 

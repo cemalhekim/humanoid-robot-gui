@@ -389,6 +389,29 @@ LLM_MAX_MESSAGE_CHARS = int(os.environ.get("LLM_MAX_MESSAGE_CHARS", "8000"))
 # via the ros2 CLI (cached ~3s) so it can add a little latency; disable with 0.
 LLM_INCLUDE_ROS_GRAPH = os.environ.get("LLM_INCLUDE_ROS_GRAPH", "1") not in ("0", "false", "False", "")
 
+# ---------------------------------------------------------------------------
+# Voice: speech-to-text (STT) and text-to-speech (TTS).
+#
+# Both proxy to OpenAI-compatible audio servers so any engine that speaks that
+# API works unchanged (faster-whisper-server / Speaches for STT, openedai-speech
+# wrapping Piper for TTS). Disabled by default until an engine is stood up and
+# LLM_STT_ENABLED / LLM_TTS_ENABLED are set. The browser records push-to-talk
+# audio and posts it to /api/stt; /api/tts turns a reply into speech.
+# ---------------------------------------------------------------------------
+LLM_STT_ENABLED = os.environ.get("LLM_STT_ENABLED", "0") not in ("0", "false", "False", "")
+LLM_STT_BASE_URL = os.environ.get("LLM_STT_BASE_URL", "http://10.2.125.3:8001").rstrip("/")
+LLM_STT_MODEL = os.environ.get("LLM_STT_MODEL", "Systran/faster-whisper-base.en")
+LLM_STT_LANGUAGE = os.environ.get("LLM_STT_LANGUAGE", "en")
+
+LLM_TTS_ENABLED = os.environ.get("LLM_TTS_ENABLED", "0") not in ("0", "false", "False", "")
+LLM_TTS_BASE_URL = os.environ.get("LLM_TTS_BASE_URL", "http://10.2.125.3:8002").rstrip("/")
+LLM_TTS_MODEL = os.environ.get("LLM_TTS_MODEL", "tts-1")
+LLM_TTS_VOICE = os.environ.get("LLM_TTS_VOICE", "alloy")
+
+VOICE_TIMEOUT_SECONDS = float(os.environ.get("VOICE_TIMEOUT_SECONDS", "60"))
+MAX_AUDIO_BYTES = int(os.environ.get("MAX_AUDIO_BYTES", str(15_000_000)))
+MAX_TTS_TEXT_CHARS = int(os.environ.get("MAX_TTS_TEXT_CHARS", "2000"))
+
 LLM_SYSTEM_PROMPT = (
     "You are the Command Center assistant embedded in the Unitree H1-2 humanoid "
     "robot operator dashboard. You help the operator understand live telemetry: "
@@ -608,6 +631,97 @@ def call_llm(messages: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
         return 502, {"ok": False, "error": "LLM response missing choices[0].message.content"}
     usage = decoded.get("usage") if isinstance(decoded, dict) else None
     return 200, {"ok": True, "reply": reply, "model": decoded.get("model", LLM_MODEL), "usage": usage}
+
+
+def _multipart_audio(audio: bytes, filename: str, content_type: str, fields: dict[str, str]) -> tuple[str, bytes]:
+    """Build a multipart/form-data body for an OpenAI-compatible transcription."""
+    boundary = "----robotDashboardAudioBoundary7MA4YWxkTrZu0gW"
+    chunks: list[bytes] = []
+    for name, value in fields.items():
+        chunks.append(
+            (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'
+            ).encode("utf-8")
+        )
+    chunks.append(
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode("utf-8")
+    )
+    chunks.append(audio)
+    chunks.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+    return boundary, b"".join(chunks)
+
+
+def transcribe_audio(audio: bytes, content_type: str) -> tuple[int, dict[str, Any]]:
+    """Proxy recorded audio to the OpenAI-compatible STT server, return text."""
+    if not LLM_STT_ENABLED:
+        return 503, {"ok": False, "error": "Voice input is disabled (set LLM_STT_ENABLED=1)."}
+    if not audio:
+        return 400, {"ok": False, "error": "Empty audio."}
+    if len(audio) > MAX_AUDIO_BYTES:
+        return 413, {"ok": False, "error": f"Audio too large (max {MAX_AUDIO_BYTES} bytes)."}
+
+    ext = "webm" if "webm" in content_type else ("ogg" if "ogg" in content_type else "wav")
+    fields = {"model": LLM_STT_MODEL, "response_format": "json"}
+    if LLM_STT_LANGUAGE:
+        fields["language"] = LLM_STT_LANGUAGE
+    boundary, body = _multipart_audio(audio, f"speech.{ext}", content_type or "audio/webm", fields)
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    request = urllib.request.Request(
+        f"{LLM_STT_BASE_URL}/v1/audio/transcriptions", data=body, headers=headers, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=VOICE_TIMEOUT_SECONDS) as response:
+            decoded = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:500]
+        return 502, {"ok": False, "error": f"STT returned HTTP {exc.code}: {detail}"}
+    except urllib.error.URLError as exc:
+        return 503, {"ok": False, "error": f"Cannot reach STT at {LLM_STT_BASE_URL}: {exc.reason}"}
+    except socket.timeout:
+        return 504, {"ok": False, "error": f"STT timed out after {VOICE_TIMEOUT_SECONDS:g}s"}
+    except Exception as exc:  # pragma: no cover - defensive
+        return 502, {"ok": False, "error": f"STT request failed: {exc}"}
+
+    text = (decoded.get("text") if isinstance(decoded, dict) else None) or ""
+    return 200, {"ok": True, "text": text.strip()}
+
+
+def synthesize_speech(text: str) -> tuple[int, dict[str, Any] | bytes, str]:
+    """Proxy text to the OpenAI-compatible TTS server. On success returns
+    (200, audio_bytes, content_type); on failure (status, error_dict, "")."""
+    if not LLM_TTS_ENABLED:
+        return 503, {"ok": False, "error": "Voice output is disabled (set LLM_TTS_ENABLED=1)."}, ""
+    text = (text or "").strip()
+    if not text:
+        return 400, {"ok": False, "error": "No text to synthesize."}, ""
+    body = json.dumps(
+        {"model": LLM_TTS_MODEL, "voice": LLM_TTS_VOICE, "input": text[:MAX_TTS_TEXT_CHARS]}
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        f"{LLM_TTS_BASE_URL}/v1/audio/speech",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=VOICE_TIMEOUT_SECONDS) as response:
+            audio = response.read()
+            content_type = response.headers.get("Content-Type", "audio/mpeg")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:500]
+        return 502, {"ok": False, "error": f"TTS returned HTTP {exc.code}: {detail}"}, ""
+    except urllib.error.URLError as exc:
+        return 503, {"ok": False, "error": f"Cannot reach TTS at {LLM_TTS_BASE_URL}: {exc.reason}"}, ""
+    except socket.timeout:
+        return 504, {"ok": False, "error": f"TTS timed out after {VOICE_TIMEOUT_SECONDS:g}s"}, ""
+    except Exception as exc:  # pragma: no cover - defensive
+        return 502, {"ok": False, "error": f"TTS request failed: {exc}"}, ""
+    return 200, audio, content_type
 
 
 def recording_timestamp() -> str:
@@ -4440,6 +4554,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                     "enabled": LLM_ENABLED,
                     "model": LLM_MODEL,
                     "endpoint": LLM_BASE_URL,
+                    "voice_input": LLM_STT_ENABLED,
+                    "voice_output": LLM_TTS_ENABLED,
                 }
             )
         elif request_path == "/camera.mjpg":
@@ -4462,6 +4578,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/loco/command",
             "/api/xr/mode",
             "/api/chat",
+            "/api/stt",
+            "/api/tts",
             "/api/recording/start",
             "/api/recording/stop",
             "/api/recording/pose",
@@ -4471,6 +4589,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
 
+        # Speech-to-text takes a raw audio body (not JSON) — handle it up front.
+        if request_path == "/api/stt":
+            self._handle_stt()
+            return
+
         payload: dict[str, Any] = {}
         if request_path in (
             "/api/wrist/command",
@@ -4478,6 +4601,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/loco/command",
             "/api/xr/mode",
             "/api/chat",
+            "/api/tts",
             "/api/recording/start",
             "/api/recording/pose",
             "/api/recording/sequence",
@@ -4529,6 +4653,14 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         if request_path == "/api/chat":
             status, response = self.store.chat(payload)
             self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/tts":
+            status, result, content_type = synthesize_speech(str(payload.get("text", "")))
+            if status == 200 and isinstance(result, (bytes, bytearray)):
+                self._send_bytes(result, content_type)
+            else:
+                self._send_json_status(result, HTTPStatus(status))
             return
 
         self.store.record_command_event(request_path, payload)
@@ -4599,6 +4731,35 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                 content_type = "application/octet-stream"
 
         self._send_file(path, content_type)
+
+    def _handle_stt(self) -> None:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0:
+            self._send_json_status({"ok": False, "error": "Empty audio body."}, HTTPStatus.BAD_REQUEST)
+            return
+        if length > MAX_AUDIO_BYTES:
+            self.close_connection = True
+            self._send_json_status(
+                {"ok": False, "error": f"Audio too large (max {MAX_AUDIO_BYTES} bytes)."},
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
+            return
+        audio = self.rfile.read(length)
+        content_type = self.headers.get("Content-Type", "audio/webm")
+        status, response = transcribe_audio(audio, content_type)
+        self._send_json_status(response, HTTPStatus(status))
+
+    def _send_bytes(self, body: bytes, content_type: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _send_json(self, data: dict[str, Any]) -> None:
         self._send_json_status(data, HTTPStatus.OK)

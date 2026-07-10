@@ -171,9 +171,64 @@ class CallLlmTest(unittest.TestCase):
         self.assertFalse(response["ok"])
 
 
+class VoiceTest(unittest.TestCase):
+    def test_stt_disabled_returns_503(self) -> None:
+        with mock.patch.object(server, "LLM_STT_ENABLED", False):
+            status, response = server.transcribe_audio(b"audio", "audio/webm")
+        self.assertEqual(status, 503)
+        self.assertFalse(response["ok"])
+
+    def test_tts_disabled_returns_503(self) -> None:
+        with mock.patch.object(server, "LLM_TTS_ENABLED", False):
+            status, result, ctype = server.synthesize_speech("hi")
+        self.assertEqual(status, 503)
+        self.assertEqual(ctype, "")
+
+    def test_multipart_body_is_well_formed(self) -> None:
+        boundary, body = server._multipart_audio(
+            b"RAWBYTES", "speech.webm", "audio/webm", {"model": "m", "response_format": "json"}
+        )
+        self.assertIn(boundary, body.decode("latin1"))
+        self.assertIn(b'name="model"', body)
+        self.assertIn(b'filename="speech.webm"', body)
+        self.assertIn(b"RAWBYTES", body)
+        self.assertTrue(body.rstrip().endswith(f"--{boundary}--".encode()))
+
+    def test_stt_parses_transcription(self) -> None:
+        body = json.dumps({"text": "  which motor is hottest  "}).encode("utf-8")
+        with mock.patch.object(server, "LLM_STT_ENABLED", True), mock.patch(
+            "urllib.request.urlopen", return_value=_fake_response(body)
+        ):
+            status, response = server.transcribe_audio(b"audio-bytes", "audio/webm")
+        self.assertEqual(status, 200)
+        self.assertEqual(response["text"], "which motor is hottest")
+
+    def test_stt_rejects_oversize_audio(self) -> None:
+        with mock.patch.object(server, "LLM_STT_ENABLED", True), mock.patch.object(
+            server, "MAX_AUDIO_BYTES", 4
+        ):
+            status, response = server.transcribe_audio(b"toolong", "audio/webm")
+        self.assertEqual(status, 413)
+
+    def test_tts_returns_audio_bytes(self) -> None:
+        with mock.patch.object(server, "LLM_TTS_ENABLED", True), mock.patch(
+            "urllib.request.urlopen", return_value=_fake_response(b"ID3AUDIO", "audio/mpeg")
+        ):
+            status, result, ctype = server.synthesize_speech("hello")
+        self.assertEqual(status, 200)
+        self.assertEqual(result, b"ID3AUDIO")
+        self.assertEqual(ctype, "audio/mpeg")
+
+    def test_tts_rejects_empty_text(self) -> None:
+        with mock.patch.object(server, "LLM_TTS_ENABLED", True):
+            status, result, ctype = server.synthesize_speech("   ")
+        self.assertEqual(status, 400)
+
+
 class _fake_response:
-    def __init__(self, body: bytes) -> None:
+    def __init__(self, body: bytes, content_type: str = "application/json") -> None:
         self._body = body
+        self.headers = {"Content-Type": content_type}
 
     def read(self) -> bytes:
         return self._body

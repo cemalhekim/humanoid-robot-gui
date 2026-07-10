@@ -952,7 +952,7 @@ function updateReplayUi() {
     const moveTarget = pendingMoveTarget();
     const canMoveArms = Boolean(state.latest?.connected) && moveTarget !== null;
     els.recordingRobotPlay.disabled = !canMoveArms;
-    els.recordingRobotPlay.textContent = "Move Arms";
+    els.recordingRobotPlay.textContent = "Move";
     els.recordingRobotPlay.title = robotReplayLockReason({ canMoveArms, moveTarget });
   }
 }
@@ -961,7 +961,7 @@ function isRobotReplayFileName(name) {
   return Boolean(name && (name.endsWith(".jsonl") || name.endsWith(".pose.json") || name.endsWith(".sequence.json")));
 }
 
-// Resolve what "Move Arms" should send, in priority order. Saving is optional:
+// Resolve what "Move" should send, in priority order. Saving is optional:
 // a saved+loaded file wins, otherwise an unsaved sequence draft, otherwise the
 // pose the operator dragged in the 3D editor. Returns null when nothing is movable.
 function pendingMoveTarget() {
@@ -2379,7 +2379,7 @@ fetch("/api/state")
 window.addEventListener("hashchange", syncActiveNav);
 window.addEventListener("recording-edited-pose", (event) => {
   state.editedPose = event.detail?.snapshot || null;
-  // Re-evaluate "Move Arms" — an unsaved edited pose is now movable directly.
+  // Re-evaluate "Move" — an unsaved edited pose is now movable directly.
   updateReplayUi();
 });
 window.addEventListener("recording-ik-status", (event) => renderIkStatus(event.detail || {}));

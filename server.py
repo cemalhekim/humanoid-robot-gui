@@ -265,6 +265,10 @@ ARM_SDK_WEIGHT_SLOT = 27
 ARM_SDK_JOINTS = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 12]
 ARM_SDK_KP = [120, 120, 80, 50, 50, 50, 50, 120, 120, 80, 50, 50, 50, 50, 200]
 ARM_SDK_KD = [2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0]
+# Per-joint (kp, kd) keyed by motor index, reused when driving arms to a target
+# via lowcmd during a torso twist (motion mode released) so they hold against
+# gravity just like the arm_sdk path.
+ARM_SDK_GAIN_BY_INDEX = {joint: (ARM_SDK_KP[k], ARM_SDK_KD[k]) for k, joint in enumerate(ARM_SDK_JOINTS)}
 REPLAY_COMMAND_SCOPES = {
     "all": list(JOINT_NAMES),
     "arms": JOINT_GROUPS["left_arm"] + JOINT_GROUPS["right_arm"] + JOINT_GROUPS["waist"],
@@ -3143,11 +3147,12 @@ class TelemetryStore:
         cmd.crc = self.crc.Crc(cmd)
         return cmd
 
-    def _build_lowcmd_waist_hold_cmd(self, msg: Any, hold_q: list[float], waist_q: float, kp: float, kd: float) -> Any:
-        # rt/lowcmd holding every body joint (legs + arms) at hold_q and turning
-        # ONLY the waist to waist_q. Used AFTER the motion mode is released, so the
-        # legs are held stiff (robot must be supported) and the waist is free of
-        # the onboard controller and actually turns.
+    def _build_lowcmd_pose_cmd(self, msg: Any, hold_q: list[float], commanded_q: dict[int, float]) -> Any:
+        # rt/lowcmd driving the arms + waist (commanded_q: {motor index -> target q})
+        # to a target pose while holding every other joint (the legs) stiff at
+        # hold_q. Used AFTER the motion mode is released, so the legs are held stiff
+        # (robot must be physically supported), the waist is free of the onboard
+        # controller and turns, and the arms move to the recorded/edited pose.
         if self.lowcmd_factory is None or self.crc is None:
             raise RuntimeError("LowCmd factory is not initialized")
         cmd = self.lowcmd_factory()
@@ -3156,19 +3161,26 @@ class TelemetryStore:
         for i in range(27):
             motor = cmd.motor_cmd[i]
             motor.mode = 1
-            motor.q = waist_q if i == WAIST_YAW_JOINT else hold_q[i]
             motor.dq = 0.0
             motor.tau = 0.0
-            if i == WAIST_YAW_JOINT:
-                motor.kp = float(kp)
-                motor.kd = float(kd)
-            elif i < 12:  # legs
-                motor.kp = 70.0
-                motor.kd = 1.0
-            else:  # arms (13-26)
-                motor.kp = 25.0
-                motor.kd = 0.8
             motor.reserve = 0
+            if i in commanded_q:
+                motor.q = commanded_q[i]
+                if i == WAIST_YAW_JOINT:
+                    motor.kp = WAIST_LOWCMD_KP
+                    motor.kd = WAIST_LOWCMD_KD
+                else:  # arm joint — reuse the arm_sdk gains so it holds against gravity
+                    kp, kd = ARM_SDK_GAIN_BY_INDEX.get(i, (25.0, 0.8))
+                    motor.kp = float(kp)
+                    motor.kd = float(kd)
+            else:
+                motor.q = hold_q[i]
+                if i < 12:  # legs held stiff
+                    motor.kp = 70.0
+                    motor.kd = 1.0
+                else:  # any arm not being driven — hold in place
+                    motor.kp = 25.0
+                    motor.kd = 0.8
         cmd.crc = self.crc.Crc(cmd)
         return cmd
 
@@ -3194,24 +3206,41 @@ class TelemetryStore:
                 other.set()
 
         hold_q = [float(msg.motor_state[i].q) for i in range(27)]
+
+        # Arms + waist targets from the final recorded/edited frame (clamped to
+        # joint limits). Legs are never driven here — they stay held at hold_q so
+        # the supported robot keeps its stance while the upper body reaches the
+        # pose. Respect the command scope, but always include the waist.
+        scoped_joints = {
+            int(item["index"])
+            for item in plan.get("commanded_body_joints", [])
+            if isinstance(item, dict) and "index" in item
+        }
+        if not scoped_joints:
+            scoped_joints = set(ARM_SDK_JOINTS)
+        body_targets = self._arm_replay_frame_targets(frames[-1], scoped_joints) if frames else {}
+        body_targets[WAIST_YAW_JOINT] = waist_target  # already clamped upstream
+
         cancel = threading.Event()
         command = {
             "mode": "torso_lowcmd",
             "recording": path.name,
-            "control_path": "lowcmd_waist",
+            "control_path": "lowcmd_pose",
             "waist_target": round(waist_target, 6),
             "waist_start": round(hold_q[WAIST_YAW_JOINT], 6),
+            "arm_joint_count": sum(1 for j in body_targets if j != WAIST_YAW_JOINT),
         }
 
         def run_lowcmd_pose() -> None:
             released = False
             writes = 0
-            commanded_waist = hold_q[WAIST_YAW_JOINT]
+            # Ramp state per commanded joint, starting from the current pose.
+            commanded = {joint: hold_q[joint] for joint in body_targets}
             dt = 1.0 / 120.0
             step = WAIST_LOWCMD_MAX_VEL_RAD_S * dt
             self._set_wrist_status(
                 available=True, active=True,
-                message="lowcmd torso: releasing motion mode; legs+arms held, waist turning.",
+                message="lowcmd pose: releasing motion mode; legs held, arms + waist moving to target.",
                 last_command=command,
             )
             try:
@@ -3228,13 +3257,15 @@ class TelemetryStore:
                         publisher = self.lowcmd_publisher
                     if latest_msg is None or publisher is None:
                         break
-                    if commanded_waist < waist_target:
-                        commanded_waist = min(waist_target, commanded_waist + step)
-                    elif commanded_waist > waist_target:
-                        commanded_waist = max(waist_target, commanded_waist - step)
-                    publisher.Write(
-                        self._build_lowcmd_waist_hold_cmd(latest_msg, hold_q, commanded_waist, WAIST_LOWCMD_KP, WAIST_LOWCMD_KD)
-                    )
+                    # Ramp every commanded joint (arms + waist) toward its target
+                    # at the shared max velocity, then publish them together.
+                    for joint, target_q in body_targets.items():
+                        current = commanded[joint]
+                        if current < target_q:
+                            commanded[joint] = min(target_q, current + step)
+                        elif current > target_q:
+                            commanded[joint] = max(target_q, current - step)
+                    publisher.Write(self._build_lowcmd_pose_cmd(latest_msg, hold_q, commanded))
                     writes += 1
                     time.sleep(dt)
             finally:
@@ -3247,22 +3278,22 @@ class TelemetryStore:
                         motion_switcher.SelectMode("ai")
                 self._set_wrist_status(
                     active=False,
-                    message=f"lowcmd torso pose stopped ({writes} writes; motion mode restored={released}).",
+                    message=f"lowcmd pose stopped ({writes} writes; motion mode restored={released}).",
                     last_command={**command, "writes": writes},
                 )
 
-        thread = threading.Thread(target=run_lowcmd_pose, name="lowcmd-torso-pose", daemon=True)
+        thread = threading.Thread(target=run_lowcmd_pose, name="lowcmd-body-pose", daemon=True)
         with self.command_lock:
             self.replay_cancel = cancel
             self.replay_thread = thread
         thread.start()
         return 202, {
             "ok": True,
-            "message": "lowcmd torso pose started: motion mode released, waist turning via lowcmd (legs + arms held).",
+            "message": "lowcmd pose started: motion mode released, arms + waist moving to target via lowcmd (legs held).",
             "recording": path.name,
             "plan": plan,
             "waist_target": round(waist_target, 6),
-            "control_path": "lowcmd_waist",
+            "control_path": "lowcmd_pose",
         }
 
     @staticmethod

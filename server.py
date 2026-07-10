@@ -1443,6 +1443,12 @@ class TelemetryStore:
         # so this stays None in practice, but the attribute must exist or the waist
         # path raises AttributeError before the torso can move.
         self.torso_cancel: threading.Event | None = None
+        # True while WE hold the onboard motion mode released for a lowcmd pose
+        # session. Consecutive Move clicks hand this off to the next session
+        # instead of re-engaging the onboard controller mid-handoff — a restore
+        # racing a fresh lowcmd stream makes both drive the same joints and the
+        # arms vibrate/squeal.
+        self.motion_mode_released = False
         self.wrist_status: dict[str, Any] = {
             "available": False,
             "active": False,
@@ -2877,13 +2883,33 @@ class TelemetryStore:
             lowcmd_publisher = self.lowcmd_publisher
             motion_switcher = self.motion_switcher
             previous_cancel = self.replay_cancel
+            previous_thread = self.replay_thread
             wrist_cancel = self.wrist_cancel
             torso_cancel = self.torso_cancel
+            # Claim the session slot NOW: the outgoing thread's cleanup then sees
+            # it is no longer the active session and skips re-engaging the onboard
+            # controller (handoff), leaving the motion mode released for us.
+            self.replay_cancel = None
+            self.replay_thread = None
         if lowcmd_publisher is None or self.lowcmd_factory is None or self.crc is None:
             return 503, {"ok": False, "error": "DDS lowcmd publisher is not available.", "recording": path.name, "plan": plan}
         for other in (previous_cancel, wrist_cancel, torso_cancel):
             if other is not None:
                 other.set()
+        # Wait for the previous replay thread to fully stop publishing before
+        # starting a new lowcmd stream. Two publishers at once — or a motion-mode
+        # restore racing a fresh release — drive the same joints against each
+        # other and the arms vibrate/squeal.
+        if previous_thread is not None and previous_thread is not threading.current_thread():
+            with contextlib.suppress(RuntimeError):
+                previous_thread.join(timeout=3.0)
+        # The lowstate captured by the caller predates the join; if the previous
+        # session moved the arms, ramping from that stale pose would command a
+        # position jump. Re-read the current pose for hold/ramp starting points.
+        with self.command_lock:
+            latest_state = self.lowstate_msg
+        if latest_state is not None:
+            msg = latest_state
 
         hold_q = [float(msg.motor_state[i].q) for i in range(27)]
 
@@ -2924,12 +2950,17 @@ class TelemetryStore:
                 last_command=command,
             )
             try:
+                # Inherit a release handed off by the previous session; still
+                # CheckMode in case the onboard controller was re-engaged
+                # externally (remote, app) since then.
+                released = bool(self.motion_mode_released)
                 if motion_switcher is not None:
                     with contextlib.suppress(Exception):
                         code, result = motion_switcher.CheckMode()
                         if code == 0 and result and result.get("name"):
                             motion_switcher.ReleaseMode()
                             released = True
+                            self.motion_mode_released = True
                             time.sleep(0.2)
                 while not cancel.is_set():
                     with self.command_lock:
@@ -2950,17 +2981,28 @@ class TelemetryStore:
                     time.sleep(dt)
             finally:
                 with self.command_lock:
-                    if self.replay_cancel is cancel:
+                    is_active_session = self.replay_cancel is cancel
+                    if is_active_session:
                         self.replay_cancel = None
                         self.replay_thread = None
-                if released and motion_switcher is not None:
+                # Re-engage the onboard controller only when this is still the
+                # active session (operator stop / natural end). When a newer Move
+                # claimed the slot, hand the released mode off to it instead —
+                # restoring here would fight the successor's lowcmd stream.
+                restored = False
+                if is_active_session and released and motion_switcher is not None:
                     with contextlib.suppress(Exception):
                         motion_switcher.SelectMode("ai")
-                self._set_wrist_status(
-                    active=False,
-                    message=f"lowcmd pose stopped ({writes} writes; motion mode restored={released}).",
-                    last_command={**command, "writes": writes},
-                )
+                        restored = True
+                    self.motion_mode_released = False
+                # On handoff the successor has already published its own active
+                # status; don't clobber it with this session's stop message.
+                if is_active_session:
+                    self._set_wrist_status(
+                        active=False,
+                        message=f"lowcmd pose stopped ({writes} writes; motion mode restored={restored}).",
+                        last_command={**command, "writes": writes},
+                    )
 
         thread = threading.Thread(target=run_lowcmd_pose, name="lowcmd-body-pose", daemon=True)
         with self.command_lock:

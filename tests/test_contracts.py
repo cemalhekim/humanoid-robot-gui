@@ -592,6 +592,8 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertIsNone(store.wrist_cancel)
         self.assertIsNone(store.replay_cancel)
         self.assertIsNone(store.torso_cancel)
+        # Handoff flag for consecutive lowcmd pose sessions must start False.
+        self.assertFalse(store.motion_mode_released)
 
     def test_sparse_sequence_json_is_resampled_between_trajectory_points(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")

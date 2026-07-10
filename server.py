@@ -1434,6 +1434,11 @@ class TelemetryStore:
         self.wrist_thread: threading.Thread | None = None
         self.replay_cancel: threading.Event | None = None
         self.replay_thread: threading.Thread | None = None
+        # Read by execute_lowcmd_pose to cancel any in-flight torso twist before
+        # starting a new one. A running twist registers under replay_cancel (above),
+        # so this stays None in practice, but the attribute must exist or the waist
+        # path raises AttributeError before the torso can move.
+        self.torso_cancel: threading.Event | None = None
         self.wrist_status: dict[str, Any] = {
             "available": False,
             "active": False,

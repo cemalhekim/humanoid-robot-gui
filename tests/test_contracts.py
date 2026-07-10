@@ -584,6 +584,15 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertFalse(response["ok"])
 
+    def test_store_initializes_motion_cancel_handles(self) -> None:
+        # execute_lowcmd_pose reads all three to cancel in-flight motion before a
+        # torso twist. A missing handle crashes the waist path with AttributeError
+        # before the torso can move (regression: torso_cancel was never initialized).
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        self.assertIsNone(store.wrist_cancel)
+        self.assertIsNone(store.replay_cancel)
+        self.assertIsNone(store.torso_cancel)
+
     def test_sparse_sequence_json_is_resampled_between_trajectory_points(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         with TemporaryDirectory() as directory:

@@ -15,6 +15,7 @@ import os
 import queue
 import shutil
 import socket
+import ssl
 import struct
 import subprocess
 import sys
@@ -411,6 +412,13 @@ LLM_TTS_VOICE = os.environ.get("LLM_TTS_VOICE", "alloy")
 VOICE_TIMEOUT_SECONDS = float(os.environ.get("VOICE_TIMEOUT_SECONDS", "60"))
 MAX_AUDIO_BYTES = int(os.environ.get("MAX_AUDIO_BYTES", str(15_000_000)))
 MAX_TTS_TEXT_CHARS = int(os.environ.get("MAX_TTS_TEXT_CHARS", "2000"))
+
+# Optional HTTPS. Set both to a cert/key PEM to serve over TLS — required so the
+# browser mic (getUserMedia) works when the dashboard is opened over a LAN IP
+# (secure-context rule). Off by default (plain http) so nothing changes unless
+# a cert is provided.
+TLS_CERT = os.environ.get("TLS_CERT", "")
+TLS_KEY = os.environ.get("TLS_KEY", "")
 
 LLM_SYSTEM_PROMPT = (
     "You are the Command Center assistant embedded in the Unitree H1-2 humanoid "
@@ -4855,9 +4863,17 @@ def main() -> None:
     TelemetryHandler.store = store
     server = TelemetryHTTPServer((args.host, args.port), TelemetryHandler)
 
+    scheme = "http"
+    if TLS_CERT and TLS_KEY:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=TLS_CERT, keyfile=TLS_KEY)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
+        print(f"TLS enabled (cert {TLS_CERT})")
+
     print("Unitree telemetry dashboard")
-    print(f"Listening on http://{args.host}:{args.port}")
-    print(f"Try from another machine: http://{public_host()}:{args.port}")
+    print(f"Listening on {scheme}://{args.host}:{args.port}")
+    print(f"Try from another machine: {scheme}://{public_host()}:{args.port}")
     print("Press Ctrl+C to stop.")
 
     try:

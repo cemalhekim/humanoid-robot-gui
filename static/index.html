@@ -94,23 +94,21 @@
             <div class="section-head">
               <div>
                 <h2>Command Center</h2>
-                <p class="panel-subtitle">Real-time robot telemetry and control supervision</p>
+                <p class="panel-subtitle">Ask the assistant about live robot telemetry</p>
               </div>
+              <span id="chatStatus" class="status-dot" title="LLM assistant status">Assistant</span>
             </div>
-            <div class="command-feed">
-              <article class="chat-card user-card">
-                <span>Operator</span>
-                <p>Monitor Unitree H1 telemetry over the active Vodafone network link.</p>
-              </article>
-              <article class="chat-card assistant-card">
-                <span>AI Assistant</span>
-                <p>Telemetry stream is mirrored into dashboard panels, motor data, raw JSON, and the live simulation.</p>
-                <pre>{ "source": "rt/lowstate", "mode": "read_only" }</pre>
-              </article>
-              <article class="chat-card system-card">
-                <span>Robot System</span>
-                <p>Command channel is disabled. This dashboard only subscribes to telemetry topics.</p>
-              </article>
+            <div class="chat-shell">
+              <div id="chatLog" class="command-feed" aria-live="polite">
+                <article class="chat-card assistant-card">
+                  <span>AI Assistant</span>
+                  <p>Hi — I can read the robot's live telemetry (motors, IMU, temperatures, health, network). Ask me things like &ldquo;which motor is hottest?&rdquo; or &ldquo;is the robot upright?&rdquo;. I'm read-only and can't move the robot.</p>
+                </article>
+              </div>
+              <form id="chatForm" class="chat-input" autocomplete="off">
+                <textarea id="chatInput" rows="1" placeholder="Ask about the robot…" aria-label="Message the assistant"></textarea>
+                <button id="chatSend" type="submit" title="Send">Send</button>
+              </form>
             </div>
           </section>
 

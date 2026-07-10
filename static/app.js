@@ -211,6 +211,11 @@ const els = {
   locoHistory: document.getElementById("locoHistory"),
   locoPresets: document.querySelectorAll("[data-loco-preset]"),
   teleoperationMethods: document.querySelectorAll("[data-teleoperation-method]"),
+  chatLog: document.getElementById("chatLog"),
+  chatForm: document.getElementById("chatForm"),
+  chatInput: document.getElementById("chatInput"),
+  chatSend: document.getElementById("chatSend"),
+  chatStatus: document.getElementById("chatStatus"),
 };
 
 function fmt(value, suffix = "") {
@@ -2523,7 +2528,105 @@ document.addEventListener("selectstart", (event) => {
 document.addEventListener("dragstart", (event) => {
   event.preventDefault();
 });
+function setupChat() {
+  if (!els.chatForm || !els.chatInput || !els.chatLog) return;
+  const history = [];
+  let busy = false;
+
+  function addMessage(role, text, { pending = false, error = false } = {}) {
+    const card = document.createElement("article");
+    const cls =
+      role === "user" ? "user-card" : error ? "error-card" : "assistant-card";
+    card.className = `chat-card ${cls}${pending ? " pending" : ""}`;
+    const label = role === "user" ? "Operator" : error ? "Error" : "AI Assistant";
+    const span = document.createElement("span");
+    span.textContent = label;
+    const p = document.createElement("p");
+    p.textContent = text;
+    card.append(span, p);
+    els.chatLog.append(card);
+    els.chatLog.scrollTop = els.chatLog.scrollHeight;
+    return { card, p };
+  }
+
+  function autosize() {
+    els.chatInput.style.height = "auto";
+    els.chatInput.style.height = `${Math.min(els.chatInput.scrollHeight, 140)}px`;
+  }
+
+  async function send() {
+    const text = els.chatInput.value.trim();
+    if (!text || busy) return;
+    busy = true;
+    els.chatSend.disabled = true;
+    els.chatInput.value = "";
+    autosize();
+    addMessage("user", text);
+    history.push({ role: "user", content: text });
+    const pending = addMessage("assistant", "Thinking…", { pending: true });
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `Request failed (${response.status}).`);
+      }
+      pending.card.classList.remove("pending");
+      pending.p.textContent = payload.reply;
+      history.push({ role: "assistant", content: payload.reply });
+    } catch (error) {
+      pending.card.classList.remove("pending");
+      pending.card.classList.remove("assistant-card");
+      pending.card.classList.add("error-card");
+      pending.card.querySelector("span").textContent = "Error";
+      pending.p.textContent =
+        error instanceof Error ? error.message : "Chat request failed.";
+      // Drop the failed user turn so it isn't resent with the next message.
+      history.pop();
+    } finally {
+      busy = false;
+      els.chatSend.disabled = false;
+      els.chatLog.scrollTop = els.chatLog.scrollHeight;
+      els.chatInput.focus();
+    }
+  }
+
+  els.chatForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    send();
+  });
+  els.chatInput.addEventListener("input", autosize);
+  els.chatInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      send();
+    }
+  });
+
+  fetch("/api/chat/status")
+    .then((response) => response.json())
+    .then((status) => {
+      if (!els.chatStatus) return;
+      if (status.enabled) {
+        els.chatStatus.textContent = "Assistant online";
+        els.chatStatus.title = `Model: ${status.model}`;
+      } else {
+        els.chatStatus.textContent = "Assistant offline";
+        els.chatStatus.classList.add("offline");
+        els.chatInput.disabled = true;
+        els.chatSend.disabled = true;
+        els.chatInput.placeholder = "Assistant is disabled";
+      }
+    })
+    .catch(() => {});
+}
+
 syncActiveNav();
+setupChat();
 connectCameraPreview();
 loadRosGraph();
 loadRecordingStatus();

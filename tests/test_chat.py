@@ -43,8 +43,37 @@ class TelemetryContextTest(unittest.TestCase):
         self.assertNotIn("reserved:", ctx)
 
     def test_context_handles_empty_snapshot(self) -> None:
-        self.assertEqual(server.build_telemetry_context({}), "connected=None sample_rate_hz=None motor_count=None")
+        self.assertEqual(
+            server.build_telemetry_context({}),
+            "connected=None sample_rate_hz=None motor_count=None samples=None",
+        )
         self.assertEqual(server.build_telemetry_context(None), "No telemetry available.")
+
+    def test_context_includes_full_lowstate_and_ros_graph(self) -> None:
+        snapshot = dict(SNAPSHOT)
+        snapshot["motors"] = [
+            {"index": 0, "name": "LeftHipYaw", "mode": 1, "q": 0.0012, "dq": 0.0,
+             "tau_est": -0.12, "temperature": 45.0, "vol": 48.2},
+            {"index": 34, "name": None, "mode": 0},  # reserved slot, skipped
+        ]
+        snapshot["hands"] = {"topic": "rt/inspire/state", "connected": True, "joint_count": 1,
+                             "joints": [{"index": 0, "name": "RightPinky", "q": 0.5, "dq": 0.0,
+                                         "tau_est": 0.0, "temperature": 30.0}]}
+        snapshot["imu"] = {"quaternion": [1, 0, 0, 0], "gyroscope": [0, 0, 0],
+                          "accelerometer": [0, 0, 9.8], "rpy": [0, 0, 0], "temperature": 80}
+        snapshot["robot"] = {"mode_pr": 0, "mode_machine": 6, "tick": 123, "crc": 9}
+        ros_graph = {"interface": "eth0", "nodes": ["/telemetry"],
+                     "topics": {"/rt/lowstate": ["unitree_hg/msg/LowState"]}}
+        ctx = server.build_telemetry_context(snapshot, ros_graph)
+        self.assertIn("BODY MOTORS", ctx)
+        self.assertIn("0 LeftHipYaw mode=1 q=0.001", ctx)
+        self.assertNotIn("34 None", ctx)  # reserved slot excluded
+        self.assertIn("HANDS", ctx)
+        self.assertIn("RightPinky", ctx)
+        self.assertIn("IMU raw", ctx)
+        self.assertIn("mode_machine=6", ctx)
+        self.assertIn("ROS 2 GRAPH", ctx)
+        self.assertIn("/rt/lowstate [unitree_hg/msg/LowState]", ctx)
 
 
 class ChatValidationTest(unittest.TestCase):

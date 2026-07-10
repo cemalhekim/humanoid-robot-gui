@@ -385,6 +385,9 @@ LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.3"))
 # Cap on how much conversation the browser may send, to bound proxy work.
 LLM_MAX_MESSAGES = int(os.environ.get("LLM_MAX_MESSAGES", "24"))
 LLM_MAX_MESSAGE_CHARS = int(os.environ.get("LLM_MAX_MESSAGE_CHARS", "8000"))
+# Include the ROS 2 node/topic graph in the injected context. It is collected
+# via the ros2 CLI (cached ~3s) so it can add a little latency; disable with 0.
+LLM_INCLUDE_ROS_GRAPH = os.environ.get("LLM_INCLUDE_ROS_GRAPH", "1") not in ("0", "false", "False", "")
 
 LLM_SYSTEM_PROMPT = (
     "You are the Command Center assistant embedded in the Unitree H1-2 humanoid "
@@ -406,17 +409,40 @@ LLM_SYSTEM_PROMPT = (
 )
 
 
-def build_telemetry_context(snapshot: dict[str, Any]) -> str:
-    """Render a compact, model-friendly summary of the current telemetry.
+def _fmt_num(value: Any, digits: int = 3) -> str:
+    """Compact numeric formatting for telemetry lines (trims trailing zeros)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.{digits}f}".rstrip("0").rstrip(".")
+    return str(value)
 
-    Kept small on purpose: the analysis block already condenses 35 motors into
-    group summaries, hottest joint, health flags, etc.
+
+def _fmt_temp(value: Any) -> str:
+    """Unitree HG motors report temperature as a [sensor0, sensor1] array; show
+    the hottest reading so the model sees one meaningful number."""
+    if isinstance(value, (list, tuple)):
+        nums = [v for v in value if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        return _fmt_num(max(nums), 1) if nums else "?"
+    return _fmt_num(value, 1)
+
+
+def build_telemetry_context(snapshot: dict[str, Any], ros_graph: dict[str, Any] | None = None) -> str:
+    """Render the FULL live information flow as model-friendly text.
+
+    Gives the assistant everything the dashboard sees: the analysis summary,
+    the complete per-joint lowstate (all body motors and hand joints with
+    position/velocity/torque/temperature), raw IMU, robot mode fields, loco
+    state, network link, and the ROS 2 node/topic graph.
     """
     if not isinstance(snapshot, dict):
         return "No telemetry available."
     lines: list[str] = []
     connected = snapshot.get("connected")
-    lines.append(f"connected={connected} sample_rate_hz={snapshot.get('sample_rate_hz')} motor_count={snapshot.get('motor_count')}")
+    lines.append(
+        f"connected={connected} sample_rate_hz={snapshot.get('sample_rate_hz')} "
+        f"motor_count={snapshot.get('motor_count')} samples={snapshot.get('samples')}"
+    )
 
     analysis = snapshot.get("analysis") or {}
     health = analysis.get("health") or {}
@@ -427,23 +453,23 @@ def build_telemetry_context(snapshot: dict[str, Any]) -> str:
         )
         lines.append(f"health={health.get('state')}" + (f" ({flag_txt})" if flag_txt else ""))
 
-    imu = analysis.get("imu") or {}
-    if imu:
+    imu_a = analysis.get("imu") or {}
+    if imu_a:
         lines.append(
-            f"imu roll={imu.get('roll_deg')}deg pitch={imu.get('pitch_deg')}deg "
-            f"yaw={imu.get('yaw_deg')}deg temp={imu.get('temperature')}C"
+            f"imu roll={imu_a.get('roll_deg')}deg pitch={imu_a.get('pitch_deg')}deg "
+            f"yaw={imu_a.get('yaw_deg')}deg temp={imu_a.get('temperature')}C"
         )
 
-    motors = analysis.get("motors") or {}
-    if motors:
-        hottest = motors.get("hottest") or {}
-        max_tau = motors.get("max_abs_tau") or {}
+    motors_a = analysis.get("motors") or {}
+    if motors_a:
+        hottest = motors_a.get("hottest") or {}
+        max_tau = motors_a.get("max_abs_tau") or {}
         lines.append(
-            f"motors real={motors.get('real_count')} moving={motors.get('moving_count')} "
+            f"motors real={motors_a.get('real_count')} moving={motors_a.get('moving_count')} "
             f"hottest={hottest.get('name')}@{hottest.get('value')}C "
             f"max_torque={max_tau.get('name')}@{max_tau.get('value')}Nm"
         )
-        groups = motors.get("groups") or {}
+        groups = motors_a.get("groups") or {}
         for name, g in groups.items():
             if not isinstance(g, dict) or name == "reserved":
                 continue
@@ -452,9 +478,65 @@ def build_telemetry_context(snapshot: dict[str, Any]) -> str:
                 f"max_temp={g.get('max_temperature')}C"
             )
 
+    # Full per-joint lowstate — every body motor.
+    motors = snapshot.get("motors") or []
+    real_motors = [m for m in motors if isinstance(m, dict) and m.get("name")]
+    if real_motors:
+        lines.append("")
+        lines.append("BODY MOTORS (rt/lowstate) [idx name mode q_rad dq tau_est temp_C]:")
+        for m in real_motors:
+            lines.append(
+                f"  {m.get('index')} {m.get('name')} mode={m.get('mode')} "
+                f"q={_fmt_num(m.get('q'))} dq={_fmt_num(m.get('dq'))} "
+                f"tau={_fmt_num(m.get('tau_est'))} temp={_fmt_temp(m.get('temperature'))}"
+            )
+
+    # Hand joints.
     hands = snapshot.get("hands") or {}
     if hands:
-        lines.append(f"hands connected={hands.get('connected')} joints={hands.get('joint_count')}")
+        hand_joints = hands.get("joints") or []
+        lines.append("")
+        lines.append(
+            f"HANDS ({hands.get('topic', 'inspire')}) connected={hands.get('connected')} "
+            f"joints={hands.get('joint_count')}"
+        )
+        for j in hand_joints:
+            if not isinstance(j, dict):
+                continue
+            lines.append(
+                f"  {j.get('index')} {j.get('name')} q={_fmt_num(j.get('q'))} "
+                f"dq={_fmt_num(j.get('dq'))} tau={_fmt_num(j.get('tau_est'))} "
+                f"temp={_fmt_temp(j.get('temperature'))}"
+            )
+
+    # Raw IMU.
+    imu = snapshot.get("imu") or {}
+    if imu:
+        lines.append("")
+        lines.append(
+            "IMU raw: quaternion=" + str(imu.get("quaternion"))
+            + " gyro=" + str(imu.get("gyroscope"))
+            + " accel=" + str(imu.get("accelerometer"))
+            + " rpy=" + str(imu.get("rpy"))
+            + f" temp={imu.get('temperature')}C"
+        )
+
+    # Robot mode / firmware fields.
+    robot = snapshot.get("robot") or {}
+    if robot:
+        lines.append(
+            f"ROBOT mode_pr={robot.get('mode_pr')} mode_machine={robot.get('mode_machine')} "
+            f"tick={robot.get('tick')} crc={robot.get('crc')}"
+        )
+
+    # Locomotion / motion-control state.
+    loco = snapshot.get("loco") or {}
+    if loco:
+        lines.append(
+            f"LOCO available={loco.get('available')} motion_mode={loco.get('motion_mode')} "
+            f"balance_mode={loco.get('balance_mode')} fsm_id={loco.get('fsm_id')} "
+            f"last_action={(loco.get('last_command') or {}).get('action')}"
+        )
 
     battery = snapshot.get("battery") or {}
     if battery.get("state"):
@@ -463,8 +545,25 @@ def build_telemetry_context(snapshot: dict[str, Any]) -> str:
     network = (snapshot.get("network") or {}).get("host") or {}
     if network:
         lines.append(
-            f"network={network.get('type')} {network.get('host')} ({network.get('quality')})"
+            f"network={network.get('type')} {network.get('host')} "
+            f"iface={network.get('interface')} ({network.get('quality')})"
         )
+
+    # ROS 2 node/topic graph.
+    if isinstance(ros_graph, dict):
+        nodes = ros_graph.get("nodes") or []
+        topics = ros_graph.get("topics") or {}
+        lines.append("")
+        lines.append(
+            f"ROS 2 GRAPH (interface {ros_graph.get('interface')}): "
+            f"{len(nodes)} nodes, {len(topics)} topics"
+        )
+        if nodes:
+            lines.append("  nodes: " + ", ".join(str(n) for n in nodes))
+        for topic in sorted(topics):
+            types = topics.get(topic) or []
+            type_txt = ", ".join(str(t) for t in types) if isinstance(types, list) else str(types)
+            lines.append(f"  {topic} [{type_txt}]")
 
     return "\n".join(lines)
 
@@ -3148,7 +3247,13 @@ class TelemetryStore:
         if cleaned[-1]["role"] != "user":
             return 400, {"ok": False, "error": "The last message must be from the user."}
 
-        context = build_telemetry_context(self.snapshot())
+        ros_graph = None
+        if LLM_INCLUDE_ROS_GRAPH:
+            try:
+                ros_graph = self.ros_graph_snapshot()
+            except Exception:  # pragma: no cover - ros2 CLI can be slow/absent
+                ros_graph = None
+        context = build_telemetry_context(self.snapshot(), ros_graph)
         system = f"{LLM_SYSTEM_PROMPT}\n\nTELEMETRY SNAPSHOT (updated live):\n{context}"
         messages = [{"role": "system", "content": system}, *cleaned]
         return call_llm(messages)

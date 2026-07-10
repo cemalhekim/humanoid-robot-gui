@@ -1443,6 +1443,14 @@ class TelemetryStore:
         # so this stays None in practice, but the attribute must exist or the waist
         # path raises AttributeError before the torso can move.
         self.torso_cancel: threading.Event | None = None
+        # Persistent lowcmd pose controller: one long-lived thread holds the arms
+        # under closed-loop PID and is RETARGETED on each Move (targets swapped
+        # under the lock) instead of being killed and restarted. It never stops
+        # publishing, so the arms never go limp between Moves (no drop, no creak,
+        # never two publishers fighting).
+        self._pose_controller_running = False
+        self._pose_targets: dict[int, float] = {}
+        self._pose_targets_version = 0
         # True while WE hold the onboard motion mode released for a lowcmd pose
         # session. Consecutive Move clicks hand this off to the next session
         # instead of re-engaging the onboard controller mid-handoff — a restore
@@ -2888,44 +2896,22 @@ class TelemetryStore:
         msg: Any,
         waist_target: float,
     ) -> tuple[int, dict[str, Any]]:
+        """Drive the arms + waist to a target pose via a single persistent
+        closed-loop PID controller (legs held; onboard motion mode released --
+        robot must be physically supported).
+
+        A long-lived thread holds the arms and is RETARGETED on each Move rather
+        than killed and restarted: it never stops publishing, so between Moves the
+        arms stay actively held (no limp drop) and there is only ever one lowcmd
+        publisher (no fighting/creaking). The closed loop runs every cycle."""
         with self.command_lock:
             lowcmd_publisher = self.lowcmd_publisher
             motion_switcher = self.motion_switcher
-            previous_cancel = self.replay_cancel
-            previous_thread = self.replay_thread
-            wrist_cancel = self.wrist_cancel
-            torso_cancel = self.torso_cancel
-            # Claim the session slot NOW: the outgoing thread's cleanup then sees
-            # it is no longer the active session and skips re-engaging the onboard
-            # controller (handoff), leaving the motion mode released for us.
-            self.replay_cancel = None
-            self.replay_thread = None
         if lowcmd_publisher is None or self.lowcmd_factory is None or self.crc is None:
             return 503, {"ok": False, "error": "DDS lowcmd publisher is not available.", "recording": path.name, "plan": plan}
-        for other in (previous_cancel, wrist_cancel, torso_cancel):
-            if other is not None:
-                other.set()
-        # Wait for the previous replay thread to fully stop publishing before
-        # starting a new lowcmd stream. Two publishers at once — or a motion-mode
-        # restore racing a fresh release — drive the same joints against each
-        # other and the arms vibrate/squeal.
-        if previous_thread is not None and previous_thread is not threading.current_thread():
-            with contextlib.suppress(RuntimeError):
-                previous_thread.join(timeout=3.0)
-        # The lowstate captured by the caller predates the join; if the previous
-        # session moved the arms, ramping from that stale pose would command a
-        # position jump. Re-read the current pose for hold/ramp starting points.
-        with self.command_lock:
-            latest_state = self.lowstate_msg
-        if latest_state is not None:
-            msg = latest_state
 
-        hold_q = [float(msg.motor_state[i].q) for i in range(27)]
-
-        # Arms + waist targets from the final recorded/edited frame (clamped to
-        # joint limits). Legs are never driven here — they stay held at hold_q so
-        # the supported robot keeps its stance while the upper body reaches the
-        # pose. Respect the command scope, but always include the waist.
+        # Arm + waist targets from the final recorded/edited frame (clamped). Legs
+        # are never driven here. Respect the command scope but always include waist.
         scoped_joints = {
             int(item["index"])
             for item in plan.get("commanded_body_joints", [])
@@ -2936,112 +2922,152 @@ class TelemetryStore:
         body_targets = self._arm_replay_frame_targets(frames[-1], scoped_joints) if frames else {}
         body_targets[WAIST_YAW_JOINT] = waist_target  # already clamped upstream
 
-        cancel = threading.Event()
         command = {
-            "mode": "torso_lowcmd",
+            "mode": "lowcmd_pose",
             "recording": path.name,
             "control_path": "lowcmd_pose",
             "waist_target": round(waist_target, 6),
-            "waist_start": round(hold_q[WAIST_YAW_JOINT], 6),
             "arm_joint_count": sum(1 for j in body_targets if j != WAIST_YAW_JOINT),
         }
 
+        # If the persistent controller is already running, just hand it the new
+        # target -- continuous control, no restart, no drop, no creak.
+        with self.command_lock:
+            controller_alive = (
+                self._pose_controller_running
+                and self.replay_thread is not None
+                and self.replay_thread.is_alive()
+            )
+            if controller_alive:
+                self._pose_targets = dict(body_targets)
+                self._pose_targets_version += 1
+                self._set_wrist_status(
+                    available=True, active=True,
+                    message="lowcmd pose: retargeted (continuous closed-loop hold; arms not released).",
+                    last_command=command,
+                )
+                return 202, {
+                    "ok": True,
+                    "message": "lowcmd pose retargeted: arms + waist ramping to the new target under continuous PID.",
+                    "recording": path.name,
+                    "plan": plan,
+                    "waist_target": round(waist_target, 6),
+                    "control_path": "lowcmd_pose",
+                }
+            prev_cancel = self.replay_cancel
+            prev_thread = self.replay_thread
+            wrist_cancel = self.wrist_cancel
+            torso_cancel = self.torso_cancel
+            self._pose_targets = dict(body_targets)
+            self._pose_targets_version += 1
+
+        # No live controller: cancel any other in-flight motion and wait for it to
+        # stop publishing before starting a fresh controller (never two at once).
+        for other in (prev_cancel, wrist_cancel, torso_cancel):
+            if other is not None:
+                other.set()
+        if prev_thread is not None and prev_thread.is_alive() and prev_thread is not threading.current_thread():
+            with contextlib.suppress(RuntimeError):
+                prev_thread.join(timeout=2.5)
+
+        cancel = threading.Event()
         tuning = {
             **self._arm_replay_tuning(payload if isinstance(payload, dict) else None),
             # Full-gain lowcmd PD needs far less measured-torque support than the
-            # weak arm_sdk gains this controller was tuned for. A 0.95 hold-scale
-            # feeds the stiff PD's own reaction torque back through the
-            # feed-forward and the hold "breathes"; the bounded gravity-learn
-            # integral supplies the accurate steady holding torque instead.
+            # weak arm_sdk gains this controller was tuned for; the bounded
+            # gravity-learn integral supplies the accurate steady holding torque.
             "gravity_hold_scale": 0.7,
             "gravity_move_scale": 0.35,
             "gravity_tau_filter_seconds": 0.8,
         }
 
-        def run_lowcmd_pose() -> None:
-            released = False
+        def run_pose_controller() -> None:
+            released = bool(self.motion_mode_released)
             writes = 0
-            # Ramped setpoint per commanded joint, starting from the current pose.
-            # The closed-loop controller then corrects the published command around
-            # this setpoint and supplies gravity feed-forward torque, so the joint
-            # settles ON the target (near-zero standing error) instead of drooping.
-            desired = {joint: hold_q[joint] for joint in body_targets}
             pid_state: dict[int, dict[str, float]] = {}
             loop_status: dict[str, Any] = {}
             dt_nominal = 1.0 / 120.0
             step = WAIST_LOWCMD_MAX_VEL_RAD_S * dt_nominal
             last_tick = time.monotonic()
-            # Contact handling: a joint that is stationary, outside the lock band,
-            # with its gravity feed-forward saturated at the safety clamp is
-            # physically blocked (e.g. the arm pressing against the torso). After a
-            # short confirmation window, accept the reachable pose for that joint
-            # instead of leaning into the obstacle indefinitely.
-            targets_eff = dict(body_targets)
+            with self.command_lock:
+                state_msg = self.lowstate_msg or msg
+                targets = dict(self._pose_targets)
+                ver = self._pose_targets_version
+            hold_q = [float(state_msg.motor_state[i].q) for i in range(27)]
+            desired = {joint: float(state_msg.motor_state[joint].q) for joint in targets}
+            targets_eff = dict(targets)
             stall_s: dict[int, float] = {}
-            blocked_joints: list[str] = []
-            self._set_wrist_status(
-                available=True, active=True,
-                message="lowcmd pose: releasing motion mode; legs held, arms + waist moving to target.",
-                last_command=command,
-            )
+            blocked: list[str] = []
             try:
-                # Inherit a release handed off by the previous session; still
-                # CheckMode in case the onboard controller was re-engaged
-                # externally (remote, app) since then.
-                released = bool(self.motion_mode_released)
+                # Release the onboard motion mode once so the arms/waist are ours.
                 if motion_switcher is not None:
                     with contextlib.suppress(Exception):
-                        code, result = motion_switcher.CheckMode()
-                        if code == 0 and result and result.get("name"):
-                            motion_switcher.ReleaseMode()
-                            released = True
-                            self.motion_mode_released = True
-                            time.sleep(0.2)
+                        motion_switcher.ReleaseMode()
+                        released = True
+                        self.motion_mode_released = True
+                        time.sleep(0.2)
+                self._set_wrist_status(
+                    available=True, active=True,
+                    message="lowcmd pose: motion mode released; legs held, arms + waist under closed-loop PID.",
+                    last_command=command,
+                )
                 while not cancel.is_set():
                     with self.command_lock:
                         latest_msg = self.lowstate_msg
                         publisher = self.lowcmd_publisher
+                        cur_ver = self._pose_targets_version
+                        if cur_ver != ver:
+                            targets = dict(self._pose_targets)
+                            ver = cur_ver
+                            targets_eff = dict(targets)
+                            stall_s = {}
                     if latest_msg is None or publisher is None:
                         break
+                    for joint in targets:
+                        if joint not in desired:
+                            desired[joint] = float(latest_msg.motor_state[joint].q)
                     now = time.monotonic()
                     dt = min(0.05, max(0.001, now - last_tick))
                     last_tick = now
-                    # Ramp every commanded joint (arms + waist) toward its target at
-                    # the shared max velocity, easing out over the last ~0.12 rad so
-                    # the arrival is smooth instead of a hard velocity stop.
+                    # Velocity-bounded ramp toward the target, easing out over the
+                    # last ~0.12 rad so arrival is smooth (no hard velocity stop).
                     for joint, target_q in targets_eff.items():
                         remaining = target_q - desired[joint]
                         if remaining:
                             ease = max(0.3, min(1.0, abs(remaining) / 0.12))
                             delta = min(abs(remaining), step * ease)
                             desired[joint] += delta if remaining > 0 else -delta
-                    # Closed loop around the ramped setpoint: PID correction inside
-                    # a lock band (correction hard-zeroes at the target so the hold
-                    # is perfectly still) plus filtered gravity feed-forward with
-                    # bounded residual learning that erases the standing droop.
+                    # Closed loop around the ramped setpoint: PID inside a lock band
+                    # (correction hard-zeroes at the target so the hold is dead-still)
+                    # + filtered gravity feed-forward with bounded residual learning.
                     corrected, loop_status, tau_ff = self._closed_loop_arm_targets(
                         latest_msg, desired, pid_state, dt, tuning
                     )
                     publisher.Write(self._build_lowcmd_pose_cmd(latest_msg, hold_q, corrected, tau_ff))
                     writes += 1
-                    # Contact-stall detection (see targets_eff comment above).
+                    # Contact backoff: only AFTER the ramp has fully commanded the
+                    # target for this joint. A joint then stationary, outside the
+                    # lock band, with saturated gravity feed-forward for 3 s is
+                    # physically blocked -- accept its reachable pose instead of
+                    # leaning on the obstacle. Gating on ramp-complete prevents it
+                    # from ever aborting a still-in-progress reach.
                     for pj in loop_status.get("per_joint", []):
                         joint = int(pj["index"])
+                        ramp_done = abs(targets_eff.get(joint, desired[joint]) - desired[joint]) < 1e-4
                         saturated = abs(pj["gravity_tau"]) >= 0.98 * self._arm_replay_gravity_tau_limit(joint)
-                        if pj["locked"] or not pj["stationary"] or not saturated:
+                        if pj["locked"] or not pj["stationary"] or not saturated or not ramp_done:
                             stall_s.pop(joint, None)
                             continue
                         stall_s[joint] = stall_s.get(joint, 0.0) + dt
-                        if stall_s[joint] >= 2.0 and targets_eff.get(joint) == body_targets.get(joint):
-                            reachable = self._clamp_joint_target(
+                        if stall_s[joint] >= 3.0 and targets_eff.get(joint) == targets.get(joint):
+                            targets_eff[joint] = self._clamp_joint_target(
                                 joint,
                                 float(pj["actual_q"]) + max(-0.008, min(0.008, float(pj["error_rad"]))),
                             )
-                            targets_eff[joint] = reachable
                             name = pj.get("name", f"Motor{joint}")
-                            if name not in blocked_joints:
-                                blocked_joints.append(name)
-                            command["blocked_joints"] = list(blocked_joints)
+                            if name not in blocked:
+                                blocked.append(name)
+                                command["blocked_joints"] = list(blocked)
                     if writes % 240 == 0:  # ~every 2 s, for /api/wrist/status observability
                         self._set_wrist_status(
                             available=True, active=True,
@@ -3054,23 +3080,18 @@ class TelemetryStore:
                     time.sleep(dt_nominal)
             finally:
                 with self.command_lock:
-                    is_active_session = self.replay_cancel is cancel
-                    if is_active_session:
+                    is_active = self.replay_cancel is cancel
+                    if is_active:
                         self.replay_cancel = None
                         self.replay_thread = None
-                # Re-engage the onboard controller only when this is still the
-                # active session (operator stop / natural end). When a newer Move
-                # claimed the slot, hand the released mode off to it instead —
-                # restoring here would fight the successor's lowcmd stream.
+                        self._pose_controller_running = False
                 restored = False
-                if is_active_session and released and motion_switcher is not None:
+                if is_active and released and motion_switcher is not None:
                     with contextlib.suppress(Exception):
                         motion_switcher.SelectMode("ai")
                         restored = True
                     self.motion_mode_released = False
-                # On handoff the successor has already published its own active
-                # status; don't clobber it with this session's stop message.
-                if is_active_session:
+                if is_active:
                     self._set_wrist_status(
                         active=False,
                         message=(
@@ -3080,14 +3101,15 @@ class TelemetryStore:
                         last_command={**command, "writes": writes, "closed_loop": loop_status},
                     )
 
-        thread = threading.Thread(target=run_lowcmd_pose, name="lowcmd-body-pose", daemon=True)
+        thread = threading.Thread(target=run_pose_controller, name="lowcmd-pose-controller", daemon=True)
         with self.command_lock:
             self.replay_cancel = cancel
             self.replay_thread = thread
+            self._pose_controller_running = True
         thread.start()
         return 202, {
             "ok": True,
-            "message": "lowcmd pose started: motion mode released, arms + waist moving to target via lowcmd (legs held).",
+            "message": "lowcmd pose started: closed-loop PID, arms + waist to target (legs held, motion mode released).",
             "recording": path.name,
             "plan": plan,
             "waist_target": round(waist_target, 6),

@@ -25,6 +25,8 @@ from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import urllib.error
+import urllib.request
 from urllib.parse import unquote, urlsplit
 from typing import Any
 
@@ -364,6 +366,142 @@ HAND_JOINT_NAMES = {
 }
 
 MAX_JSON_BODY_BYTES = 1_000_000
+
+# ---------------------------------------------------------------------------
+# On-prem LLM chatbot (Command Center assistant)
+#
+# The dashboard proxies chat to an OpenAI-compatible endpoint (Ollama on the
+# lab "AI-DEV" host by default). The proxy is READ-ONLY: it can read live
+# telemetry to answer questions but never issues robot commands. All settings
+# are env-overridable so the endpoint/model can change without code edits.
+# ---------------------------------------------------------------------------
+LLM_ENABLED = os.environ.get("LLM_ENABLED", "1") not in ("0", "false", "False", "")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://10.2.125.3:11434").rstrip("/")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3:30b-a3b-instruct-2507-q4_K_M")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1024"))
+LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.3"))
+# Cap on how much conversation the browser may send, to bound proxy work.
+LLM_MAX_MESSAGES = int(os.environ.get("LLM_MAX_MESSAGES", "24"))
+LLM_MAX_MESSAGE_CHARS = int(os.environ.get("LLM_MAX_MESSAGE_CHARS", "8000"))
+
+LLM_SYSTEM_PROMPT = (
+    "You are the Command Center assistant embedded in the Unitree H1-2 humanoid "
+    "robot operator dashboard. You help the operator understand live telemetry: "
+    "joint/motor state, IMU orientation, temperatures, torques, hand state, "
+    "network link, and overall health. Answer concisely and factually, grounding "
+    "answers in the TELEMETRY SNAPSHOT below when the question is about the robot's "
+    "current state. If the snapshot lacks the requested data, say so plainly. "
+    "You are a read-only monitor: you cannot move the robot or send commands, so "
+    "never claim to have done so. If asked to move the robot, explain that command "
+    "actions are performed through the dashboard's dedicated controls, not the chat."
+)
+
+
+def build_telemetry_context(snapshot: dict[str, Any]) -> str:
+    """Render a compact, model-friendly summary of the current telemetry.
+
+    Kept small on purpose: the analysis block already condenses 35 motors into
+    group summaries, hottest joint, health flags, etc.
+    """
+    if not isinstance(snapshot, dict):
+        return "No telemetry available."
+    lines: list[str] = []
+    connected = snapshot.get("connected")
+    lines.append(f"connected={connected} sample_rate_hz={snapshot.get('sample_rate_hz')} motor_count={snapshot.get('motor_count')}")
+
+    analysis = snapshot.get("analysis") or {}
+    health = analysis.get("health") or {}
+    if health:
+        flags = health.get("flags") or []
+        flag_txt = "; ".join(
+            f"{f.get('level')}: {f.get('message')}" for f in flags if isinstance(f, dict)
+        )
+        lines.append(f"health={health.get('state')}" + (f" ({flag_txt})" if flag_txt else ""))
+
+    imu = analysis.get("imu") or {}
+    if imu:
+        lines.append(
+            f"imu roll={imu.get('roll_deg')}deg pitch={imu.get('pitch_deg')}deg "
+            f"yaw={imu.get('yaw_deg')}deg temp={imu.get('temperature')}C"
+        )
+
+    motors = analysis.get("motors") or {}
+    if motors:
+        hottest = motors.get("hottest") or {}
+        max_tau = motors.get("max_abs_tau") or {}
+        lines.append(
+            f"motors real={motors.get('real_count')} moving={motors.get('moving_count')} "
+            f"hottest={hottest.get('name')}@{hottest.get('value')}C "
+            f"max_torque={max_tau.get('name')}@{max_tau.get('value')}Nm"
+        )
+        groups = motors.get("groups") or {}
+        for name, g in groups.items():
+            if not isinstance(g, dict) or name == "reserved":
+                continue
+            lines.append(
+                f"  {name}: {g.get('count')} joints, moving={g.get('moving')}, "
+                f"max_temp={g.get('max_temperature')}C"
+            )
+
+    hands = snapshot.get("hands") or {}
+    if hands:
+        lines.append(f"hands connected={hands.get('connected')} joints={hands.get('joint_count')}")
+
+    battery = snapshot.get("battery") or {}
+    if battery.get("state"):
+        lines.append(f"battery={battery.get('state')}")
+
+    network = (snapshot.get("network") or {}).get("host") or {}
+    if network:
+        lines.append(
+            f"network={network.get('type')} {network.get('host')} ({network.get('quality')})"
+        )
+
+    return "\n".join(lines)
+
+
+def call_llm(messages: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
+    """POST an OpenAI-compatible chat completion to the configured LLM.
+
+    Returns (http_status, response_dict). Never raises for network/LLM errors —
+    they are mapped to a JSON error payload so the endpoint stays well-behaved.
+    """
+    body = json.dumps(
+        {
+            "model": LLM_MODEL,
+            "messages": messages,
+            "stream": False,
+            "temperature": LLM_TEMPERATURE,
+            "max_tokens": LLM_MAX_TOKENS,
+        }
+    ).encode("utf-8")
+    url = f"{LLM_BASE_URL}/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if LLM_API_KEY:
+        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=LLM_TIMEOUT_SECONDS) as response:
+            raw = response.read()
+        decoded = json.loads(raw.decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:500]
+        return 502, {"ok": False, "error": f"LLM returned HTTP {exc.code}: {detail}"}
+    except urllib.error.URLError as exc:
+        return 503, {"ok": False, "error": f"Cannot reach LLM at {LLM_BASE_URL}: {exc.reason}"}
+    except socket.timeout:
+        return 504, {"ok": False, "error": f"LLM timed out after {LLM_TIMEOUT_SECONDS:g}s"}
+    except Exception as exc:  # pragma: no cover - defensive
+        return 502, {"ok": False, "error": f"LLM request failed: {exc}"}
+
+    try:
+        reply = decoded["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return 502, {"ok": False, "error": "LLM response missing choices[0].message.content"}
+    usage = decoded.get("usage") if isinstance(decoded, dict) else None
+    return 200, {"ok": True, "reply": reply, "model": decoded.get("model", LLM_MODEL), "usage": usage}
 
 
 def recording_timestamp() -> str:
@@ -2675,6 +2813,42 @@ class TelemetryStore:
             interpolated.append(item)
         return interpolated
 
+    def chat(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """Answer an operator chat message using the on-prem LLM.
+
+        Read-only: injects a live telemetry snapshot as context, then proxies to
+        the configured OpenAI-compatible endpoint. Validates and bounds the
+        client-supplied conversation before forwarding.
+        """
+        if not LLM_ENABLED:
+            return 503, {"ok": False, "error": "Chat assistant is disabled (set LLM_ENABLED=1)."}
+
+        raw_messages = payload.get("messages")
+        if not isinstance(raw_messages, list) or not raw_messages:
+            return 400, {"ok": False, "error": "Request must include a non-empty 'messages' array."}
+        if len(raw_messages) > LLM_MAX_MESSAGES:
+            return 400, {"ok": False, "error": f"Too many messages (max {LLM_MAX_MESSAGES})."}
+
+        cleaned: list[dict[str, Any]] = []
+        for item in raw_messages:
+            if not isinstance(item, dict):
+                return 400, {"ok": False, "error": "Each message must be an object."}
+            role = item.get("role")
+            content = item.get("content")
+            if role not in ("user", "assistant"):
+                return 400, {"ok": False, "error": "Message role must be 'user' or 'assistant'."}
+            if not isinstance(content, str) or not content.strip():
+                return 400, {"ok": False, "error": "Message content must be a non-empty string."}
+            cleaned.append({"role": role, "content": content[:LLM_MAX_MESSAGE_CHARS]})
+
+        if cleaned[-1]["role"] != "user":
+            return 400, {"ok": False, "error": "The last message must be from the user."}
+
+        context = build_telemetry_context(self.snapshot())
+        system = f"{LLM_SYSTEM_PROMPT}\n\nTELEMETRY SNAPSHOT (updated live):\n{context}"
+        messages = [{"role": "system", "content": system}, *cleaned]
+        return call_llm(messages)
+
     def record_command_event(self, name: str, payload: dict[str, Any]) -> None:
         self.recorder.write_event(name, payload)
 
@@ -3851,6 +4025,14 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.wrist_snapshot())
         elif request_path == "/api/loco/status":
             self._send_json(self.store.loco_snapshot())
+        elif request_path == "/api/chat/status":
+            self._send_json(
+                {
+                    "enabled": LLM_ENABLED,
+                    "model": LLM_MODEL,
+                    "endpoint": LLM_BASE_URL,
+                }
+            )
         elif request_path == "/camera.mjpg":
             self._send_camera_stream()
         elif request_path == "/events":
@@ -3870,6 +4052,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/robot/straight",
             "/api/loco/command",
             "/api/xr/mode",
+            "/api/chat",
             "/api/recording/start",
             "/api/recording/stop",
             "/api/recording/pose",
@@ -3885,6 +4068,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/robot/chill",
             "/api/loco/command",
             "/api/xr/mode",
+            "/api/chat",
             "/api/recording/start",
             "/api/recording/pose",
             "/api/recording/sequence",
@@ -3930,6 +4114,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/recording/replay/robot":
             status, response = self.store.request_robot_replay(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/chat":
+            status, response = self.store.chat(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

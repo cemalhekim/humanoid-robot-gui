@@ -441,7 +441,8 @@ class RobotViewer {
       new THREE.SphereGeometry(0.03, 20, 14),
       new THREE.MeshStandardMaterial({ color: 0x35e08a, emissive: 0x0b5a34, roughness: 0.4, metalness: 0.1 }),
     );
-    knob.position.set(0, 0.2, 0);
+    // Knob at local +X = the robot's front (URDF frame: X forward, Y left, Z up).
+    knob.position.set(0.2, 0, 0);
     group.add(knob);
 
     // Invisible thicker torus so the ring is easy to grab (raycast target only).

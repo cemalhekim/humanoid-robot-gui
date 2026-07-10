@@ -4,6 +4,9 @@ const state = {
   events: null,
   locoStatusKey: null,
   editedPose: null,
+  // True once the operator drags the arms/torso after the last file load —
+  // the dragged pose then takes Move priority over the selected file.
+  editedSinceLoad: false,
   recordingActive: false,
   sequenceBuilder: {
     active: false,
@@ -970,12 +973,18 @@ function isRobotReplayFileName(name) {
 // a saved+loaded file wins, otherwise an unsaved sequence draft, otherwise the
 // pose the operator dragged in the 3D editor. Returns null when nothing is movable.
 function pendingMoveTarget() {
+  if (state.sequenceBuilder.active && state.sequenceBuilder.points.length > 0) {
+    return { kind: "sequence", points: state.sequenceBuilder.points };
+  }
+  // A drag since the last file load wins: Move goes to the pose the operator
+  // just made in the editor (sent inline; the server replays it via a hidden
+  // temp file it deletes right after — no Save needed, nothing accumulates).
+  if (state.editedSinceLoad && hasBodyMotors(state.editedPose)) {
+    return { kind: "pose", snapshot: state.editedPose };
+  }
   const selectedReplayFile = els.recordingFileSelect?.value || "";
   if (isRobotReplayFileName(selectedReplayFile) && state.replay.loadedFile === selectedReplayFile) {
     return { kind: "file", filename: selectedReplayFile };
-  }
-  if (state.sequenceBuilder.active && state.sequenceBuilder.points.length > 0) {
-    return { kind: "sequence", points: state.sequenceBuilder.points };
   }
   if (hasBodyMotors(state.editedPose)) {
     return { kind: "pose", snapshot: state.editedPose };
@@ -1160,6 +1169,8 @@ async function loadReplayRecording() {
     state.replay.index = 0;
     state.replay.loadedFile = name;
     state.replay.previewComplete = false;
+    // Loading a file makes it the Move target again — until the next drag.
+    state.editedSinceLoad = false;
     const target = state.replay.frames[0]?.target;
     if (target) {
       refreshReplayTarget();
@@ -2387,6 +2398,9 @@ fetch("/api/state")
 window.addEventListener("hashchange", syncActiveNav);
 window.addEventListener("recording-edited-pose", (event) => {
   state.editedPose = event.detail?.snapshot || null;
+  // A real drag (not a sync from a loaded file) makes the dragged pose the
+  // pending Move target, overriding the previously selected file.
+  if (event.detail?.origin !== "sync" && state.editedPose) state.editedSinceLoad = true;
   // Re-evaluate "Move" — an unsaved edited pose is now movable directly.
   updateReplayUi();
 });

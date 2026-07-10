@@ -302,7 +302,7 @@ class RobotViewer {
     if (this.compare) {
       this.robotRoot?.updateWorldMatrix(true, true);
       this.updateEndEffectorMarker();
-      if (source === "target") this.emitEditedPose();
+      if (source === "target") this.emitEditedPose("sync");
     }
   }
 
@@ -826,10 +826,14 @@ class RobotViewer {
     return snapshot;
   }
 
-  emitEditedPose() {
+  emitEditedPose(origin = "drag") {
+    // origin "drag" = the operator moved the arms/torso in the editor;
+    // origin "sync" = the pose was applied from a loaded file/replay frame.
+    // The app uses this to let a fresh drag take Move priority over the
+    // previously selected file.
     const snapshot = this.currentEditedPoseSnapshot();
     if (!snapshot) return;
-    window.dispatchEvent(new CustomEvent("recording-edited-pose", { detail: { snapshot } }));
+    window.dispatchEvent(new CustomEvent("recording-edited-pose", { detail: { snapshot, origin } }));
   }
 
   loadVisualMeshes(linkElement, linkGroup, tone = "default") {

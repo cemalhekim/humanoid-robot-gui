@@ -1777,363 +1777,43 @@ class TelemetryStore:
             previous_cancel.set()
 
         payload = payload or {}
-        closed_loop = bool(payload.get("closed_loop", ARM_REPLAY_CLOSED_LOOP_DEFAULT))
-        hold_after_convergence = bool(
-            payload.get("hold_after_convergence", ARM_REPLAY_HOLD_AFTER_CONVERGENCE_DEFAULT)
-        )
-        try:
-            position_tolerance = float(payload.get("position_tolerance_rad", ARM_REPLAY_TOLERANCE_RAD))
-        except (TypeError, ValueError):
-            return 400, {"ok": False, "error": "position_tolerance_rad must be a number.", "recording": path.name, "plan": plan}
-        if not math.isfinite(position_tolerance) or position_tolerance < 0.005 or position_tolerance > 0.25:
-            return 400, {
-                "ok": False,
-                "error": "position_tolerance_rad must be between 0.005 and 0.25.",
-                "recording": path.name,
-                "plan": plan,
-            }
-        tuning = self._arm_replay_tuning(payload)
 
         xr_suspend = self._suspend_xr_motion_publishers()
         if not xr_suspend.get("ok"):
             return 409, {
                 "ok": False,
-                "error": "XR teleop motion publisher is still active; arm_sdk replay would be overwritten.",
+                "error": "XR teleop motion publisher is still active; replay would be overwritten.",
                 "recording": path.name,
                 "plan": plan,
                 "xr_suspend": xr_suspend,
             }
 
-        raw_gain_by_index = {
-            int(item["index"]): (float(item["kp"]), float(item["kd"]))
-            for item in plan.get("gain_plan", [])
-            if isinstance(item, dict) and "index" in item
-        }
-        gain_by_index = {
-            index: (
-                kp * (tuning["inner_kp_scale"] if closed_loop else tuning["direct_kp_scale"]),
-                kd * (tuning["inner_kd_scale"] if closed_loop else tuning["direct_kd_scale"]),
-            )
-            for index, (kp, kd) in raw_gain_by_index.items()
-        }
-        approach_gain_by_index = {
-            index: (kp * tuning["approach_kp_scale"], kd * tuning["approach_kd_scale"])
-            for index, (kp, kd) in raw_gain_by_index.items()
-        }
-        # Stiffer, better-damped gains used during the settle/hold phase so the
-        # arm actively resists sagging at the target instead of bobbing.
-        hold_gain_by_index = {
-            index: (kp * ARM_REPLAY_HOLD_KP_SCALE, kd * ARM_REPLAY_HOLD_KD_SCALE)
-            for index, (kp, kd) in raw_gain_by_index.items()
-        }
-        cancel = threading.Event()
-        commanded_body_joints = {
-            int(item["index"])
-            for item in plan.get("commanded_body_joints", [])
-            if isinstance(item, dict) and "index" in item
-        }
-        if not commanded_body_joints:
-            commanded_body_joints = set(ARM_SDK_JOINTS)
-        # arm_sdk cannot drive the waist on H1-2, so drop it from the arm_sdk
-        # target/convergence set (otherwise convergence would wait forever for a
-        # joint arm_sdk never moves) and co-drive it via lowcmd instead.
-        commanded_body_joints.discard(WAIST_YAW_JOINT)
+        # Drive the arms AND waist to the target pose via lowcmd with the onboard
+        # motion mode released (legs held stiff -- the robot must be physically
+        # supported). rt/arm_sdk does accept arm move-commands, but its closed-loop
+        # authority is too low to drive large shoulder/elbow motions to target
+        # (they stall partway), so the entire upper body is commanded directly over
+        # rt/lowcmd at full joint gains, which reaches the pose reliably. The waist
+        # target is the recorded final WaistYaw, or the current angle when the pose
+        # leaves the torso untouched (a no-op hold). execute_lowcmd_pose reads the
+        # scoped arm targets from the final frame and holds every other joint.
         with self.command_lock:
             lowcmd_publisher = self.lowcmd_publisher
-        waist_target: float | None = None
-        if frames:
-            final_waist = next(
-                (
-                    float(motor.get("q", 0.0))
-                    for motor in frames[-1].get("motors", [])
-                    if isinstance(motor, dict) and int(motor.get("index", -1)) == WAIST_YAW_JOINT
-                ),
-                None,
-            )
-            if final_waist is not None and lowcmd_publisher is not None:
-                candidate = self._clamp_joint_target(WAIST_YAW_JOINT, final_waist)
-                current_waist = float(msg.motor_state[WAIST_YAW_JOINT].q)
-                if abs(candidate - current_waist) > WAIST_REPLAY_EPSILON:
-                    waist_target = candidate
-
-        # The waist cannot be moved via arm_sdk (H1-2), and commanding it via
-        # lowcmd while the onboard controller is active just fights it (squeals,
-        # no motion). So when the pose twists the torso, release the motion mode
-        # and drive the whole body via lowcmd: legs + arms HELD at their current
-        # pose, only the waist turned. Requires a physically supported robot.
-        if waist_target is not None:
-            return self.execute_lowcmd_pose(path, plan, payload, frames, msg, waist_target)
-
-        closed_loop_state: dict[int, dict[str, float]] = {
-            joint: {"integral": 0.0, "last_error": 0.0, "last_desired_q": math.nan}
-            for joint in commanded_body_joints
-        }
-        approach_frame_count = 0
-        if closed_loop:
-            first_targets = self._arm_replay_frame_targets(frames[0], commanded_body_joints) if frames else {}
-            if first_targets:
-                approach_frame_count = max(1, math.ceil(tuning["smooth_approach_seconds"] / TRAJECTORY_DEFAULT_DT))
-            execution_frames = self._smooth_arm_replay_frames(
-                frames,
-                msg,
-                commanded_body_joints,
-                tuning["smooth_approach_seconds"],
-            )
-        else:
-            execution_frames = frames
-
-        def run_replay() -> None:
-            previous_timestamp: float | None = None
-            writes = 0
-            final_error: dict[str, Any] = {"max_error_rad": None, "per_joint": []}
-            converged = False
-            fault_reason: str | None = None
-            hold_announced = False
-            ceiling_announced = False
-            consecutive_converged = 0
-            escalation = 1.0
-            best_error = float("inf")
-            settle_cycles = max(1, math.ceil(tuning["settle_seconds"] / TRAJECTORY_DEFAULT_DT))
-            per_joint_latched: dict[int, bool] = {joint: False for joint in commanded_body_joints}
-            try:
-                for frame in execution_frames:
-                    if cancel.is_set():
-                        break
-                    with self.command_lock:
-                        latest_msg = self.lowstate_msg
-                        latest_publisher = self.wrist_publisher
-                    if latest_msg is None or latest_publisher is None:
-                        break
-                    target_by_index = self._arm_replay_frame_targets(frame, commanded_body_joints)
-                    feedforward_tau_by_index: dict[int, float] = {}
-                    publish_targets = (
-                        self._closed_loop_arm_targets(
-                            latest_msg,
-                            target_by_index,
-                            closed_loop_state,
-                            TRAJECTORY_DEFAULT_DT,
-                            tuning,
-                        )
-                        if closed_loop
-                        else (target_by_index, {}, {})
-                    )
-                    target_by_index, _, feedforward_tau_by_index = publish_targets
-                    frame_gain_by_index = (
-                        approach_gain_by_index
-                        if closed_loop and writes < approach_frame_count
-                        else gain_by_index
-                    )
-                    latest_publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(
-                            latest_msg,
-                            target_by_index,
-                            frame_gain_by_index,
-                            feedforward_tau_by_index,
-                            weight=1.0,
-                        )
-                    )
-                    writes += 1
-                    timestamp = numeric(frame.get("timestamp"))
-                    if previous_timestamp is not None and timestamp is not None:
-                        time.sleep(max(0.0, min(0.1, timestamp - previous_timestamp) / tuning["playback_speed"]))
-                    else:
-                        time.sleep(TRAJECTORY_DEFAULT_DT / tuning["playback_speed"])
-                    if timestamp is not None:
-                        previous_timestamp = timestamp
-                # Phase B: converge onto the recorded pose and hold. Convergence
-                # is the ONLY normal success exit; the loop never terminates at a
-                # wrong pose on a timer. It keeps servoing (escalating effort if it
-                # stalls) until every joint is settled and the weighted end-effector
-                # error is small, or a safety fault / operator cancel occurs.
-                phase_b_start = time.monotonic()
-                last_progress_t = phase_b_start
-                # Run the hold loop faster than playback so the arm is caught
-                # before it can drift; keep the settle window the same wall-clock.
-                hold_dt = 1.0 / ARM_REPLAY_HOLD_HZ
-                settle_cycles = max(1, math.ceil(tuning["settle_seconds"] / hold_dt))
-                open_loop_hold_until = phase_b_start + max(
-                    TRAJECTORY_APPROACH_SECONDS, plan.get("duration_seconds", 0.0) or 0.0
-                )
-                while not cancel.is_set():
-                    now = time.monotonic()
-                    with self.command_lock:
-                        latest_msg = self.lowstate_msg
-                        latest_publisher = self.wrist_publisher
-                    if latest_msg is None or latest_publisher is None or not execution_frames:
-                        fault_reason = "telemetry_lost"
-                        break
-                    final_frame = execution_frames[-1]
-                    target_by_index = self._arm_replay_frame_targets(final_frame, commanded_body_joints)
-                    if closed_loop:
-                        publish_targets, final_error, feedforward_tau_by_index = self._closed_loop_arm_targets(
-                            latest_msg,
-                            target_by_index,
-                            closed_loop_state,
-                            hold_dt,
-                            tuning,
-                            escalation,
-                        )
-                        # Per-joint settle latch with hysteresis so one noisy joint
-                        # cannot repeatedly reset the whole convergence counter.
-                        for pj in final_error.get("per_joint", []):
-                            joint_index = pj["index"]
-                            joint_error = abs(pj.get("error_rad", 0.0))
-                            if per_joint_latched.get(joint_index):
-                                if joint_error > position_tolerance * ARM_REPLAY_SETTLE_HYSTERESIS:
-                                    per_joint_latched[joint_index] = False
-                            elif joint_error <= position_tolerance and pj.get("stationary"):
-                                per_joint_latched[joint_index] = True
-                        all_latched = bool(per_joint_latched) and all(per_joint_latched.values())
-                        cartesian_error = final_error.get("cartesian_proxy_error_m")
-                        cartesian_ok = not isinstance(cartesian_error, (int, float)) or cartesian_error <= final_error.get(
-                            "cartesian_tolerance_m", ARM_REPLAY_CARTESIAN_TOLERANCE_M
-                        )
-                        velocity_ok = final_error.get("max_velocity_rad_s", 0.0) <= tuning.get(
-                            "converge_velocity_rad_s", ARM_REPLAY_CONVERGE_VELOCITY_RAD_S
-                        )
-                        if all_latched and cartesian_ok and velocity_ok:
-                            consecutive_converged += 1
-                        else:
-                            consecutive_converged = 0
-                        converged = consecutive_converged >= settle_cycles
-                        # Stall escalation: if the error plateaus above the band,
-                        # ramp gravity learning + correction authority (bounded).
-                        current_error = final_error.get("max_error_rad")
-                        if isinstance(current_error, (int, float)) and current_error < best_error - 1e-4:
-                            best_error = current_error
-                            last_progress_t = now
-                        elif not converged and (now - last_progress_t) > ARM_REPLAY_STALL_SECONDS:
-                            escalation = min(ARM_REPLAY_ESCALATION_MAX, escalation + ARM_REPLAY_ESCALATION_STEP)
-                            last_progress_t = now
-                    else:
-                        publish_targets = target_by_index
-                        feedforward_tau_by_index = {}
-                        converged = now >= open_loop_hold_until
-                    latest_publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(
-                            latest_msg,
-                            publish_targets,
-                            hold_gain_by_index,
-                            feedforward_tau_by_index,
-                            weight=1.0,
-                        )
-                    )
-                    writes += 1
-                    if converged:
-                        if hold_after_convergence:
-                            if not hold_announced:
-                                self._set_wrist_status(
-                                    active=True,
-                                    message="arm_sdk target reached; holding final pose.",
-                                    last_command=self._arm_replay_status_payload(
-                                        path, plan, tuning, approach_frame_count,
-                                        writes=writes, closed_loop=closed_loop,
-                                        hold_after_convergence=hold_after_convergence,
-                                        position_tolerance=position_tolerance,
-                                        final_error=final_error, converged=True,
-                                        escalation=escalation, holding=True,
-                                    ),
-                                )
-                                hold_announced = True
-                        else:
-                            break
-                    elif (now - phase_b_start) > ARM_REPLAY_ABSOLUTE_CEILING_SECONDS:
-                        # Absolute ceiling reached without convergence: never report
-                        # success or release at the wrong pose. Flag it and keep
-                        # holding the best pose (or stop, if holding is disabled).
-                        if not ceiling_announced:
-                            self._set_wrist_status(
-                                active=True,
-                                message="arm_sdk NOT converged within ceiling; holding best pose (not at target).",
-                                last_command=self._arm_replay_status_payload(
-                                    path, plan, tuning, approach_frame_count,
-                                    writes=writes, closed_loop=closed_loop,
-                                    hold_after_convergence=hold_after_convergence,
-                                    position_tolerance=position_tolerance,
-                                    final_error=final_error, converged=False,
-                                    escalation=escalation, holding=True,
-                                    ceiling_reached=True,
-                                ),
-                            )
-                            ceiling_announced = True
-                        if not hold_after_convergence:
-                            fault_reason = "ceiling_not_converged"
-                            break
-                    time.sleep(hold_dt)
-            finally:
-                with self.command_lock:
-                    if self.replay_cancel is cancel:
-                        self.replay_cancel = None
-                        self.replay_thread = None
-                self._set_wrist_status(
-                    active=False,
-                    message=(
-                        "arm_sdk trajectory replay cancelled."
-                        if cancel.is_set()
-                        else (
-                            f"arm_sdk closed-loop replay converged ({writes} writes)."
-                            if closed_loop and converged
-                            else (
-                                f"arm_sdk replay stopped: {fault_reason} ({writes} writes)."
-                                if fault_reason
-                                else f"arm_sdk trajectory replay complete ({writes} writes)."
-                            )
-                        )
-                    ),
-                    last_command=self._arm_replay_status_payload(
-                        path, plan, tuning, approach_frame_count,
-                        writes=writes, closed_loop=closed_loop,
-                        hold_after_convergence=hold_after_convergence,
-                        position_tolerance=position_tolerance,
-                        final_error=final_error, converged=converged,
-                        escalation=escalation, holding=False,
-                        fault_reason=fault_reason,
-                    ),
-                )
-
-        thread = threading.Thread(target=run_replay, name="arm-sdk-trajectory-replay", daemon=True)
-        with self.command_lock:
-            self.replay_cancel = cancel
-            self.replay_thread = thread
-        self._set_wrist_status(
-            active=True,
-            message="Publishing arm_sdk trajectory replay.",
-            last_command={
-                "mode": "trajectory",
-                "recording": path.name,
-                "command_scope": plan.get("command_scope"),
-                "control_path": plan.get("control_path"),
-                "direct_replay": not closed_loop,
-                "hold_after_convergence": hold_after_convergence,
-                "approach_frame_count": approach_frame_count,
-                "xr_suspend": xr_suspend,
-                "closed_loop": {
-                    "enabled": closed_loop,
-                    "tolerance_rad": position_tolerance,
-                    "timeout_seconds": tuning["timeout_seconds"],
-                    "settle_seconds": tuning["settle_seconds"],
-                    "tuning": tuning,
-                },
-            },
+        if lowcmd_publisher is None:
+            return 503, {"ok": False, "error": "DDS lowcmd publisher is not available.", "recording": path.name, "plan": plan}
+        current_waist = float(msg.motor_state[WAIST_YAW_JOINT].q)
+        waist_target = current_waist
+        final_waist = next(
+            (
+                float(motor.get("q", 0.0))
+                for motor in frames[-1].get("motors", [])
+                if isinstance(motor, dict) and int(motor.get("index", -1)) == WAIST_YAW_JOINT
+            ),
+            None,
         )
-        thread.start()
-        return 202, {
-            "ok": True,
-            "message": "arm_sdk trajectory replay started.",
-            "recording": path.name,
-            "plan": plan,
-            "xr_suspend": xr_suspend,
-            "direct_replay": not closed_loop,
-            "hold_after_convergence": hold_after_convergence,
-            "approach_frame_count": approach_frame_count,
-            "closed_loop": {
-                "enabled": closed_loop,
-                "tolerance_rad": position_tolerance,
-                "timeout_seconds": tuning["timeout_seconds"],
-                "settle_seconds": tuning["settle_seconds"],
-                "tuning": tuning,
-            },
-        }
+        if final_waist is not None:
+            waist_target = self._clamp_joint_target(WAIST_YAW_JOINT, final_waist)
+        return self.execute_lowcmd_pose(path, plan, payload, frames, msg, waist_target)
 
     @staticmethod
     def _response_lerp(response: float, damped: float, balanced: float, responsive: float) -> float:

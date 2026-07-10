@@ -2946,7 +2946,17 @@ class TelemetryStore:
             "arm_joint_count": sum(1 for j in body_targets if j != WAIST_YAW_JOINT),
         }
 
-        tuning = self._arm_replay_tuning(payload if isinstance(payload, dict) else None)
+        tuning = {
+            **self._arm_replay_tuning(payload if isinstance(payload, dict) else None),
+            # Full-gain lowcmd PD needs far less measured-torque support than the
+            # weak arm_sdk gains this controller was tuned for. A 0.95 hold-scale
+            # feeds the stiff PD's own reaction torque back through the
+            # feed-forward and the hold "breathes"; the bounded gravity-learn
+            # integral supplies the accurate steady holding torque instead.
+            "gravity_hold_scale": 0.7,
+            "gravity_move_scale": 0.35,
+            "gravity_tau_filter_seconds": 0.8,
+        }
 
         def run_lowcmd_pose() -> None:
             released = False
@@ -2961,6 +2971,14 @@ class TelemetryStore:
             dt_nominal = 1.0 / 120.0
             step = WAIST_LOWCMD_MAX_VEL_RAD_S * dt_nominal
             last_tick = time.monotonic()
+            # Contact handling: a joint that is stationary, outside the lock band,
+            # with its gravity feed-forward saturated at the safety clamp is
+            # physically blocked (e.g. the arm pressing against the torso). After a
+            # short confirmation window, accept the reachable pose for that joint
+            # instead of leaning into the obstacle indefinitely.
+            targets_eff = dict(body_targets)
+            stall_s: dict[int, float] = {}
+            blocked_joints: list[str] = []
             self._set_wrist_status(
                 available=True, active=True,
                 message="lowcmd pose: releasing motion mode; legs held, arms + waist moving to target.",
@@ -2991,7 +3009,7 @@ class TelemetryStore:
                     # Ramp every commanded joint (arms + waist) toward its target at
                     # the shared max velocity, easing out over the last ~0.12 rad so
                     # the arrival is smooth instead of a hard velocity stop.
-                    for joint, target_q in body_targets.items():
+                    for joint, target_q in targets_eff.items():
                         remaining = target_q - desired[joint]
                         if remaining:
                             ease = max(0.3, min(1.0, abs(remaining) / 0.12))
@@ -3006,6 +3024,24 @@ class TelemetryStore:
                     )
                     publisher.Write(self._build_lowcmd_pose_cmd(latest_msg, hold_q, corrected, tau_ff))
                     writes += 1
+                    # Contact-stall detection (see targets_eff comment above).
+                    for pj in loop_status.get("per_joint", []):
+                        joint = int(pj["index"])
+                        saturated = abs(pj["gravity_tau"]) >= 0.98 * self._arm_replay_gravity_tau_limit(joint)
+                        if pj["locked"] or not pj["stationary"] or not saturated:
+                            stall_s.pop(joint, None)
+                            continue
+                        stall_s[joint] = stall_s.get(joint, 0.0) + dt
+                        if stall_s[joint] >= 2.0 and targets_eff.get(joint) == body_targets.get(joint):
+                            reachable = self._clamp_joint_target(
+                                joint,
+                                float(pj["actual_q"]) + max(-0.008, min(0.008, float(pj["error_rad"]))),
+                            )
+                            targets_eff[joint] = reachable
+                            name = pj.get("name", f"Motor{joint}")
+                            if name not in blocked_joints:
+                                blocked_joints.append(name)
+                            command["blocked_joints"] = list(blocked_joints)
                     if writes % 240 == 0:  # ~every 2 s, for /api/wrist/status observability
                         self._set_wrist_status(
                             available=True, active=True,

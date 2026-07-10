@@ -2565,8 +2565,9 @@ function setupChat() {
   }
 
   function autosize() {
+    // Grow the box upward with the content instead of showing a scrollbar.
     els.chatInput.style.height = "auto";
-    els.chatInput.style.height = `${Math.min(els.chatInput.scrollHeight, 140)}px`;
+    els.chatInput.style.height = `${els.chatInput.scrollHeight}px`;
   }
 
   async function send() {

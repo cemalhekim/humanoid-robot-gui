@@ -528,6 +528,62 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(saved["points"][0]["motors"], points[0]["motors"])
         self.assertEqual(saved["points"][0]["type"], "telemetry_sample")
 
+    def test_robot_replay_accepts_inline_edited_pose_without_saving(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            original_dir = server.RECORDINGS_DIR
+            original_ephemeral = server.EPHEMERAL_REPLAY_DIR
+            server.RECORDINGS_DIR = server.Path(directory)
+            server.EPHEMERAL_REPLAY_DIR = server.Path(directory) / ".ephemeral"
+            try:
+                motors = [{"index": 13, "name": "LeftShoulderPitch", "q": 0.2}]
+                status, response = store.request_robot_replay(
+                    {"snapshot": {"timestamp": 5.0, "motors": motors}, "dry_run": True}
+                )
+                # No filename provided: the unsaved pose is planned like a saved file.
+                self.assertEqual(status, 200)
+                self.assertTrue(response["ok"])
+                self.assertTrue(response["recording"].endswith(".pose.json"))
+                self.assertEqual(response["plan"]["frame_count"], 1)
+                # The scratch file is deleted, never left behind in recordings.
+                leftover = (
+                    list(server.EPHEMERAL_REPLAY_DIR.glob("*"))
+                    if server.EPHEMERAL_REPLAY_DIR.exists()
+                    else []
+                )
+                self.assertEqual(leftover, [])
+                self.assertEqual(list(server.Path(directory).glob("*.pose.json")), [])
+            finally:
+                server.RECORDINGS_DIR = original_dir
+                server.EPHEMERAL_REPLAY_DIR = original_ephemeral
+
+    def test_robot_replay_accepts_inline_sequence_points(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            original_dir = server.RECORDINGS_DIR
+            original_ephemeral = server.EPHEMERAL_REPLAY_DIR
+            server.RECORDINGS_DIR = server.Path(directory)
+            server.EPHEMERAL_REPLAY_DIR = server.Path(directory) / ".ephemeral"
+            try:
+                points = [
+                    {"timestamp": 1.0, "motors": [{"index": 20, "name": "RightShoulderPitch", "q": 0.1}]},
+                    {"timestamp": 2.0, "motors": [{"index": 20, "name": "RightShoulderPitch", "q": 0.2}]},
+                ]
+                status, response = store.request_robot_replay({"points": points, "dry_run": True})
+                self.assertEqual(status, 200)
+                self.assertTrue(response["recording"].endswith(".sequence.json"))
+                self.assertGreaterEqual(response["plan"]["frame_count"], 2)
+            finally:
+                server.RECORDINGS_DIR = original_dir
+                server.EPHEMERAL_REPLAY_DIR = original_ephemeral
+
+    def test_robot_replay_rejects_empty_inline_payload(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        # No filename, no snapshot, no points -> nothing to move.
+        status, response = store.request_robot_replay({"dry_run": True})
+        self.assertEqual(status, 400)
+        self.assertFalse(response["ok"])
+
     def test_sparse_sequence_json_is_resampled_between_trajectory_points(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         with TemporaryDirectory() as directory:

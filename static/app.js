@@ -933,9 +933,6 @@ function updateReplayUi() {
   const total = state.replay.frames.length;
   const builderPointCount = state.sequenceBuilder.active ? state.sequenceBuilder.points.length : 0;
   const frameNumber = total ? state.replay.index + 1 : 0;
-  const selectedReplayFile = els.recordingFileSelect?.value || "";
-  const savedReplaySelected = isRobotReplayFileName(selectedReplayFile);
-  const replayMatchesSelection = state.replay.loadedFile === selectedReplayFile;
   if (els.recordingScrub) {
     els.recordingScrub.max = String(Math.max(0, total - 1));
     els.recordingScrub.value = String(Math.min(state.replay.index, Math.max(0, total - 1)));
@@ -952,20 +949,11 @@ function updateReplayUi() {
     els.recordingPlay.disabled = (total === 0 && builderPointCount === 0) || state.replay.playing;
   }
   if (els.recordingRobotPlay) {
-    const canMoveArms =
-      total > 0 &&
-      Boolean(state.latest?.connected) &&
-      savedReplaySelected &&
-      replayMatchesSelection;
+    const moveTarget = pendingMoveTarget();
+    const canMoveArms = Boolean(state.latest?.connected) && moveTarget !== null;
     els.recordingRobotPlay.disabled = !canMoveArms;
     els.recordingRobotPlay.textContent = "Move Arms";
-    els.recordingRobotPlay.title = robotReplayLockReason({
-      canMoveArms,
-      total,
-      selectedReplayFile,
-      savedReplaySelected,
-      replayMatchesSelection,
-    });
+    els.recordingRobotPlay.title = robotReplayLockReason({ canMoveArms, moveTarget });
   }
 }
 
@@ -973,16 +961,31 @@ function isRobotReplayFileName(name) {
   return Boolean(name && (name.endsWith(".jsonl") || name.endsWith(".pose.json") || name.endsWith(".sequence.json")));
 }
 
-function robotReplayLockReason({ canMoveArms, total, selectedReplayFile, savedReplaySelected, replayMatchesSelection }) {
-  if (canMoveArms) return "Publish the validated arm/waist trajectory through arm_sdk.";
-  if (!state.latest?.connected) return "Locked until live robot telemetry is connected.";
-  if (!total) return "Locked until a trajectory is loaded.";
-  if (state.sequenceBuilder.active && state.replay.loadedFile === "__sequence_builder__") {
-    return "Save Sequence first so the robot receives a validated .sequence.json trajectory.";
+// Resolve what "Move Arms" should send, in priority order. Saving is optional:
+// a saved+loaded file wins, otherwise an unsaved sequence draft, otherwise the
+// pose the operator dragged in the 3D editor. Returns null when nothing is movable.
+function pendingMoveTarget() {
+  const selectedReplayFile = els.recordingFileSelect?.value || "";
+  if (isRobotReplayFileName(selectedReplayFile) && state.replay.loadedFile === selectedReplayFile) {
+    return { kind: "file", filename: selectedReplayFile };
   }
-  if (!savedReplaySelected) return "Select a saved recording, pose, or sequence file before moving the robot.";
-  if (!replayMatchesSelection) return "Load the selected file before moving the robot.";
-  return selectedReplayFile ? "Robot replay is locked." : "Select a saved trajectory file.";
+  if (state.sequenceBuilder.active && state.sequenceBuilder.points.length > 0) {
+    return { kind: "sequence", points: state.sequenceBuilder.points };
+  }
+  if (hasBodyMotors(state.editedPose)) {
+    return { kind: "pose", snapshot: state.editedPose };
+  }
+  return null;
+}
+
+function robotReplayLockReason({ canMoveArms, moveTarget }) {
+  if (canMoveArms) {
+    return moveTarget?.kind === "file"
+      ? "Publish the validated arm/waist trajectory through arm_sdk."
+      : "Move the robot to the pose/sequence you edited (saving is optional).";
+  }
+  if (!state.latest?.connected) return "Locked until live robot telemetry is connected.";
+  return "Drag the arms or torso in the 3D editor, or load a saved file, before moving the robot.";
 }
 
 function replayResponseValue() {
@@ -1092,33 +1095,38 @@ function playReplay() {
 }
 
 async function requestRobotReplay() {
-  const selectedReplayFile = els.recordingFileSelect?.value || "";
-  if (
-    !isRobotReplayFileName(selectedReplayFile) ||
-    state.replay.loadedFile !== selectedReplayFile
-  ) {
+  const moveTarget = pendingMoveTarget();
+  if (!moveTarget) {
     if (els.recordingError) {
       els.recordingError.textContent =
-        state.sequenceBuilder.active && state.replay.loadedFile === "__sequence_builder__"
-          ? "Save Sequence first; unsaved trajectory drafts are not sent to the physical robot."
-          : "Select a saved trajectory file before moving the robot.";
+        "Drag the arms or torso in the 3D editor, or load a saved file, before moving the robot.";
     }
     updateReplayUi();
     return;
+  }
+  const body = {
+    execute_arm_sdk: true,
+    command_scope: "arms",
+    closed_loop: replayClosedLoopEnabled(),
+    hold_after_convergence: true,
+    position_tolerance_rad: 0.01,
+    replay_response: replayResponseValue(),
+  };
+  if (moveTarget.kind === "file") {
+    // Saved recording/pose/sequence loaded from disk.
+    body.filename = moveTarget.filename;
+  } else if (moveTarget.kind === "sequence") {
+    // Unsaved sequence draft — sent inline, replayed via an ephemeral file server-side.
+    body.points = moveTarget.points.map(compactSequencePoint);
+  } else {
+    // Unsaved single pose dragged in the 3D editor — sent inline.
+    body.snapshot = moveTarget.snapshot;
   }
   try {
     const response = await fetch("/api/recording/replay/robot", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        filename: selectedReplayFile,
-        execute_arm_sdk: true,
-        command_scope: "arms",
-        closed_loop: replayClosedLoopEnabled(),
-        hold_after_convergence: true,
-        position_tolerance_rad: 0.01,
-        replay_response: replayResponseValue(),
-      }),
+      body: JSON.stringify(body),
     });
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Robot replay request was rejected.");
@@ -2371,6 +2379,8 @@ fetch("/api/state")
 window.addEventListener("hashchange", syncActiveNav);
 window.addEventListener("recording-edited-pose", (event) => {
   state.editedPose = event.detail?.snapshot || null;
+  // Re-evaluate "Move Arms" — an unsaved edited pose is now movable directly.
+  updateReplayUi();
 });
 window.addEventListener("recording-ik-status", (event) => renderIkStatus(event.detail || {}));
 window.addEventListener("recording-viewer-ready", () => {

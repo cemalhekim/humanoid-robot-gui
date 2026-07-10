@@ -43,6 +43,11 @@ APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 CAMERA_JPEG_PATH = Path("/tmp/robot_telemetry_front_camera.jpg")
 RECORDINGS_DIR = APP_DIR / "recordings"
+# Scratch dir for unsaved poses/sequences that the operator moves the robot with
+# directly from the 3D editor. Files here are written, replayed through the exact
+# same validated pipeline as saved recordings, then deleted. A subdirectory keeps
+# them out of the recordings file list (which globs RECORDINGS_DIR non-recursively).
+EPHEMERAL_REPLAY_DIR = RECORDINGS_DIR / ".ephemeral"
 DOCS_DIR = APP_DIR / "docs"
 XR_TELEOP_MODE_DROPIN = Path.home() / ".config/systemd/user/xr-teleop.service.d/10-control-mode.conf"
 XR_MOTION_SERVICES = ("xr-home-watchdog.service", "xr-teleop.service")
@@ -1630,6 +1635,58 @@ class TelemetryStore:
             },
         }
 
+    def _write_ephemeral_replay_file(self, payload: dict[str, Any]) -> Path:
+        """Serialize an unsaved pose/sequence from the 3D editor to a scratch file.
+
+        Uses the identical on-disk schema as ``capture_pose``/``save_sequence`` so the
+        replay pipeline (``plan_replay_control_path`` + ``execute_arm_sdk_replay``) and
+        all of its safety gates apply unchanged. Raises ``ValueError`` if the inline
+        pose/sequence data is missing or malformed. Callers must delete the returned
+        file after replay (the frames are read into memory synchronously first).
+        """
+        points = payload.get("points") if isinstance(payload, dict) else None
+        snapshot = payload.get("snapshot") if isinstance(payload, dict) else None
+        if isinstance(points, list) and points:
+            clean_points = []
+            for index, point in enumerate(points):
+                if not isinstance(point, dict):
+                    raise ValueError(f"Point {index + 1} must be an object.")
+                clean = json.loads(json.dumps(point))
+                if not clean.get("motors"):
+                    raise ValueError(f"Point {index + 1} does not contain motors.")
+                clean.setdefault("type", "telemetry_sample")
+                clean.setdefault("timestamp", time.time() + index * TRAJECTORY_DEFAULT_DT)
+                clean_points.append(clean)
+            body = {
+                "type": "trajectory",
+                "schema": "h1_2_sequence_v1",
+                "timestamp": time.time(),
+                "monotonic_ns": time.monotonic_ns(),
+                "points": clean_points,
+            }
+            suffix = ".sequence.json"
+        elif isinstance(snapshot, dict):
+            clean = json.loads(json.dumps(snapshot))
+            if not clean.get("motors"):
+                raise ValueError("Pose has no body motor telemetry to move the robot with.")
+            body = {
+                "type": "pose_point",
+                "schema": "h1_2_pose_point_v1",
+                "timestamp": time.time(),
+                "monotonic_ns": time.monotonic_ns(),
+                "snapshot": clean,
+            }
+            suffix = ".pose.json"
+        else:
+            raise ValueError(
+                "Move the robot from a saved file, an unsaved edited pose (snapshot), "
+                "or an unsaved sequence (points)."
+            )
+        EPHEMERAL_REPLAY_DIR.mkdir(parents=True, exist_ok=True)
+        path = EPHEMERAL_REPLAY_DIR / f"unsaved-{time.monotonic_ns()}{suffix}"
+        path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+        return path
+
     def request_robot_replay(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         filename = str(payload.get("filename", "")).strip()
         command_scope = str(payload.get("command_scope", "all") or "all").strip()
@@ -1640,28 +1697,47 @@ class TelemetryStore:
             }
         # Preview/simulate is no longer required before robot playback; the other
         # gates (arm_sdk-only, trajectory validity, XR suspend, gains) still apply.
+        # Saving is optional: with no filename, the operator can move the robot
+        # straight from the pose/sequence they dragged in the 3D editor. That inline
+        # data is written to a scratch file and run through the identical validated
+        # pipeline, then deleted below — no safety interlock is bypassed.
+        ephemeral_path: Path | None = None
         try:
-            path = self.recording_file_path(filename)
-        except FileNotFoundError:
-            return 404, {"ok": False, "error": "Recording file was not found."}
-        except ValueError as exc:
-            return 400, {"ok": False, "error": str(exc)}
-        plan = self.plan_replay_control_path(path, command_scope=command_scope)
-        if payload.get("dry_run") is True:
-            return 200, {"ok": True, "recording": path.name, "plan": plan}
-        if payload.get("execute_arm_sdk") is True:
-            return self.execute_arm_sdk_replay(path, plan, payload)
-        return 409, {
-            "ok": False,
-            "error": (
-                "Robot playback is intentionally locked. The recording preview is valid, "
-                "but sending raw recorded joint trajectories to the physical robot requires "
-                "a safety controller with interpolation, joint/velocity/torque limits, "
-                "controller ownership checks, and emergency stop supervision."
-            ),
-            "recording": path.name,
-            "plan": plan,
-        }
+            if filename:
+                try:
+                    path = self.recording_file_path(filename)
+                except FileNotFoundError:
+                    return 404, {"ok": False, "error": "Recording file was not found."}
+                except ValueError as exc:
+                    return 400, {"ok": False, "error": str(exc)}
+            else:
+                try:
+                    path = self._write_ephemeral_replay_file(payload)
+                except ValueError as exc:
+                    return 400, {"ok": False, "error": str(exc)}
+                ephemeral_path = path
+            plan = self.plan_replay_control_path(path, command_scope=command_scope)
+            if payload.get("dry_run") is True:
+                return 200, {"ok": True, "recording": path.name, "plan": plan}
+            if payload.get("execute_arm_sdk") is True:
+                return self.execute_arm_sdk_replay(path, plan, payload)
+            return 409, {
+                "ok": False,
+                "error": (
+                    "Robot playback is intentionally locked. The recording preview is valid, "
+                    "but sending raw recorded joint trajectories to the physical robot requires "
+                    "a safety controller with interpolation, joint/velocity/torque limits, "
+                    "controller ownership checks, and emergency stop supervision."
+                ),
+                "recording": path.name,
+                "plan": plan,
+            }
+        finally:
+            if ephemeral_path is not None:
+                try:
+                    ephemeral_path.unlink()
+                except OSError:
+                    pass
 
     def execute_arm_sdk_replay(
         self,

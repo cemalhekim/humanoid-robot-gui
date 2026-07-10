@@ -6,6 +6,13 @@ After=default.target
 Type=simple
 WorkingDirectory=/home/unitree/robot_telemetry_web
 Environment=MAMBA_ROOT_PREFIX=/home/unitree/.micromamba
+# On a cold boot the dashboard can start before eth0 has its robot-network IP.
+# The DDS participant then binds to a not-yet-ready interface and never receives
+# rt/lowstate, so telemetry shows "disconnected" until a manual restart. Wait
+# (up to 60s) for eth0 to come up with its 192.168.123.x address before starting
+# so DDS binds to the correct interface; then it discovers the robot's telemetry
+# as soon as the robot publishes. Start anyway after the timeout.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do ip -br addr show eth0 2>/dev/null | grep -Eq "UP .*192\\.168\\.123\\." && exit 0; sleep 1; done; echo "eth0 robot-network IP not ready after 60s; starting anyway" >&2; exit 0'
 ExecStart=/home/unitree/.micromamba/envs/tv/bin/python -u /home/unitree/robot_telemetry_web/server.py --host 0.0.0.0 --port 8088 --robot-host 192.168.123.164 --camera-source eth0 --camera-backend teleimager
 Restart=always
 RestartSec=3

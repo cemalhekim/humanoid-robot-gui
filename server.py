@@ -2833,14 +2833,22 @@ class TelemetryStore:
         cmd.crc = self.crc.Crc(cmd)
         return cmd
 
-    def _build_lowcmd_pose_cmd(self, msg: Any, hold_q: list[float], commanded_q: dict[int, float]) -> Any:
-        # rt/lowcmd driving the arms + waist (commanded_q: {motor index -> target q})
+    def _build_lowcmd_pose_cmd(
+        self,
+        msg: Any,
+        hold_q: list[float],
+        commanded_q: dict[int, float],
+        tau_by_index: dict[int, float] | None = None,
+    ) -> Any:
+        # rt/lowcmd driving the arms + waist (commanded_q: {motor index -> target q},
+        # tau_by_index: gravity feed-forward torque from the closed-loop controller)
         # to a target pose while holding every other joint (the legs) stiff at
         # hold_q. Used AFTER the motion mode is released, so the legs are held stiff
         # (robot must be physically supported), the waist is free of the onboard
         # controller and turns, and the arms move to the recorded/edited pose.
         if self.lowcmd_factory is None or self.crc is None:
             raise RuntimeError("LowCmd factory is not initialized")
+        tau_by_index = tau_by_index or {}
         cmd = self.lowcmd_factory()
         cmd.mode_pr = 0
         cmd.mode_machine = int(getattr(msg, "mode_machine", 0) or 0)
@@ -2852,6 +2860,7 @@ class TelemetryStore:
             motor.reserve = 0
             if i in commanded_q:
                 motor.q = commanded_q[i]
+                motor.tau = float(tau_by_index.get(i, 0.0))
                 if i == WAIST_YAW_JOINT:
                     motor.kp = WAIST_LOWCMD_KP
                     motor.kd = WAIST_LOWCMD_KD
@@ -2937,13 +2946,21 @@ class TelemetryStore:
             "arm_joint_count": sum(1 for j in body_targets if j != WAIST_YAW_JOINT),
         }
 
+        tuning = self._arm_replay_tuning(payload if isinstance(payload, dict) else None)
+
         def run_lowcmd_pose() -> None:
             released = False
             writes = 0
-            # Ramp state per commanded joint, starting from the current pose.
-            commanded = {joint: hold_q[joint] for joint in body_targets}
-            dt = 1.0 / 120.0
-            step = WAIST_LOWCMD_MAX_VEL_RAD_S * dt
+            # Ramped setpoint per commanded joint, starting from the current pose.
+            # The closed-loop controller then corrects the published command around
+            # this setpoint and supplies gravity feed-forward torque, so the joint
+            # settles ON the target (near-zero standing error) instead of drooping.
+            desired = {joint: hold_q[joint] for joint in body_targets}
+            pid_state: dict[int, dict[str, float]] = {}
+            loop_status: dict[str, Any] = {}
+            dt_nominal = 1.0 / 120.0
+            step = WAIST_LOWCMD_MAX_VEL_RAD_S * dt_nominal
+            last_tick = time.monotonic()
             self._set_wrist_status(
                 available=True, active=True,
                 message="lowcmd pose: releasing motion mode; legs held, arms + waist moving to target.",
@@ -2968,17 +2985,37 @@ class TelemetryStore:
                         publisher = self.lowcmd_publisher
                     if latest_msg is None or publisher is None:
                         break
-                    # Ramp every commanded joint (arms + waist) toward its target
-                    # at the shared max velocity, then publish them together.
+                    now = time.monotonic()
+                    dt = min(0.05, max(0.001, now - last_tick))
+                    last_tick = now
+                    # Ramp every commanded joint (arms + waist) toward its target at
+                    # the shared max velocity, easing out over the last ~0.12 rad so
+                    # the arrival is smooth instead of a hard velocity stop.
                     for joint, target_q in body_targets.items():
-                        current = commanded[joint]
-                        if current < target_q:
-                            commanded[joint] = min(target_q, current + step)
-                        elif current > target_q:
-                            commanded[joint] = max(target_q, current - step)
-                    publisher.Write(self._build_lowcmd_pose_cmd(latest_msg, hold_q, commanded))
+                        remaining = target_q - desired[joint]
+                        if remaining:
+                            ease = max(0.3, min(1.0, abs(remaining) / 0.12))
+                            delta = min(abs(remaining), step * ease)
+                            desired[joint] += delta if remaining > 0 else -delta
+                    # Closed loop around the ramped setpoint: PID correction inside
+                    # a lock band (correction hard-zeroes at the target so the hold
+                    # is perfectly still) plus filtered gravity feed-forward with
+                    # bounded residual learning that erases the standing droop.
+                    corrected, loop_status, tau_ff = self._closed_loop_arm_targets(
+                        latest_msg, desired, pid_state, dt, tuning
+                    )
+                    publisher.Write(self._build_lowcmd_pose_cmd(latest_msg, hold_q, corrected, tau_ff))
                     writes += 1
-                    time.sleep(dt)
+                    if writes % 240 == 0:  # ~every 2 s, for /api/wrist/status observability
+                        self._set_wrist_status(
+                            available=True, active=True,
+                            message=(
+                                f"lowcmd pose: max_err={loop_status.get('max_error_rad')} rad, "
+                                f"settled {loop_status.get('settled_joints')}/{loop_status.get('joint_count')} joints."
+                            ),
+                            last_command={**command, "writes": writes, "closed_loop": loop_status},
+                        )
+                    time.sleep(dt_nominal)
             finally:
                 with self.command_lock:
                     is_active_session = self.replay_cancel is cancel
@@ -3000,8 +3037,11 @@ class TelemetryStore:
                 if is_active_session:
                     self._set_wrist_status(
                         active=False,
-                        message=f"lowcmd pose stopped ({writes} writes; motion mode restored={restored}).",
-                        last_command={**command, "writes": writes},
+                        message=(
+                            f"lowcmd pose stopped ({writes} writes; motion mode restored={restored}; "
+                            f"final max_err={loop_status.get('max_error_rad')} rad)."
+                        ),
+                        last_command={**command, "writes": writes, "closed_loop": loop_status},
                     )
 
         thread = threading.Thread(target=run_lowcmd_pose, name="lowcmd-body-pose", daemon=True)

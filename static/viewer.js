@@ -322,7 +322,9 @@ class RobotViewer {
 
   applyTrajectory(snapshot) {
     if (!this.compare || !this.modelReady) return;
-    if (this.trajectoryRoot) this.trajectoryRoot.visible = true;
+    // Pose the ghost but do NOT force it visible: the green silhouette is a
+    // simulation-only aid, shown solely via recording-trajectory-visibility
+    // (dispatched when Simulate Trajectory starts, hidden when it ends).
     for (const motor of snapshot.motors || []) {
       const urdfJoint = BODY_JOINTS[motor.name];
       if (urdfJoint) this.setJointValueIn(this.trajectoryJointGroups, urdfJoint, motor.q);

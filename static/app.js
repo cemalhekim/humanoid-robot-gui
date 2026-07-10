@@ -1053,12 +1053,15 @@ function pauseReplay() {
   if (state.replay.timer) window.clearTimeout(state.replay.timer);
   state.replay.timer = null;
   state.replay.playing = false;
+  // The green ghost is a simulation-only aid — hide it whenever playback stops.
+  window.dispatchEvent(new CustomEvent("recording-trajectory-visibility", { detail: { visible: false } }));
   updateReplayUi();
 }
 
 function markReplayComplete() {
   state.replay.playing = false;
   state.replay.previewComplete = state.replay.frames.length > 0;
+  window.dispatchEvent(new CustomEvent("recording-trajectory-visibility", { detail: { visible: false } }));
   updateReplayUi();
 }
 

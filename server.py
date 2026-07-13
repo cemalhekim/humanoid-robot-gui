@@ -4969,6 +4969,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self.send_header("Location", WELCOME_PAGE_URL)
             self.send_header("Content-Length", "0")
             self.end_headers()
+        elif request_path == "/favicon.ico":
+            self._send_file(STATIC_DIR / "assets" / "favicon.svg", "image/svg+xml")
         elif request_path == "/remote-entrance.json":
             # Current remote-tunnel hostname for the welcome page's Remote card
             # (kept fresh by tools/update_remote_entrance.py on the operator Mac).

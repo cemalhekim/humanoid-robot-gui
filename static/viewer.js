@@ -1358,6 +1358,7 @@ class EndEffectorPanel {
     close.addEventListener("click", () => this.close());
     head.appendChild(close);
     root.appendChild(head);
+    this.bindPanelDrag(head);
 
     const lockRow = document.createElement("div");
     lockRow.className = "ee-panel-lock";
@@ -1419,6 +1420,38 @@ class EndEffectorPanel {
     row.append(caption, slider, number, suffix);
     this.inputs.set(key, { slider, number });
     return row;
+  }
+
+  bindPanelDrag(handle) {
+    // The header is a drag handle so the panel can be moved anywhere over the
+    // viewer (it opens over the robot, which is often exactly what you want to
+    // look at). Buttons inside the header keep working normally.
+    let dragging = null;
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.target.closest("button")) return;
+      dragging = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - this.root.offsetLeft,
+        offsetY: event.clientY - this.root.offsetTop,
+      };
+      handle.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (!dragging || event.pointerId !== dragging.pointerId) return;
+      const container = this.viewer.container.getBoundingClientRect();
+      const x = Math.max(0, Math.min(container.width - this.root.offsetWidth, event.clientX - dragging.offsetX));
+      const y = Math.max(0, Math.min(container.height - this.root.offsetHeight, event.clientY - dragging.offsetY));
+      this.root.style.left = `${x}px`;
+      this.root.style.top = `${y}px`;
+    });
+    const finish = (event) => {
+      if (!dragging || event.pointerId !== dragging.pointerId) return;
+      handle.releasePointerCapture?.(event.pointerId);
+      dragging = null;
+    };
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
   }
 
   bind() {

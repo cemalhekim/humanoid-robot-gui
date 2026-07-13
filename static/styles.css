@@ -884,6 +884,9 @@ h1 {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
 }
 
 .ee-panel-title {

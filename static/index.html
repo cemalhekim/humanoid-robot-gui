@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=b2b1f89">
     <script type="importmap">
       {
         "imports": {
@@ -623,13 +623,13 @@
       </div>
     </div>
 
-    <script src="/app.js"></script>
-    <script src="/diagram.js"></script>
+    <script src="/app.js?v=b2b1f89"></script>
+    <script src="/diagram.js?v=b2b1f89"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);
       const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
       if (!lite) {
-        import("/viewer.js");
+        import("/viewer.js?v=b2b1f89");
       }
     </script>
     <div id="floatPad" class="float-pad hidden" aria-label="Floating walking controls">

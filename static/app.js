@@ -2363,7 +2363,14 @@ els.filter.addEventListener("input", () => {
 function syncActiveNav() {
   document.documentElement.scrollLeft = 0;
   document.body.scrollLeft = 0;
-  const activeHash = window.location.hash || "#dashboard";
+  let activeHash = window.location.hash || "#dashboard";
+  // A bookmarked/stale hash for a page that no longer exists (e.g. the removed
+  // Camera Stream page) would land on a blank view — send it to the dashboard.
+  const knownPage = Array.from(els.navItems).some((item) => item.getAttribute("href") === activeHash);
+  if (!knownPage && activeHash !== "#rawView") {
+    activeHash = "#dashboard";
+    window.location.hash = "#dashboard";
+  }
   document.getElementById("dashboard")?.classList.toggle("page-rawView", activeHash === "#rawView");
   els.navItems.forEach((item) => {
     item.classList.toggle("active", item.getAttribute("href") === activeHash);

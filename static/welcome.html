@@ -6,67 +6,240 @@
   <title>H1-2 Command Center — Welcome</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0b0e11;
+      --panel: rgba(255, 255, 255, 0.035);
+      --line: rgba(255, 255, 255, 0.12);
+      --text: #e8edf2;
+      --muted: rgba(232, 237, 242, 0.62);
+      --red: #e60000;
+      --blue: #40a6ff;
+      --green: #35e08a;
+      --amber: #ffb340;
+    }
+    html, body { height: 100%; }
     body {
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: radial-gradient(ellipse at 50% 30%, #12181e 0%, #0b0e11 70%);
-      color: #e8edf2;
+      background: var(--bg);
+      color: var(--text);
       font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      overflow-x: hidden;
     }
-    .shell { width: min(680px, 92vw); text-align: center; padding: 32px 0; }
-    h1 { font-size: 26px; font-weight: 650; letter-spacing: 0.02em; }
-    .sub { margin-top: 8px; font-size: 14px; opacity: 0.65; }
-    .cards { display: flex; gap: 18px; margin-top: 34px; }
+
+    /* ---------- animated backdrop ---------- */
+    .backdrop { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+    .backdrop::before {
+      content: "";
+      position: absolute; inset: -50%;
+      background:
+        radial-gradient(ellipse 60% 40% at 50% 18%, rgba(230, 0, 0, 0.10), transparent 60%),
+        radial-gradient(ellipse 50% 45% at 78% 82%, rgba(64, 166, 255, 0.07), transparent 60%),
+        radial-gradient(ellipse 45% 40% at 18% 78%, rgba(53, 224, 138, 0.05), transparent 60%);
+      animation: drift 26s ease-in-out infinite alternate;
+    }
+    .grid {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(ellipse 75% 65% at 50% 42%, rgba(0,0,0,0.9), transparent 78%);
+      -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 42%, rgba(0,0,0,0.9), transparent 78%);
+      animation: gridfloat 18s linear infinite;
+    }
+    @keyframes drift { from { transform: translate3d(-2%, -1%, 0) scale(1); } to { transform: translate3d(2%, 2%, 0) scale(1.06); } }
+    @keyframes gridfloat { from { background-position: 0 0, 0 0; } to { background-position: 0 56px, 56px 0; } }
+
+    /* ---------- shell ---------- */
+    .shell { position: relative; width: min(880px, 94vw); text-align: center; padding: 48px 0 40px; }
+
+    /* ---------- hero ---------- */
+    .hero { display: flex; flex-direction: column; align-items: center; }
+    .beacon { position: relative; width: 118px; height: 118px; margin-bottom: 6px; }
+    .beacon .ring {
+      position: absolute; inset: 0; border-radius: 50%;
+      border: 2px solid rgba(230, 0, 0, 0.55);
+      animation: ping 3s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+    }
+    .beacon .ring:nth-child(2) { animation-delay: 1s; border-color: rgba(64, 166, 255, 0.45); }
+    .beacon .ring:nth-child(3) { animation-delay: 2s; border-color: rgba(230, 0, 0, 0.35); }
+    @keyframes ping { 0% { transform: scale(0.42); opacity: 0.9; } 75% { opacity: 0.12; } 100% { transform: scale(1.18); opacity: 0; } }
+    .beacon .bot {
+      position: absolute; inset: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(160deg, #171d24, #0d1116);
+      border: 1px solid var(--line);
+      box-shadow: 0 6px 30px rgba(230, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.08);
+      animation: bob 4.5s ease-in-out infinite;
+    }
+    @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+    .beacon svg { width: 36px; height: 36px; stroke: var(--text); fill: none; stroke-width: 1.5; }
+    .beacon .eye { fill: var(--red); stroke: none; animation: blink 5s infinite; transform-origin: center; }
+    @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+
+    .eyebrow {
+      font-size: 12px; letter-spacing: 0.34em; text-transform: uppercase; color: var(--muted);
+      animation: rise 0.7s 0.05s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+    }
+    h1 {
+      margin-top: 10px; font-size: clamp(28px, 4.6vw, 42px); font-weight: 700; letter-spacing: 0.01em;
+      background: linear-gradient(100deg, #ffffff 20%, #ffb1b1 38%, var(--blue) 62%, #ffffff 82%);
+      background-size: 240% 100%;
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      animation: rise 0.7s 0.14s cubic-bezier(0.2, 0.8, 0.25, 1) both, shine 7s linear 1.2s infinite;
+    }
+    @keyframes shine { from { background-position: 0% 0; } to { background-position: -240% 0; } }
+    .sub {
+      margin-top: 12px; font-size: 15px; color: var(--muted); max-width: 560px;
+      animation: rise 0.7s 0.24s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+    }
+    @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ---------- onboarding steps ---------- */
+    .steps {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      margin-top: 26px; font-size: 12.5px; color: var(--muted);
+      animation: rise 0.7s 0.32s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+      flex-wrap: wrap;
+    }
+    .step { display: inline-flex; align-items: center; gap: 8px; }
+    .step b {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 1px solid var(--line); background: var(--panel);
+      font-size: 11px; font-weight: 650; color: var(--text);
+    }
+    .step.active b { border-color: rgba(230, 0, 0, 0.7); box-shadow: 0 0 10px rgba(230, 0, 0, 0.35); }
+    .step-arrow { opacity: 0.35; }
+
+    /* ---------- entrance cards ---------- */
+    .cards { display: flex; gap: 18px; margin-top: 30px; }
+    @media (max-width: 720px) { .cards { flex-direction: column; } }
     .card {
-      flex: 1;
-      display: block;
-      padding: 26px 20px 22px;
-      border: 1px solid rgba(255, 255, 255, 0.13);
-      border-radius: 14px;
-      background: rgba(255, 255, 255, 0.035);
-      color: inherit;
-      text-decoration: none;
-      transition: border-color 0.15s, background 0.15s, transform 0.15s;
+      flex: 1; position: relative; display: block; padding: 26px 20px 20px;
+      border: 1px solid var(--line); border-radius: 16px;
+      background: var(--panel); color: inherit; text-decoration: none;
+      transition: border-color 0.18s, background 0.18s, transform 0.22s, box-shadow 0.22s;
+      opacity: 0; animation: cardin 0.65s cubic-bezier(0.2, 0.8, 0.25, 1) forwards;
+      overflow: hidden;
     }
-    .card:hover { border-color: rgba(64, 166, 255, 0.65); background: rgba(64, 166, 255, 0.08); transform: translateY(-2px); }
-    .card.last-used { border-color: rgba(64, 166, 255, 0.45); }
-    .card .icon { font-size: 34px; }
-    .card h2 { margin-top: 12px; font-size: 17px; font-weight: 600; }
-    .card .addr { margin-top: 6px; font-size: 12.5px; font-family: ui-monospace, monospace; opacity: 0.6; }
-    .card .desc { margin-top: 10px; font-size: 12.5px; line-height: 1.45; opacity: 0.7; }
-    .status { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 12px; opacity: 0.85; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: #5c6770; }
-    .dot.ok { background: #35e08a; box-shadow: 0 0 8px rgba(53, 224, 138, 0.7); }
+    .card:nth-child(1) { animation-delay: 0.42s; }
+    .card:nth-child(2) { animation-delay: 0.54s; }
+    .card:nth-child(3) { animation-delay: 0.66s; }
+    @keyframes cardin { from { opacity: 0; transform: translateY(26px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .card::after {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.06) 46%, transparent 62%);
+      transform: translateX(-120%);
+      transition: transform 0.7s ease;
+      pointer-events: none;
+    }
+    .card:hover { border-color: rgba(64, 166, 255, 0.65); background: rgba(64, 166, 255, 0.07); transform: translateY(-4px); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45); }
+    .card:hover::after { transform: translateX(120%); }
+    .card.remote:hover { border-color: rgba(230, 0, 0, 0.6); background: rgba(230, 0, 0, 0.06); }
+    .card.last-used { border-color: rgba(64, 166, 255, 0.5); }
+    .card.last-used::before {
+      content: "last used"; position: absolute; top: 10px; right: 12px;
+      font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--blue); opacity: 0.85;
+    }
+    .card .icon { font-size: 32px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5)); }
+    .card h2 { margin-top: 12px; font-size: 17px; font-weight: 650; }
+    .card .addr { margin-top: 6px; font-size: 12.5px; font-family: ui-monospace, SFMono-Regular, monospace; color: var(--muted); word-break: break-all; }
+    .card .desc { margin-top: 10px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+    .status { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 12px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #5c6770; position: relative; flex: none; }
+    .dot.ok { background: var(--green); }
+    .dot.ok::after {
+      content: ""; position: absolute; inset: -4px; border-radius: 50%;
+      border: 1px solid rgba(53, 224, 138, 0.6); animation: ping 1.8s ease-out infinite;
+    }
     .dot.down { background: #ff453a; }
-    .note { margin-top: 28px; font-size: 12px; opacity: 0.45; }
+    .dot.unknown { background: var(--amber); }
+    .dot.checking { background: #5c6770; animation: pulse 1.1s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+    .note {
+      margin-top: 30px; font-size: 12.5px; color: var(--muted); line-height: 1.6;
+      animation: rise 0.7s 0.8s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+    }
+    .note b { color: var(--text); font-weight: 600; }
+    .served { margin-top: 10px; font-size: 11px; opacity: 0.4; letter-spacing: 0.06em; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.001s !important; animation-delay: 0s !important; transition-duration: 0.001s !important; }
+    }
   </style>
 </head>
 <body>
+  <div class="backdrop"><div class="grid"></div></div>
   <main class="shell">
-    <h1>Unitree H1-2 Command Center</h1>
-    <p class="sub">Choose how this device reaches the robot PC — the dashboard then runs over that link.</p>
+    <header class="hero">
+      <div class="beacon" aria-hidden="true">
+        <span class="ring"></span><span class="ring"></span><span class="ring"></span>
+        <span class="bot">
+          <svg viewBox="0 0 24 24">
+            <rect x="6" y="7" width="12" height="10" rx="3"></rect>
+            <path d="M12 7V4.5M9.5 17v2M14.5 17v2"></path>
+            <circle class="eye" cx="9.6" cy="11.4" r="1.15"></circle>
+            <circle class="eye" cx="14.4" cy="11.4" r="1.15"></circle>
+            <path d="M10 14.2h4"></path>
+          </svg>
+        </span>
+      </div>
+      <p class="eyebrow">Vodafone · AI Robot Assistant</p>
+      <h1>Unitree H1-2 Command Center</h1>
+      <p class="sub">Welcome, operator. Pick how this device reaches the robot — telemetry, camera and controls all run over the link you choose.</p>
+    </header>
+
+    <div class="steps" aria-label="Onboarding steps">
+      <span class="step active"><b>1</b> Choose your link</span>
+      <span class="step-arrow">→</span>
+      <span class="step"><b>2</b> Open the dashboard</span>
+      <span class="step-arrow">→</span>
+      <span class="step"><b>3</b> Operate the robot</span>
+    </div>
+
     <div class="cards">
       <a class="card" id="wifiCard" data-net="wifi" href="http://10.2.100.142:8088/">
         <div class="icon">📶</div>
         <h2>Wi-Fi</h2>
         <p class="addr">10.2.100.142:8088</p>
-        <p class="desc">Robot Wi-Fi network. Works from anywhere on the lab wireless — telemetry, camera, and XR links use the wireless address.</p>
-        <span class="status"><span class="dot" id="wifiDot"></span><span id="wifiText">checking…</span></span>
+        <p class="desc">Robot Wi-Fi network. Works from anywhere on the lab wireless — full dashboard, live camera and XR links.</p>
+        <span class="status"><span class="dot checking" id="wifiDot"></span><span id="wifiText">checking…</span></span>
       </a>
       <a class="card" id="ethCard" data-net="ethernet" href="http://192.168.123.164:8088/">
         <div class="icon">🔌</div>
         <h2>Ethernet</h2>
         <p class="addr">192.168.123.164:8088</p>
-        <p class="desc">Robot control-link (eth0). Requires a wired connection to the robot's 192.168.123.x network — lowest latency, immune to Wi-Fi drops.</p>
-        <span class="status"><span class="dot" id="ethDot"></span><span id="ethText">checking…</span></span>
+        <p class="desc">Robot control-link (eth0). Requires a wired connection to the 192.168.123.x network — lowest latency, immune to Wi-Fi drops.</p>
+        <span class="status"><span class="dot checking" id="ethDot"></span><span id="ethText">checking…</span></span>
+      </a>
+      <a class="card remote" id="remoteCard" data-net="remote" href="#" rel="noopener">
+        <div class="icon">🌍</div>
+        <h2>Remote</h2>
+        <p class="addr" id="remoteAddr">resolving tunnel…</p>
+        <p class="desc">Read-only mirror served from the operator Mac over a secure tunnel. Works from anywhere — even with the robot switched off (docs, diagrams, recordings, assistant).</p>
+        <span class="status"><span class="dot checking" id="remoteDot"></span><span id="remoteText">checking…</span></span>
       </a>
     </div>
-    <p class="note">Both entrances serve the same dashboard from the robot PC. Your last choice is highlighted.</p>
+
+    <p class="note"><b>Robot switched off?</b> The Wi-Fi and Ethernet entrances will be dark — use <b>Remote</b> to keep working,
+      or bookmark this page: it is hosted independently of the robot.</p>
+    <p class="served" id="servedFrom"></p>
   </main>
+
   <script>
     const LAST_KEY = "h12-welcome-last-net";
+    // Where the current tunnel hostname is published. Same-origin first (robot
+    // or Mac copies of the dashboard serve it), then the repo's raw copy which
+    // is reachable from anywhere (CORS: *), robot on or off.
+    const REMOTE_JSON_SOURCES = [
+      "/remote-entrance.json",
+      "https://raw.githubusercontent.com/cemalhekim/humanoid-robot-gui/main/static/remote-entrance.json",
+    ];
 
     function markLastUsed() {
       const last = localStorage.getItem(LAST_KEY);
@@ -75,33 +248,70 @@
         card.classList.toggle("last-used", card.dataset.net === last);
       });
     }
-
     document.querySelectorAll(".card").forEach((card) => {
       card.addEventListener("click", () => localStorage.setItem(LAST_KEY, card.dataset.net));
     });
 
+    function setStatus(dotId, textId, cls, text) {
+      document.getElementById(dotId).className = `dot ${cls}`;
+      document.getElementById(textId).textContent = text;
+    }
+
     // Reachability probes: no-cors fetches resolve (opaque) when the host
-    // answers and reject/time out when it does not.
+    // answers and reject/time out when it does not. From an https origin the
+    // browser blocks http probes (mixed content) — report that honestly
+    // instead of claiming the robot is down.
     async function probe(base, dotId, textId) {
-      const dot = document.getElementById(dotId);
-      const text = document.getElementById(textId);
+      if (location.protocol === "https:" && base.startsWith("http:")) {
+        setStatus(dotId, textId, "unknown", "status visible when opened on the lab network");
+        return;
+      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 3500);
       try {
         await fetch(`${base}/api/chat/status`, { mode: "no-cors", cache: "no-store", signal: controller.signal });
-        dot.className = "dot ok";
-        text.textContent = "reachable";
+        setStatus(dotId, textId, "ok", "reachable");
       } catch {
-        dot.className = "dot down";
-        text.textContent = "not reachable from here";
+        setStatus(dotId, textId, "down", "not reachable from here");
       } finally {
         clearTimeout(timer);
       }
     }
 
+    async function resolveRemote() {
+      for (const source of REMOTE_JSON_SOURCES) {
+        try {
+          const response = await fetch(source, { cache: "no-store" });
+          if (!response.ok) continue;
+          const data = await response.json();
+          if (!data || !data.url) continue;
+          const card = document.getElementById("remoteCard");
+          card.href = data.url;
+          document.getElementById("remoteAddr").textContent = data.url.replace(/^https?:\/\//, "");
+          await probe(data.url, "remoteDot", "remoteText");
+          return;
+        } catch { /* try the next source */ }
+      }
+      setStatus("remoteDot", "remoteText", "down", "tunnel offline (start the operator Mac)");
+      document.getElementById("remoteAddr").textContent = "tunnel not published";
+    }
+
+    function servedFrom() {
+      const host = location.hostname;
+      let origin = "an unknown host";
+      if (host === "10.2.100.142") origin = "the robot (Wi-Fi)";
+      else if (host === "192.168.123.164") origin = "the robot (Ethernet)";
+      else if (host.endsWith("github.io")) origin = "GitHub Pages — independent of the robot";
+      else if (host.endsWith("trycloudflare.com")) origin = "the operator Mac (remote tunnel)";
+      else if (host === "127.0.0.1" || host === "localhost") origin = "this machine";
+      document.getElementById("servedFrom").textContent = `page served from ${origin}`;
+    }
+
     markLastUsed();
+    servedFrom();
     probe("http://10.2.100.142:8088", "wifiDot", "wifiText");
     probe("http://192.168.123.164:8088", "ethDot", "ethText");
+    resolveRemote();
   </script>
 </body>
 </html>

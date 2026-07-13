@@ -1,0 +1,43 @@
+name: Deploy welcome page to GitHub Pages
+
+# The welcome/onboarding page must stay reachable when the robot (and even the
+# operator Mac) is switched off. Publish it to GitHub Pages on every change;
+# remote-entrance.json rides along so the Remote card resolves the current
+# tunnel from the always-on copy too.
+on:
+  push:
+    branches: [main]
+    paths:
+      - static/welcome.html
+      - static/remote-entrance.json
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp static/welcome.html _site/index.html
+          cp static/welcome.html _site/welcome.html
+          cp static/remote-entrance.json _site/remote-entrance.json
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

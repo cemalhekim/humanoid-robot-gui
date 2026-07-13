@@ -4897,6 +4897,10 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
         elif request_path in ("/welcome", "/welcome.html"):
             self._send_file(STATIC_DIR / "welcome.html", "text/html; charset=utf-8")
+        elif request_path == "/remote-entrance.json":
+            # Current remote-tunnel hostname for the welcome page's Remote card
+            # (kept fresh by tools/update_remote_entrance.py on the operator Mac).
+            self._send_file(STATIC_DIR / "remote-entrance.json", "application/json; charset=utf-8")
         elif request_path == "/app.js":
             self._send_file(STATIC_DIR / "app.js", "application/javascript; charset=utf-8")
         elif request_path == "/viewer.js":

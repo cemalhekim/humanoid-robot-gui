@@ -27,15 +27,6 @@
         </div>
         <nav class="side-nav">
           <a class="nav-item active" href="#dashboard"><span class="nav-icon">▣</span>Dashboard</a>
-          <a class="nav-item" href="#cameraPage">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false">
-                <path d="M4.5 7.5h3.1l1.5-2h5.8l1.5 2h3.1c.8 0 1.5.7 1.5 1.5v8.5c0 .8-.7 1.5-1.5 1.5h-15c-.8 0-1.5-.7-1.5-1.5V9c0-.8.7-1.5 1.5-1.5Z"></path>
-                <circle cx="12" cy="13" r="3.4"></circle>
-              </svg>
-            </span>
-            Camera Stream
-          </a>
           <a class="nav-item" href="#teleoperation">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
@@ -218,58 +209,6 @@
             </div>
           </section>
 
-          <section id="cameraPage" class="camera-page panel">
-            <div class="section-head">
-              <div>
-                <h2>Camera Stream</h2>
-                <p class="panel-subtitle">Live view from the robot's head camera</p>
-              </div>
-              <div class="camera-actions">
-                <div class="camera-status">
-                  <span class="camera-dot" id="cameraDot"></span>
-                  <strong id="cameraStatusText">Connecting…</strong>
-                </div>
-                <a
-                  class="camera-link-button"
-                  href="https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  VR View
-                </a>
-              </div>
-            </div>
-            <div class="camera-layout">
-              <div class="camera-stage">
-                <div class="camera-frame">
-                  <img id="cameraStream" alt="Robot head camera live stream" />
-                  <div class="camera-placeholder" id="cameraPlaceholder">
-                    <div class="placeholder-mark">Live View</div>
-                    <p id="cameraPlaceholderText">Connecting to the robot's head camera…</p>
-                    <small>Streamed same-origin from this dashboard (/camera.mjpg) — no certificates, no teleoperation needed.</small>
-                  </div>
-                </div>
-                <div class="camera-footer">
-                  <span>Source</span>
-                  <strong>Robot head camera (TeleImager)</strong>
-                  <span>Mode</span>
-                  <strong>MJPEG live stream</strong>
-                </div>
-              </div>
-              <aside class="camera-side">
-                <article class="camera-card">
-                  <span>Pipeline</span>
-                  <strong>Head camera → TeleImager → dashboard</strong>
-                  <p>The robot's built-in head camera is read over the internal network and streamed here as MJPEG. Runs at boot — teleoperation not required.</p>
-                </article>
-                <article class="camera-card">
-                  <span>Diagnostics</span>
-                  <strong id="cameraDiagnostics">checking…</strong>
-                  <p>Live state of the camera bridge (from <code>/api/camera</code>). If it reports waiting, the TeleImager service on the robot may need a restart.</p>
-                </article>
-              </aside>
-            </div>
-          </section>
 
           <section id="recordingPage" class="recording-page panel">
             <div class="section-head">

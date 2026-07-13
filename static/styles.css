@@ -2202,16 +2202,17 @@ pre {
 
 .teleoperation-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 18px;
   min-height: 0;
+  align-items: start;
 }
 
 .teleoperation-option {
   appearance: none;
   position: relative;
   display: grid;
-  grid-template-rows: minmax(260px, 1fr) auto;
+  grid-template-rows: auto auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -2258,11 +2259,19 @@ pre {
 .teleoperation-option .method-art {
   display: block;
   min-height: 0;
+  position: relative;
+  /* The sprite is 3 portrait slices of 512x1024 (1:2). Keep the slice's true
+     aspect so it is never smashed from the sides or the top; when max-height
+     caps the tile the image is center-cropped (background-size: 300% auto
+     scales by width only) instead of distorted. */
+  aspect-ratio: 1 / 2;
+  max-height: 380px;
+  width: 100%;
   background-image:
     linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.58)),
     url("/assets/teleoperation-methods.png");
   background-repeat: no-repeat;
-  background-size: 300% 100%;
+  background-size: 300% auto;
 }
 
 .method-pad .method-art {
@@ -3084,3 +3093,34 @@ button:not(:disabled):active { transform: scale(0.96); }
   background: rgba(20, 20, 20, 0.55);
 }
 .mini-panel.hands-off:hover { transform: none; box-shadow: none; }
+
+/* ---- 4th control method: Torso Sync (View Sync) — locked ---- */
+.method-torso .method-art {
+  /* Reuse the third sprite slice, heavily dimmed until the mode unlocks. */
+  background-position: 100% 50%;
+  filter: grayscale(0.85) brightness(0.55);
+}
+.teleoperation-option.locked-method,
+.teleoperation-option.locked-method:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+.locked-method .method-copy small {
+  color: rgba(255, 179, 64, 0.85);
+  letter-spacing: 0.08em;
+}
+.method-lock {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44px;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.8));
+  animation: lockBreath 3.6s ease-in-out infinite;
+}
+@keyframes lockBreath {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.07); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .method-lock { animation: none; } }

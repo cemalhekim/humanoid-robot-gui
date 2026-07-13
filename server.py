@@ -459,8 +459,8 @@ LLM_TOOLS_PROMPT = (
     "returns one joint's full state, get_loco_status returns locomotion state. "
     "chill_motors is the ONLY action tool: it damps all motors so the robot goes limp "
     "(it will sag or collapse if unsupported). Call it only when the operator's "
-    "latest message explicitly asks to chill, damp, or relax the motors, and pass "
-    "confirm=true; never call it on your own initiative. You have no other way to "
+    "latest message explicitly asks to release, chill, damp, or relax the motors, "
+    "and pass confirm=true; never call it on your own initiative. You have no other way to "
     "move the robot; for any other motion request, say command actions are done "
     "through the dashboard's dedicated controls, not the chat."
 )
@@ -520,8 +520,8 @@ CHAT_TOOL_SPECS: list[dict[str, Any]] = [
     _chat_tool(
         "chill_motors",
         "GUARDED ACTION: damp all motors (the robot goes limp and may sag or collapse if "
-        "unsupported). Only call when the operator's latest message explicitly asks to "
-        "chill/damp/relax the motors.",
+        "unsupported; the dashboard calls this Release). Only call when the operator's "
+        "latest message explicitly asks to release/chill/damp/relax the motors.",
         {"confirm": {"type": "boolean", "description": "Must be true; confirms the operator explicitly asked."}},
         ["confirm"],
     ),
@@ -4115,7 +4115,99 @@ class TelemetryStore:
         return self.request_chill({"armed": True, "i_understand_risk": True})
 
     def request_home(self) -> tuple[int, dict[str, Any]]:
-        return self._request_xr_ipc("CMD_STOP", "XR teleop stop requested. Arms should move home during clean shutdown.")
+        """Home: hold the arms at their CURRENT position via arm_sdk.
+
+        The hold target is always the measured pose at the moment the button is
+        pressed, so engaging never commands motion — it only stiffens the arms
+        where they are. Falls back to the legacy XR teleop home command when the
+        DDS arm_sdk path is unavailable.
+        """
+        status, result = self.hold_current_pose()
+        if status == 503:
+            xr_status, xr_result = self._request_xr_ipc(
+                "CMD_STOP", "XR teleop stop requested. Arms should move home during clean shutdown."
+            )
+            if xr_status < 400:
+                return xr_status, xr_result
+            result["xr_fallback_error"] = xr_result.get("error")
+        return status, result
+
+    def hold_current_pose(self) -> tuple[int, dict[str, Any]]:
+        with self.command_lock:
+            publisher = self.wrist_publisher
+            msg = self.lowstate_msg
+            previous_cancel = self.replay_cancel
+        if publisher is None or msg is None or self.lowcmd_factory is None or self.crc is None:
+            return 503, {"ok": False, "error": "DDS arm_sdk publisher or lowstate is not available."}
+
+        targets: dict[int, float] = {}
+        try:
+            for joint in ARM_SDK_JOINTS:
+                if joint == WAIST_YAW_JOINT:
+                    continue
+                value = float(msg.motor_state[joint].q)
+                if not math.isfinite(value):
+                    return 503, {"ok": False, "error": f"Joint {joint} has no finite position in lowstate."}
+                targets[joint] = value
+        except (AttributeError, IndexError, TypeError) as exc:
+            return 503, {"ok": False, "error": f"Could not read current joint positions: {exc}"}
+
+        xr_suspend = self._suspend_xr_motion_publishers()
+        if not xr_suspend.get("ok"):
+            return 409, {
+                "ok": False,
+                "error": "XR teleop motion publisher is still active; the hold would be overwritten.",
+                "xr_suspend": xr_suspend,
+            }
+        if previous_cancel is not None:
+            previous_cancel.set()
+
+        gain_by_index = {
+            joint: (kp * ARM_REPLAY_HOLD_KP_SCALE, kd * ARM_REPLAY_HOLD_KD_SCALE)
+            for joint, (kp, kd) in ARM_SDK_GAIN_BY_INDEX.items()
+            if joint in targets
+        }
+        cancel = threading.Event()
+        ramp_seconds = 1.2
+        dt = 0.02
+
+        def run_hold() -> None:
+            writes = 0
+            try:
+                start = time.monotonic()
+                while not cancel.is_set():
+                    weight = min(1.0, (time.monotonic() - start) / ramp_seconds)
+                    with self.command_lock:
+                        latest_msg = self.lowstate_msg or msg
+                    publisher.Write(
+                        self._build_arm_sdk_trajectory_cmd(latest_msg, targets, gain_by_index, weight=weight)
+                    )
+                    writes += 1
+                    time.sleep(dt)
+            except Exception as exc:  # pragma: no cover - DDS runtime failure
+                self._set_wrist_status(active=False, message=f"Home hold failed: {exc}")
+                return
+            finally:
+                with self.command_lock:
+                    if self.replay_cancel is cancel:
+                        self.replay_cancel = None
+            self._set_wrist_status(active=False, message=f"Home hold released ({writes} writes).")
+
+        thread = threading.Thread(target=run_hold, name="arm-sdk-home-hold", daemon=True)
+        with self.command_lock:
+            self.replay_cancel = cancel
+        self._set_wrist_status(
+            active=True,
+            message="Home: holding arms at their current position (arm_sdk).",
+            last_command={"mode": "home_hold", "joints": len(targets)},
+        )
+        thread.start()
+        self.record_command_event("home_hold", {"targets": targets})
+        return 202, {
+            "ok": True,
+            "message": "Holding arms at their current position. Release or a new command stops the hold.",
+            "joints": len(targets),
+        }
 
     def request_straight(self) -> tuple[int, dict[str, Any]]:
         return self._request_xr_ipc("CMD_STRAIGHT", "Straight arm hold requested. XR arm tracking is paused.")
@@ -4763,6 +4855,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         request_path = urlsplit(self.path).path
         if request_path in ("/", "/index.html"):
             self._send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
+        elif request_path in ("/welcome", "/welcome.html"):
+            self._send_file(STATIC_DIR / "welcome.html", "text/html; charset=utf-8")
         elif request_path == "/app.js":
             self._send_file(STATIC_DIR / "app.js", "application/javascript; charset=utf-8")
         elif request_path == "/viewer.js":

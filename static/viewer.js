@@ -703,14 +703,41 @@ class RobotViewer {
     };
   }
 
+  endEffectorCoordsFromWorld(side, mode, world) {
+    const local = this.worldToRobotLocal(world);
+    const baseline = this.endEffectorBaseline(side);
+    if (!local || !baseline) return null;
+    if (mode === "relative") {
+      const baseLocal = this.worldToRobotLocal(baseline);
+      return { x: local.x - baseLocal.x, y: local.y - baseLocal.y, z: local.z - baseLocal.z };
+    }
+    return { x: local.x, y: local.y, z: world.y - FLOOR_Y };
+  }
+
+  endEffectorWorldFromCoords(side, mode, coords) {
+    const baseline = this.endEffectorBaseline(side);
+    if (!baseline) return null;
+    if (mode === "relative") {
+      const baseLocal = this.worldToRobotLocal(baseline);
+      return this.robotLocalToWorld(
+        new THREE.Vector3(baseLocal.x + coords.x, baseLocal.y + coords.y, baseLocal.z + coords.z),
+      );
+    }
+    // Ground frame: X/Y are robot-local; Z sets the world height above the
+    // floor directly (the root only rotates URDF Z-up to scene Y-up, so
+    // local X/Y never affect world Y).
+    const world = this.robotLocalToWorld(new THREE.Vector3(coords.x, coords.y, 0));
+    world.y = FLOOR_Y + coords.z;
+    return world;
+  }
+
   endEffectorPanelState(side = "right") {
     const marker = this.markerForSide(side);
     if (!this.modelReady || !marker || !marker.visible) return null;
     const world = marker.position;
-    const local = this.worldToRobotLocal(world);
-    const baseline = this.endEffectorBaseline(side);
-    if (!local || !baseline) return null;
-    const baseLocal = this.worldToRobotLocal(baseline);
+    const ground = this.endEffectorCoordsFromWorld(side, "ground", world);
+    const relative = this.endEffectorCoordsFromWorld(side, "relative", world);
+    if (!ground || !relative) return null;
     const wrist = {};
     for (const [key, jointName] of Object.entries(this.wristJointNames(side))) {
       const joint = this.jointGroups.get(jointName);
@@ -718,8 +745,8 @@ class RobotViewer {
     }
     return {
       side,
-      ground: { x: local.x, y: local.y, z: world.y - FLOOR_Y },
-      relative: { x: local.x - baseLocal.x, y: local.y - baseLocal.y, z: local.z - baseLocal.z },
+      ground,
+      relative,
       wrist,
       screen: this.endEffectorScreenPosition(side),
     };
@@ -736,39 +763,26 @@ class RobotViewer {
     };
   }
 
-  setEndEffectorAxis(side, mode, axis, value) {
+  setEndEffectorAxis(side, mode, axis, value, options = {}) {
     const marker = this.markerForSide(side);
-    if (!this.modelReady || !marker || !Number.isFinite(value)) return false;
-    const baseline = this.endEffectorBaseline(side);
-    const local = this.worldToRobotLocal(marker.position);
-    if (!local || !baseline) return false;
-    let target;
-    if (mode === "relative") {
-      const baseLocal = this.worldToRobotLocal(baseline);
-      const relative = local.clone().sub(baseLocal);
-      relative[axis] = value;
-      target = this.robotLocalToWorld(baseLocal.add(relative));
-    } else {
-      // Ground frame: X/Y are robot-local; Z overrides world height above the
-      // floor directly (the root only rotates URDF Z-up to scene Y-up, so
-      // local X/Y never affect world Y).
-      const next = local.clone();
-      if (axis === "z") {
-        target = this.robotLocalToWorld(next);
-        target.y = FLOOR_Y + value;
-      } else {
-        next[axis] = value;
-        target = this.robotLocalToWorld(next);
-        target.y = marker.position.y;
-      }
-    }
-    const solved = this.solveArmTo(side, target);
+    if (!this.modelReady || !marker || !Number.isFinite(value)) return { solved: false, world: null };
+    // Lock mode: the untouched axes come from the caller-held locked target
+    // (not the drifting marker), and the wrist is excluded from the IK chain
+    // so orientation stays exactly as set.
+    const baseWorld = options.baseWorld || marker.position;
+    const coords = this.endEffectorCoordsFromWorld(side, mode, baseWorld);
+    if (!coords) return { solved: false, world: null };
+    coords[axis] = value;
+    const target = this.endEffectorWorldFromCoords(side, mode, coords);
+    if (!target) return { solved: false, world: null };
+    const chain = options.excludeWrist ? this.armPositionJoints(side) : null;
+    const solved = this.solveArmTo(side, target, chain);
     this.updateEndEffectorMarkerFromIk(side);
     if (solved && !this.syncMirroredArmFrom(side)) this.emitEditedPose();
-    return solved;
+    return { solved, world: target };
   }
 
-  setWristJoint(side, key, value) {
+  setWristJoint(side, key, value, restoreWorld = null) {
     const jointName = this.wristJointNames(side)[key];
     const joint = jointName ? this.jointGroups.get(jointName) : null;
     if (!this.modelReady || !joint || !Number.isFinite(value)) return false;
@@ -781,7 +795,13 @@ class RobotViewer {
       this.emitIkStatus(Number.POSITIVE_INFINITY, false, collision);
       return false;
     }
-    this.emitIkStatus(0, false, collision);
+    if (restoreWorld) {
+      // Lock mode: rotating the wrist shifts the hand slightly — re-solve the
+      // shoulder/elbow chain so X/Y/Z stay at the locked target.
+      this.solveArmTo(side, restoreWorld, this.armPositionJoints(side));
+    } else {
+      this.emitIkStatus(0, false, collision);
+    }
     this.updateEndEffectorMarkerForSide(side);
     if (!this.syncMirroredArmFrom(side)) this.emitEditedPose();
     return true;
@@ -881,10 +901,17 @@ class RobotViewer {
     return { colliding: false };
   }
 
-  solveArmTo(side, targetPosition) {
+  armPositionJoints(side = "right") {
+    // Shoulder + elbow only: positions the hand while leaving the wrist
+    // orientation untouched (used by the panel's lock mode).
+    return this.armIkJoints(side).filter((name) => !name.includes("_wrist_"));
+  }
+
+  solveArmTo(side, targetPosition, jointNames = null) {
     if (!this.modelReady || !this.robotRoot) return false;
     const effector = this.getEndEffectorObject(side);
     if (!effector) return false;
+    const chain = jointNames || this.armIkJoints(side);
     const previousPose = this.armPoseSnapshot(side);
     let limited = false;
 
@@ -900,7 +927,7 @@ class RobotViewer {
       effector.getWorldPosition(end);
       if (end.distanceTo(targetPosition) < 0.012) break;
 
-      for (const jointName of [...this.armIkJoints(side)].reverse()) {
+      for (const jointName of [...chain].reverse()) {
         const joint = this.jointGroups.get(jointName);
         if (!joint || joint.type === "fixed") continue;
 
@@ -1253,8 +1280,45 @@ class EndEffectorPanel {
     this.mode = "ground";
     this.inputs = new Map();
     this.root = null;
+    // Lock mode: while editing one dimension, the other five hold their
+    // values — position axes come from lockedWorld instead of the (slightly
+    // drifting) marker, and the wrist is kept out of the position IK chain.
+    this.lockOthers = false;
+    this.lockedWorld = null;
+    this.applying = false;
     this.build();
     this.bind();
+  }
+
+  applyAxis(axis, value) {
+    this.applying = true;
+    try {
+      const locked = this.lockOthers && this.lockedWorld;
+      const result = this.viewer.setEndEffectorAxis(
+        this.side,
+        this.mode,
+        axis,
+        value,
+        locked ? { baseWorld: this.lockedWorld, excludeWrist: true } : {},
+      );
+      if (this.lockOthers && result.world) this.lockedWorld = result.world.clone();
+    } finally {
+      this.applying = false;
+    }
+  }
+
+  applyWrist(key, value) {
+    this.applying = true;
+    try {
+      this.viewer.setWristJoint(this.side, key, value, this.lockOthers ? this.lockedWorld : null);
+    } finally {
+      this.applying = false;
+    }
+  }
+
+  captureLockTarget() {
+    const marker = this.side ? this.viewer.markerForSide(this.side) : null;
+    this.lockedWorld = marker && marker.visible ? marker.position.clone() : null;
   }
 
   build() {
@@ -1295,14 +1359,28 @@ class EndEffectorPanel {
     head.appendChild(close);
     root.appendChild(head);
 
+    const lockRow = document.createElement("div");
+    lockRow.className = "ee-panel-lock";
+    this.lockButton = document.createElement("button");
+    this.lockButton.type = "button";
+    this.lockButton.title = "While changing one dimension, hold the other five exactly where they are";
+    this.lockButton.addEventListener("click", () => {
+      this.lockOthers = !this.lockOthers;
+      if (this.lockOthers) this.captureLockTarget();
+      else this.lockedWorld = null;
+      this.refresh();
+    });
+    lockRow.appendChild(this.lockButton);
+    root.appendChild(lockRow);
+
     for (const axis of ["x", "y", "z"]) {
       root.appendChild(this.buildRow(`pos-${axis}`, EE_AXIS_LABELS[axis], "m", 0.01, (value) => {
-        this.viewer.setEndEffectorAxis(this.side, this.mode, axis, value);
+        this.applyAxis(axis, value);
       }));
     }
     for (const key of ["roll", "pitch", "yaw"]) {
       root.appendChild(this.buildRow(`wrist-${key}`, `W ${key}`, "°", 1, (value) => {
-        this.viewer.setWristJoint(this.side, key, value / RAD2DEG);
+        this.applyWrist(key, value / RAD2DEG);
       }));
     }
 
@@ -1351,6 +1429,8 @@ class EndEffectorPanel {
     window.addEventListener("end-effector-moved", (event) => {
       if (!this.side || this.root.hidden) return;
       if (event.detail?.side !== this.side && !this.viewer.mirrorArmsEnabled) return;
+      // A move we didn't initiate (ball drag, replay sync) re-anchors the lock.
+      if (this.lockOthers && !this.applying && event.detail?.side === this.side) this.captureLockTarget();
       this.refresh();
     });
     window.addEventListener("recording-ik-status", (event) => {
@@ -1377,6 +1457,7 @@ class EndEffectorPanel {
     this.side = side;
     this.root.hidden = false;
     this.status.textContent = "";
+    if (this.lockOthers) this.captureLockTarget();
     this.refresh();
     this.position();
   }
@@ -1421,6 +1502,8 @@ class EndEffectorPanel {
     for (const [mode, button] of Object.entries(this.modeButtons)) {
       button.classList.toggle("active", mode === this.mode);
     }
+    this.lockButton.textContent = this.lockOthers ? "🔒 Lock others: on" : "🔓 Lock others: off";
+    this.lockButton.classList.toggle("active", this.lockOthers);
     const ranges = EE_AXIS_RANGES[this.mode];
     const coords = state[this.mode === "relative" ? "relative" : "ground"];
     for (const axis of ["x", "y", "z"]) {

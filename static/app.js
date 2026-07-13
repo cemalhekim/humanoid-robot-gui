@@ -2035,7 +2035,7 @@ function chillMotors() {
   if (!els.chillMotors) return;
   els.chillMotors.disabled = true;
   els.chillMotors.classList.add("pending");
-  els.chillMotors.textContent = "Chilling";
+  els.chillMotors.textContent = "Releasing";
   fetch("/api/robot/chill", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2055,13 +2055,13 @@ function chillMotors() {
       if (els.wristMessage) els.wristMessage.textContent = data.message || "Damp mode requested.";
     })
     .catch((error) => {
-      els.subtitle.textContent = `Chill failed: ${error.message}`;
+      els.subtitle.textContent = `Release failed: ${error.message}`;
       if (els.wristMessage) els.wristMessage.textContent = error.message;
     })
     .finally(() => {
       els.chillMotors.disabled = false;
       els.chillMotors.classList.remove("pending");
-      els.chillMotors.textContent = "Chill Motors";
+      els.chillMotors.textContent = "Release";
       loadWristStatus();
     });
 }

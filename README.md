@@ -48,6 +48,7 @@ Main ports:
 | Port | Service | URL |
 | --- | --- | --- |
 | 8088 | Dashboard HTTP, API, and SSE | `http://10.2.100.142:8088` |
+| 8088 | Welcome page (choose Wi-Fi or Ethernet entry) | `http://10.2.100.142:8088/welcome` or `http://192.168.123.164:8088/welcome` |
 | 8012 | XR / Vuer HTTPS and WSS | `https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012` |
 | 60001 | TeleImager WebRTC camera | `https://10.2.100.142:60001` |
 
@@ -140,8 +141,13 @@ The dashboard shows:
 
 Dashboard command surfaces:
 
-- `Chill Motors`: requests damp/chill behavior.
-- `Home`: requests the home posture.
+- `Release` (red, formerly "Chill Motors"): requests damp behavior — the arms
+  go limp.
+- `Home` (green): engages an arm_sdk hold whose target is always the arms'
+  measured position at the moment the button is pressed, so it stiffens the
+  arms in place without commanding motion. Release or any new arm command
+  stops the hold. Falls back to the legacy XR teleop home command when DDS is
+  unavailable.
 - `Straight`: requests the straight arm/posture preset.
 - `Loco Control`: ready, stand, start, damp, zero torque, velocity, target
   position, and odometry requests.
@@ -399,7 +405,7 @@ POST endpoints:
 | `/api/wrist/command` | Sends a right-wrist target or oscillation command |
 | `/api/wrist/stop` | Stops the active wrist command |
 | `/api/robot/chill` | Requests damp/chill behavior |
-| `/api/robot/home` | Requests the home posture |
+| `/api/robot/home` | Holds the arms at their current position (arm_sdk; XR fallback) |
 | `/api/robot/straight` | Requests the straight posture preset |
 | `/api/loco/command` | Sends H1 LocoClient commands |
 | `/api/xr/mode` | Requests an XR mode change |

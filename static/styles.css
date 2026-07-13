@@ -932,6 +932,26 @@ h1 {
   opacity: 1;
 }
 
+.ee-panel-lock {
+  margin: 0 0 6px;
+}
+
+.ee-panel-lock button {
+  width: 100%;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ee-panel-lock button.active {
+  background: rgba(53, 224, 138, 0.18);
+  border-color: rgba(53, 224, 138, 0.55);
+}
+
 .ee-panel-row {
   display: grid;
   grid-template-columns: 44px 1fr 58px 14px;

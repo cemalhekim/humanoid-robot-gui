@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>H1-2 Command Center — Welcome</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(ellipse at 50% 30%, #12181e 0%, #0b0e11 70%);
+      color: #e8edf2;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    .shell { width: min(680px, 92vw); text-align: center; padding: 32px 0; }
+    h1 { font-size: 26px; font-weight: 650; letter-spacing: 0.02em; }
+    .sub { margin-top: 8px; font-size: 14px; opacity: 0.65; }
+    .cards { display: flex; gap: 18px; margin-top: 34px; }
+    .card {
+      flex: 1;
+      display: block;
+      padding: 26px 20px 22px;
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.035);
+      color: inherit;
+      text-decoration: none;
+      transition: border-color 0.15s, background 0.15s, transform 0.15s;
+    }
+    .card:hover { border-color: rgba(64, 166, 255, 0.65); background: rgba(64, 166, 255, 0.08); transform: translateY(-2px); }
+    .card.last-used { border-color: rgba(64, 166, 255, 0.45); }
+    .card .icon { font-size: 34px; }
+    .card h2 { margin-top: 12px; font-size: 17px; font-weight: 600; }
+    .card .addr { margin-top: 6px; font-size: 12.5px; font-family: ui-monospace, monospace; opacity: 0.6; }
+    .card .desc { margin-top: 10px; font-size: 12.5px; line-height: 1.45; opacity: 0.7; }
+    .status { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 12px; opacity: 0.85; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #5c6770; }
+    .dot.ok { background: #35e08a; box-shadow: 0 0 8px rgba(53, 224, 138, 0.7); }
+    .dot.down { background: #ff453a; }
+    .note { margin-top: 28px; font-size: 12px; opacity: 0.45; }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <h1>Unitree H1-2 Command Center</h1>
+    <p class="sub">Choose how this device reaches the robot PC — the dashboard then runs over that link.</p>
+    <div class="cards">
+      <a class="card" id="wifiCard" data-net="wifi" href="http://10.2.100.142:8088/">
+        <div class="icon">📶</div>
+        <h2>Wi-Fi</h2>
+        <p class="addr">10.2.100.142:8088</p>
+        <p class="desc">Robot Wi-Fi network. Works from anywhere on the lab wireless — telemetry, camera, and XR links use the wireless address.</p>
+        <span class="status"><span class="dot" id="wifiDot"></span><span id="wifiText">checking…</span></span>
+      </a>
+      <a class="card" id="ethCard" data-net="ethernet" href="http://192.168.123.164:8088/">
+        <div class="icon">🔌</div>
+        <h2>Ethernet</h2>
+        <p class="addr">192.168.123.164:8088</p>
+        <p class="desc">Robot control-link (eth0). Requires a wired connection to the robot's 192.168.123.x network — lowest latency, immune to Wi-Fi drops.</p>
+        <span class="status"><span class="dot" id="ethDot"></span><span id="ethText">checking…</span></span>
+      </a>
+    </div>
+    <p class="note">Both entrances serve the same dashboard from the robot PC. Your last choice is highlighted.</p>
+  </main>
+  <script>
+    const LAST_KEY = "h12-welcome-last-net";
+
+    function markLastUsed() {
+      const last = localStorage.getItem(LAST_KEY);
+      if (!last) return;
+      document.querySelectorAll(".card").forEach((card) => {
+        card.classList.toggle("last-used", card.dataset.net === last);
+      });
+    }
+
+    document.querySelectorAll(".card").forEach((card) => {
+      card.addEventListener("click", () => localStorage.setItem(LAST_KEY, card.dataset.net));
+    });
+
+    // Reachability probes: no-cors fetches resolve (opaque) when the host
+    // answers and reject/time out when it does not.
+    async function probe(base, dotId, textId) {
+      const dot = document.getElementById(dotId);
+      const text = document.getElementById(textId);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3500);
+      try {
+        await fetch(`${base}/api/chat/status`, { mode: "no-cors", cache: "no-store", signal: controller.signal });
+        dot.className = "dot ok";
+        text.textContent = "reachable";
+      } catch {
+        dot.className = "dot down";
+        text.textContent = "not reachable from here";
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    markLastUsed();
+    probe("http://10.2.100.142:8088", "wifiDot", "wifiText");
+    probe("http://192.168.123.164:8088", "ethDot", "ethText");
+  </script>
+</body>
+</html>

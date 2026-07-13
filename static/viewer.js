@@ -213,6 +213,11 @@ class RobotViewer {
     this.torsoAxisWorld = new THREE.Vector3();
     this.torsoStartVec = new THREE.Vector3();
     this.torsoStartValue = 0;
+    // Hand-target baselines: world position of each hand in the last pose that
+    // came from a file/replay sync (not from editing). "Relative" panel
+    // coordinates are offsets from these.
+    this.endEffectorBaselines = { right: null, left: null };
+    this.endEffectorPointerDown = null;
   }
 
   setFields(data) {
@@ -301,6 +306,8 @@ class RobotViewer {
     });
     if (this.compare) {
       this.robotRoot?.updateWorldMatrix(true, true);
+      // A synced pose becomes the new "initial" reference for relative coords.
+      this.endEffectorBaselines = { right: null, left: null };
       this.updateEndEffectorMarker();
       if (source === "target") this.emitEditedPose("sync");
     }
@@ -493,6 +500,13 @@ class RobotViewer {
     if (!position) return;
     marker.position.copy(position);
     marker.visible = true;
+    if (!this.endEffectorBaselines[side]) this.endEffectorBaselines[side] = position.clone();
+    this.emitEndEffectorMoved(side);
+  }
+
+  emitEndEffectorMoved(side) {
+    if (!this.compare) return;
+    window.dispatchEvent(new CustomEvent("end-effector-moved", { detail: { side } }));
   }
 
   setPointerFromEvent(event) {
@@ -525,6 +539,7 @@ class RobotViewer {
       canvas.setPointerCapture?.(event.pointerId);
       this.draggingEndEffector = true;
       this.draggingEndEffectorSide = this.sideForMarkerHit(hits[0].object);
+      this.endEffectorPointerDown = { x: event.clientX, y: event.clientY };
       this.controls.enabled = false;
       const normal = this.camera.getWorldDirection(new THREE.Vector3()).normalize();
       this.dragPlane.setFromNormalAndCoplanarPoint(normal, this.markerForSide(this.draggingEndEffectorSide).position);
@@ -567,11 +582,17 @@ class RobotViewer {
       if (!this.draggingEndEffector) return;
       canvas.releasePointerCapture?.(event.pointerId);
       const side = this.draggingEndEffectorSide;
+      const down = this.endEffectorPointerDown;
       this.draggingEndEffector = false;
       this.draggingEndEffectorSide = null;
+      this.endEffectorPointerDown = null;
       this.controls.enabled = true;
       if (side) this.updateEndEffectorMarkerForSide(side);
       if (!side || !this.syncMirroredArmFrom(side)) this.emitEditedPose();
+      // A press without movement is a click: open the 6-DOF target panel.
+      if (side && down && Math.hypot(event.clientX - down.x, event.clientY - down.y) < 6) {
+        window.dispatchEvent(new CustomEvent("end-effector-selected", { detail: { side } }));
+      }
     };
     canvas.addEventListener("pointerup", finishDrag);
     canvas.addEventListener("pointercancel", finishDrag);
@@ -581,7 +602,10 @@ class RobotViewer {
     const marker = this.markerForSide(side);
     if (!marker) return;
     const position = this.getEndEffectorPosition(side);
-    if (position) marker.position.copy(position);
+    if (position) {
+      marker.position.copy(position);
+      this.emitEndEffectorMoved(side);
+    }
   }
 
   armIkJoints(side = "right") {
@@ -642,6 +666,125 @@ class RobotViewer {
   setMirrorArmsEnabled(enabled) {
     this.mirrorArmsEnabled = Boolean(enabled);
     if (this.mirrorArmsEnabled) this.mirrorArmPose("right", "left");
+  }
+
+  // --- 6-DOF hand-target panel support -------------------------------------
+  // Panel coordinates use the robot frame: X forward, Y left, Z up (meters).
+  // "ground" mode measures X/Y from the pelvis axis and Z from the floor
+  // (which is fixed); "relative" mode measures all three as offsets from the
+  // hand's position in the last synced (pre-edit) pose.
+
+  worldToRobotLocal(position) {
+    if (!this.robotRoot) return null;
+    this.robotRoot.updateWorldMatrix(true, false);
+    const inverse = new THREE.Matrix4().copy(this.robotRoot.matrixWorld).invert();
+    return position.clone().applyMatrix4(inverse);
+  }
+
+  robotLocalToWorld(local) {
+    if (!this.robotRoot) return null;
+    this.robotRoot.updateWorldMatrix(true, false);
+    return local.clone().applyMatrix4(this.robotRoot.matrixWorld);
+  }
+
+  endEffectorBaseline(side) {
+    if (!this.endEffectorBaselines[side]) {
+      const position = this.getEndEffectorPosition(side);
+      if (position) this.endEffectorBaselines[side] = position.clone();
+    }
+    return this.endEffectorBaselines[side];
+  }
+
+  wristJointNames(side = "right") {
+    return {
+      roll: `${side}_wrist_roll_joint`,
+      pitch: `${side}_wrist_pitch_joint`,
+      yaw: `${side}_wrist_yaw_joint`,
+    };
+  }
+
+  endEffectorPanelState(side = "right") {
+    const marker = this.markerForSide(side);
+    if (!this.modelReady || !marker || !marker.visible) return null;
+    const world = marker.position;
+    const local = this.worldToRobotLocal(world);
+    const baseline = this.endEffectorBaseline(side);
+    if (!local || !baseline) return null;
+    const baseLocal = this.worldToRobotLocal(baseline);
+    const wrist = {};
+    for (const [key, jointName] of Object.entries(this.wristJointNames(side))) {
+      const joint = this.jointGroups.get(jointName);
+      if (joint) wrist[key] = { value: joint.value || 0, lower: joint.lower, upper: joint.upper };
+    }
+    return {
+      side,
+      ground: { x: local.x, y: local.y, z: world.y - FLOOR_Y },
+      relative: { x: local.x - baseLocal.x, y: local.y - baseLocal.y, z: local.z - baseLocal.z },
+      wrist,
+      screen: this.endEffectorScreenPosition(side),
+    };
+  }
+
+  endEffectorScreenPosition(side = "right") {
+    const marker = this.markerForSide(side);
+    if (!marker || !this.renderer || !this.camera) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const projected = marker.position.clone().project(this.camera);
+    return {
+      x: ((projected.x + 1) / 2) * rect.width,
+      y: ((1 - projected.y) / 2) * rect.height,
+    };
+  }
+
+  setEndEffectorAxis(side, mode, axis, value) {
+    const marker = this.markerForSide(side);
+    if (!this.modelReady || !marker || !Number.isFinite(value)) return false;
+    const baseline = this.endEffectorBaseline(side);
+    const local = this.worldToRobotLocal(marker.position);
+    if (!local || !baseline) return false;
+    let target;
+    if (mode === "relative") {
+      const baseLocal = this.worldToRobotLocal(baseline);
+      const relative = local.clone().sub(baseLocal);
+      relative[axis] = value;
+      target = this.robotLocalToWorld(baseLocal.add(relative));
+    } else {
+      // Ground frame: X/Y are robot-local; Z overrides world height above the
+      // floor directly (the root only rotates URDF Z-up to scene Y-up, so
+      // local X/Y never affect world Y).
+      const next = local.clone();
+      if (axis === "z") {
+        target = this.robotLocalToWorld(next);
+        target.y = FLOOR_Y + value;
+      } else {
+        next[axis] = value;
+        target = this.robotLocalToWorld(next);
+        target.y = marker.position.y;
+      }
+    }
+    const solved = this.solveArmTo(side, target);
+    this.updateEndEffectorMarkerFromIk(side);
+    if (solved && !this.syncMirroredArmFrom(side)) this.emitEditedPose();
+    return solved;
+  }
+
+  setWristJoint(side, key, value) {
+    const jointName = this.wristJointNames(side)[key];
+    const joint = jointName ? this.jointGroups.get(jointName) : null;
+    if (!this.modelReady || !joint || !Number.isFinite(value)) return false;
+    const previousPose = this.armPoseSnapshot(side);
+    this.setJointValueIn(this.jointGroups, jointName, value);
+    this.robotRoot.updateWorldMatrix(true, true);
+    const collision = this.armSelfCollision(side);
+    if (collision.colliding) {
+      this.restoreArmPose(previousPose);
+      this.emitIkStatus(Number.POSITIVE_INFINITY, false, collision);
+      return false;
+    }
+    this.emitIkStatus(0, false, collision);
+    this.updateEndEffectorMarkerForSide(side);
+    if (!this.syncMirroredArmFrom(side)) this.emitEditedPose();
+    return true;
   }
 
   linkWorldPosition(name) {
@@ -1088,3 +1231,211 @@ window.addEventListener("telemetry-tab-change", () => {
 });
 
 startVisibleViewers();
+
+// --- 6-DOF hand-target panel ------------------------------------------------
+// Clicking a hand ball (without dragging) opens a hovering panel with numeric
+// control of the target: X/Y/Z position with a ground/relative frame toggle,
+// and the three wrist joints (roll/pitch/yaw) as sliders bounded by their real
+// URDF limits. Everything drives the same IK/collision path as dragging.
+const RAD2DEG = 180 / Math.PI;
+
+const EE_AXIS_RANGES = {
+  ground: { x: [-1.2, 1.2], y: [-1.2, 1.2], z: [0, 2] },
+  relative: { x: [-0.8, 0.8], y: [-0.8, 0.8], z: [-0.8, 0.8] },
+};
+
+const EE_AXIS_LABELS = { x: "X fwd", y: "Y left", z: "Z up" };
+
+class EndEffectorPanel {
+  constructor(viewer) {
+    this.viewer = viewer;
+    this.side = null;
+    this.mode = "ground";
+    this.inputs = new Map();
+    this.root = null;
+    this.build();
+    this.bind();
+  }
+
+  build() {
+    const root = document.createElement("div");
+    root.className = "ee-panel";
+    root.hidden = true;
+
+    const head = document.createElement("div");
+    head.className = "ee-panel-head";
+    this.title = document.createElement("span");
+    this.title.className = "ee-panel-title";
+    head.appendChild(this.title);
+
+    this.modeButtons = {};
+    const toggle = document.createElement("div");
+    toggle.className = "ee-frame-toggle";
+    for (const [mode, label] of [["ground", "Ground"], ["relative", "Relative"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.title = mode === "ground"
+        ? "X/Y from the pelvis axis, Z measured from the fixed floor"
+        : "X/Y/Z offsets from the hand's initial (pre-edit) position";
+      button.addEventListener("click", () => {
+        this.mode = mode;
+        this.refresh();
+      });
+      this.modeButtons[mode] = button;
+      toggle.appendChild(button);
+    }
+    head.appendChild(toggle);
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "ee-panel-close";
+    close.textContent = "×";
+    close.addEventListener("click", () => this.close());
+    head.appendChild(close);
+    root.appendChild(head);
+
+    for (const axis of ["x", "y", "z"]) {
+      root.appendChild(this.buildRow(`pos-${axis}`, EE_AXIS_LABELS[axis], "m", 0.01, (value) => {
+        this.viewer.setEndEffectorAxis(this.side, this.mode, axis, value);
+      }));
+    }
+    for (const key of ["roll", "pitch", "yaw"]) {
+      root.appendChild(this.buildRow(`wrist-${key}`, `W ${key}`, "°", 1, (value) => {
+        this.viewer.setWristJoint(this.side, key, value / RAD2DEG);
+      }));
+    }
+
+    this.status = document.createElement("p");
+    this.status.className = "ee-panel-status";
+    root.appendChild(this.status);
+
+    this.viewer.container.appendChild(root);
+    this.root = root;
+  }
+
+  buildRow(key, label, unit, step, apply) {
+    const row = document.createElement("div");
+    row.className = "ee-panel-row";
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.step = String(step);
+    const number = document.createElement("input");
+    number.type = "number";
+    number.step = String(step);
+    const suffix = document.createElement("span");
+    suffix.className = "ee-panel-unit";
+    suffix.textContent = unit;
+
+    slider.addEventListener("input", () => {
+      const value = Number(slider.value);
+      if (Number.isFinite(value)) apply(value);
+    });
+    number.addEventListener("change", () => {
+      const value = Number(number.value);
+      if (Number.isFinite(value)) apply(value);
+    });
+
+    row.append(caption, slider, number, suffix);
+    this.inputs.set(key, { slider, number });
+    return row;
+  }
+
+  bind() {
+    window.addEventListener("end-effector-selected", (event) => {
+      const side = event.detail?.side === "left" ? "left" : "right";
+      this.open(side);
+    });
+    window.addEventListener("end-effector-moved", (event) => {
+      if (!this.side || this.root.hidden) return;
+      if (event.detail?.side !== this.side && !this.viewer.mirrorArmsEnabled) return;
+      this.refresh();
+    });
+    window.addEventListener("recording-ik-status", (event) => {
+      if (this.root.hidden) return;
+      const detail = event.detail || {};
+      if (detail.blocked) {
+        this.status.textContent = "Blocked: self-collision";
+      } else if (detail.reachable === false) {
+        this.status.textContent = "Target not fully reachable";
+      } else {
+        this.status.textContent = "IK solved";
+      }
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (this.root.hidden || this.root.contains(event.target)) return;
+      this.close();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") this.close();
+    });
+  }
+
+  open(side) {
+    this.side = side;
+    this.root.hidden = false;
+    this.status.textContent = "";
+    this.refresh();
+    this.position();
+  }
+
+  close() {
+    this.root.hidden = true;
+    this.side = null;
+  }
+
+  position() {
+    const screen = this.viewer.endEffectorScreenPosition(this.side);
+    const container = this.viewer.container.getBoundingClientRect();
+    if (!screen) return;
+    const width = this.root.offsetWidth || 250;
+    const height = this.root.offsetHeight || 220;
+    const x = Math.max(8, Math.min(container.width - width - 8, screen.x + 24));
+    const y = Math.max(8, Math.min(container.height - height - 8, screen.y - height / 2));
+    this.root.style.left = `${x}px`;
+    this.root.style.top = `${y}px`;
+  }
+
+  setRow(key, value, min, max, digits) {
+    const row = this.inputs.get(key);
+    if (!row) return;
+    row.slider.min = String(min);
+    row.slider.max = String(max);
+    row.number.min = String(min);
+    row.number.max = String(max);
+    const text = value.toFixed(digits);
+    if (document.activeElement !== row.slider) row.slider.value = text;
+    if (document.activeElement !== row.number) row.number.value = text;
+  }
+
+  refresh() {
+    if (!this.side) return;
+    const state = this.viewer.endEffectorPanelState(this.side);
+    if (!state) {
+      this.close();
+      return;
+    }
+    this.title.textContent = `${this.side === "left" ? "Left" : "Right"} hand target`;
+    for (const [mode, button] of Object.entries(this.modeButtons)) {
+      button.classList.toggle("active", mode === this.mode);
+    }
+    const ranges = EE_AXIS_RANGES[this.mode];
+    const coords = state[this.mode === "relative" ? "relative" : "ground"];
+    for (const axis of ["x", "y", "z"]) {
+      this.setRow(`pos-${axis}`, coords[axis], ranges[axis][0], ranges[axis][1], 3);
+    }
+    for (const [key, joint] of Object.entries(state.wrist)) {
+      this.setRow(
+        `wrist-${key}`,
+        joint.value * RAD2DEG,
+        Math.ceil(joint.lower * RAD2DEG),
+        Math.floor(joint.upper * RAD2DEG),
+        0,
+      );
+    }
+  }
+}
+
+if (!viewerDisabled) new EndEffectorPanel(replayViewer);

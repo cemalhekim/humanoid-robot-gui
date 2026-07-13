@@ -129,6 +129,13 @@ The dashboard shows:
 - Right-wrist controls.
 - A telemetry recorder for sequential full-body motor samples, including legs,
   waist, arms, and RH56BFX hand samples.
+- A 6-DOF hand target panel in the Recorder pose editor: clicking a hand ball
+  (without dragging) opens a hovering panel with X/Y/Z position controls — with
+  a Ground/Relative frame toggle (ground = X/Y from the pelvis axis and Z from
+  the fixed floor; relative = offsets from the hand's pre-edit position) — and
+  wrist roll/pitch/yaw sliders bounded by the real URDF joint limits. All
+  panel edits drive the same IK and self-collision checks as dragging, and
+  only change the preview pose.
 - Command result and command history panels.
 
 Dashboard command surfaces:

@@ -3133,3 +3133,68 @@ button:not(:disabled):active { transform: scale(0.96); }
   text-transform: none;
   letter-spacing: normal;
 }
+
+/* ---- drive pad on the Loco page ---- */
+.loco-drive-pad { margin-bottom: 16px; display: flex; justify-content: center; }
+
+/* ---- floating robot camera view (hovers on every page) ---- */
+.float-cam {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  width: min(340px, 42vw);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(10, 10, 10, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(230, 0, 0, 0.12);
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.25, 1), box-shadow 0.25s;
+}
+.float-cam:hover { box-shadow: 0 22px 58px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(230, 0, 0, 0.3); }
+.float-cam-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.float-cam-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 8px rgba(50, 240, 93, 0.7);
+  animation: pulse 2.2s ease-in-out infinite;
+}
+.float-cam.offline .float-cam-dot { background: #5c6770; box-shadow: none; animation: none; }
+.float-cam-chevron { margin-left: auto; transition: transform 0.25s ease; opacity: 0.7; }
+.float-cam-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.3s cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+.float-cam-body > img {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  background: #000;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+.float-cam.collapsed .float-cam-body { grid-template-rows: 0fr; }
+.float-cam.collapsed .float-cam-body > img { overflow: hidden; }
+.float-cam.collapsed .float-cam-chevron { transform: rotate(180deg); }
+.float-cam.hidden { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .float-cam, .float-cam-body, .float-cam-chevron { transition: none !important; }
+  .float-cam-dot { animation: none !important; }
+}

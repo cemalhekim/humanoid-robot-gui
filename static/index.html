@@ -267,16 +267,6 @@
                   <strong id="cameraDiagnostics">checking…</strong>
                   <p>Live state of the camera bridge (from <code>/api/camera</code>). If it reports waiting, the TeleImager service on the robot may need a restart.</p>
                 </article>
-                <div class="camera-drive-pad" aria-label="Vision Pro walking controls">
-                  <div class="camera-drive-grid">
-                    <button type="button" class="turn left" data-loco-preset="turn-right" aria-label="Turn right"></button>
-                    <button type="button" class="arrow up" data-loco-preset="forward" aria-label="Walk forward"></button>
-                    <button type="button" class="turn right" data-loco-preset="turn-left" aria-label="Turn left"></button>
-                    <button type="button" class="arrow left" data-loco-preset="left" aria-label="Step left"></button>
-                    <button type="button" class="arrow down" data-loco-preset="back" aria-label="Walk backward"></button>
-                    <button type="button" class="arrow right" data-loco-preset="right" aria-label="Step right"></button>
-                  </div>
-                </div>
               </aside>
             </div>
           </section>
@@ -460,6 +450,17 @@
               <div class="wrist-actions">
                 <span id="locoState" class="pill bad">Unavailable</span>
                 <button id="locoStop" class="emergency-button compact" type="button">Stop Move</button>
+              </div>
+            </div>
+
+            <div class="camera-drive-pad loco-drive-pad" aria-label="Walking controls">
+              <div class="camera-drive-grid">
+                <button type="button" class="turn left" data-loco-preset="turn-right" aria-label="Turn right"></button>
+                <button type="button" class="arrow up" data-loco-preset="forward" aria-label="Walk forward"></button>
+                <button type="button" class="turn right" data-loco-preset="turn-left" aria-label="Turn left"></button>
+                <button type="button" class="arrow left" data-loco-preset="left" aria-label="Step left"></button>
+                <button type="button" class="arrow down" data-loco-preset="back" aria-label="Walk backward"></button>
+                <button type="button" class="arrow right" data-loco-preset="right" aria-label="Step right"></button>
               </div>
             </div>
 
@@ -703,5 +704,15 @@
         import("/viewer.js");
       }
     </script>
+    <div id="floatCam" class="float-cam" aria-label="Floating robot camera view">
+      <button id="floatCamHeader" class="float-cam-header" type="button" title="Pull up / drop down the robot view">
+        <span class="float-cam-dot" aria-hidden="true"></span>
+        Robot View
+        <span class="float-cam-chevron" aria-hidden="true">▾</span>
+      </button>
+      <div class="float-cam-body">
+        <img id="floatCamStream" alt="Robot head camera floating view" />
+      </div>
+    </div>
   </body>
 </html>

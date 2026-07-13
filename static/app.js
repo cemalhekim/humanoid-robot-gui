@@ -2949,3 +2949,50 @@ connectEvents();
     apply(toggle.checked);
   });
 })();
+
+// ---- floating robot camera view: hovers on every page, pull up / drop down ----
+(function setupFloatCam() {
+  const FLOAT_KEY = "h1_float_cam_collapsed";
+  const root = document.getElementById("floatCam");
+  const header = document.getElementById("floatCamHeader");
+  const img = document.getElementById("floatCamStream");
+  if (!root || !header || !img) return;
+
+  const attach = () => { img.src = `/camera.mjpg?float=${Date.now()}`; };
+  const detach = () => { img.removeAttribute("src"); };
+
+  const applyCollapsed = (collapsed) => {
+    root.classList.toggle("collapsed", collapsed);
+    // Collapsed = no video element visible; drop the MJPEG connection to save
+    // bandwidth and re-attach on expand.
+    if (collapsed) detach();
+    else attach();
+  };
+
+  // Hide the floating view on the Camera page itself (the big player is there;
+  // two simultaneous MJPEG streams would double the bandwidth for nothing).
+  const applyPageVisibility = () => {
+    const onCameraPage = window.location.hash === "#cameraPage";
+    root.classList.toggle("hidden", onCameraPage);
+    if (onCameraPage) detach();
+    else if (!root.classList.contains("collapsed") && !img.src) attach();
+  };
+
+  img.addEventListener("error", () => {
+    root.classList.add("offline");
+    window.setTimeout(() => {
+      if (!root.classList.contains("collapsed") && !root.classList.contains("hidden")) attach();
+    }, 4000);
+  });
+  img.addEventListener("load", () => root.classList.remove("offline"));
+
+  header.addEventListener("click", () => {
+    const collapsed = !root.classList.contains("collapsed");
+    window.localStorage?.setItem(FLOAT_KEY, collapsed ? "1" : "0");
+    applyCollapsed(collapsed);
+  });
+  window.addEventListener("hashchange", applyPageVisibility);
+
+  applyCollapsed(window.localStorage?.getItem(FLOAT_KEY) === "1");
+  applyPageVisibility();
+})();

@@ -47,7 +47,7 @@
             </span>
             Teleoperation
           </a>
-          <a class="nav-item" href="#recordingPage"><span class="nav-icon">●</span>Recorder</a>
+          <a class="nav-item" href="#recordingPage"><span class="nav-icon">●</span>High Level Controller</a>
           <a class="nav-item" href="#rosGraph">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
@@ -146,7 +146,11 @@
                 <div id="batteryFields" class="status-content"></div>
               </article>
               <article class="mini-panel">
-                <h3>RH56BFX Hands</h3>
+                <h3 class="hands-title">RH56BFX Hands
+                  <label class="inline-toggle hands-toggle" title="Show or hide the hands on the digital twin">
+                    <input id="handsToggle" type="checkbox" checked> On
+                  </label>
+                </h3>
                 <div id="handFields" class="status-content"></div>
               </article>
               <article class="mini-panel">
@@ -280,7 +284,7 @@
           <section id="recordingPage" class="recording-page panel">
             <div class="section-head">
               <div>
-                <h2>Telemetry Recorder</h2>
+                <h2>High Level Controller</h2>
                 <p class="panel-subtitle">Sequential full-body motor samples, including legs, waist, arms, and RH56BFX hands</p>
               </div>
               <div class="wrist-actions">

@@ -2927,3 +2927,25 @@ connectEvents();
     { passive: true },
   );
 })();
+
+// ---- RH56BFX hands toggle: gray the card + remove hands from the digital ----
+// twin (live dashboard viewer AND the High Level Controller page's models).
+(function setupHandsToggle() {
+  const HANDS_KEY = "h1_hands_enabled";
+  const toggle = document.getElementById("handsToggle");
+  if (!toggle) return;
+  const label = toggle.parentElement;
+  const panel = toggle.closest(".mini-panel");
+  const apply = (enabled) => {
+    panel?.classList.toggle("hands-off", !enabled);
+    if (label) label.childNodes[label.childNodes.length - 1].textContent = enabled ? " On" : " Off";
+    window.dispatchEvent(new CustomEvent("hands-visibility", { detail: { enabled } }));
+  };
+  const enabled = window.localStorage?.getItem(HANDS_KEY) !== "0";
+  toggle.checked = enabled;
+  apply(enabled);
+  toggle.addEventListener("change", () => {
+    window.localStorage?.setItem(HANDS_KEY, toggle.checked ? "1" : "0");
+    apply(toggle.checked);
+  });
+})();

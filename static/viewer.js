@@ -358,6 +358,20 @@ class RobotViewer {
     if (this.trajectoryRoot) this.trajectoryRoot.visible = visible;
   }
 
+  setHandsVisible(visible) {
+    // Inspire-hand links/joints are all named L_* / R_* in the URDF (body
+    // links use full words), so toggling those groups hides/shows the hands on
+    // EVERY model in this scene (live, editable, reference, trajectory ghost).
+    // Drag markers live at the scene root, so arm dragging keeps working.
+    if (!this.scene) return;
+    this.handsVisible = Boolean(visible);
+    this.scene.traverse((object) => {
+      if (object.isGroup && /^[LR]_/.test(object.name || "")) {
+        object.visible = this.handsVisible;
+      }
+    });
+  }
+
   getEndEffectorObject(side = "right") {
     if (side === "left") {
       return this.linkGroups?.get("L_hand_base_link") || this.linkGroups?.get("left_wrist_yaw_link") || null;
@@ -1124,6 +1138,8 @@ class RobotViewer {
       this.robotRoot = this.buildRobot(xml, { name: "h1_2", tone: "default", targetGroups: this.jointGroups });
     }
     this.modelReady = true;
+    // Apply the operator's hands on/off preference to the freshly built models.
+    this.setHandsVisible(window.localStorage?.getItem("h1_hands_enabled") !== "0");
     if (this.latestState) this.applyTelemetry(this.latestState, this.live ? "live" : "replay");
   }
 
@@ -1212,6 +1228,11 @@ window.addEventListener("recording-trajectory-frame", (event) => replayViewer.ap
 window.addEventListener("recording-trajectory-visibility", (event) =>
   replayViewer.setTrajectoryVisible(Boolean(event.detail.visible)),
 );
+window.addEventListener("hands-visibility", (event) => {
+  const enabled = Boolean(event.detail?.enabled);
+  liveViewer.setHandsVisible(enabled);
+  replayViewer.setHandsVisible(enabled);
+});
 window.addEventListener("recording-collision-debug", (event) =>
   replayViewer.setCollisionDebugVisible(Boolean(event.detail?.visible)),
 );

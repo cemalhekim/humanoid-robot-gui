@@ -1813,12 +1813,69 @@ def teleimager_camera_worker(store: "TelemetryStore") -> None:
             client.close()
 
 
+def webcam_camera_worker(store: "TelemetryStore") -> None:
+    """Stream a plain USB webcam plugged into the robot PC as JPEG frames.
+
+    Scans /dev/video* with OpenCV, auto-recovers when the device is unplugged
+    or not yet enumerated (retries every few seconds forever), so the second
+    feed lights up the moment a webcam appears."""
+    try:
+        import cv2  # ships with the tv env (teleimager dependency)
+    except Exception as exc:
+        store.set_webcam_error(f"OpenCV is not available: {exc}")
+        return
+
+    import glob
+
+    capture = None
+    while store.running:
+        if capture is None:
+            candidates = sorted(glob.glob("/dev/video*"))
+            if not candidates:
+                store.set_webcam_error("No USB webcam detected (no /dev/video*). Check the cable/port.")
+                time.sleep(3.0)
+                continue
+            for device in candidates:
+                probe = cv2.VideoCapture(device)
+                ok, _ = probe.read()
+                if ok:
+                    probe.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                    probe.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                    capture = probe
+                    break
+                probe.release()
+            if capture is None:
+                store.set_webcam_error("Video devices exist but none delivers frames yet.")
+                time.sleep(3.0)
+                continue
+        ok, frame = capture.read()
+        if not ok:
+            capture.release()
+            capture = None
+            store.set_webcam_error("Webcam stopped delivering frames; rescanning.")
+            time.sleep(1.0)
+            continue
+        height, width = frame.shape[:2]
+        if width > 960:
+            scale = 960.0 / width
+            frame = cv2.resize(frame, (960, int(height * scale)))
+        encoded_ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        if encoded_ok:
+            store.set_webcam_frame(encoded.tobytes())
+        time.sleep(1.0 / 15.0)
+
+    if capture is not None:
+        capture.release()
+
+
 def start_camera_bridge(store: "TelemetryStore") -> None:
     with contextlib.suppress(FileNotFoundError):
         CAMERA_JPEG_PATH.unlink()
     backend = (store.camera_backend or "auto").lower()
     if backend in ("auto", "teleimager"):
         threading.Thread(target=teleimager_camera_worker, args=(store,), daemon=True).start()
+    # Secondary USB webcam feed (independent of the head-camera backend).
+    threading.Thread(target=webcam_camera_worker, args=(store,), daemon=True).start()
     if backend != "ros2":
         return
     cmd = [
@@ -1902,6 +1959,13 @@ class TelemetryStore:
         self.camera_frame: bytes | None = None
         self.camera_timestamp: float | None = None
         self.camera_error: str | None = None
+        # Secondary USB webcam (plugged into the robot PC), streamed below the
+        # head camera in the floating view.
+        self.webcam_lock = threading.Lock()
+        self.webcam_condition = threading.Condition(self.webcam_lock)
+        self.webcam_frame: bytes | None = None
+        self.webcam_timestamp: float | None = None
+        self.webcam_error: str | None = "Webcam bridge starting."
         self.camera_process: subprocess.Popen[bytes] | None = None
         self.camera_backend = os.environ.get("CAMERA_BACKEND", "auto")
         self.camera_topic = "/frontvideostream"
@@ -4815,6 +4879,34 @@ finally:
             self.camera_error = None
             self.camera_condition.notify_all()
 
+    def set_webcam_frame(self, frame: bytes) -> None:
+        with self.webcam_condition:
+            self.webcam_frame = frame
+            self.webcam_timestamp = time.time()
+            self.webcam_error = None
+            self.webcam_condition.notify_all()
+
+    def set_webcam_error(self, error: str | None) -> None:
+        with self.webcam_condition:
+            self.webcam_error = error
+
+    def wait_for_webcam_frame(self, last_timestamp: float | None, timeout: float = 1.0) -> tuple[bytes | None, float | None]:
+        with self.webcam_condition:
+            if self.webcam_frame is not None and self.webcam_timestamp != last_timestamp:
+                return self.webcam_frame, self.webcam_timestamp
+            self.webcam_condition.wait(timeout)
+            return self.webcam_frame, self.webcam_timestamp
+
+    def webcam_snapshot(self) -> dict[str, Any]:
+        with self.webcam_condition:
+            stale = self.webcam_timestamp is not None and time.time() - self.webcam_timestamp > 5.0
+            return {
+                "source": "usb-webcam",
+                "available": self.webcam_frame is not None and not stale,
+                "timestamp": self.webcam_timestamp,
+                "error": self.webcam_error,
+            }
+
     def set_camera_error(self, error: str | None) -> None:
         with self.camera_lock:
             self.camera_error = error
@@ -4976,6 +5068,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             # (read-only mirror) and Remote (live Ethernet relay) cards
             # (kept fresh by tools/update_remote_entrance.py on the operator Mac).
             self._send_file(STATIC_DIR / "remote-entrance.json", "application/json; charset=utf-8")
+        elif request_path == "/api/webcam":
+            self._send_json(self.store.webcam_snapshot())
         elif request_path == "/api/entrances":
             # Live reachability of the robot's Wi-Fi/Ethernet entrances, CORS-open
             # so the GitHub-Pages welcome page (https) can read it through the
@@ -5044,6 +5138,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             )
         elif request_path == "/camera.mjpg":
             self._send_camera_stream()
+        elif request_path == "/webcam.mjpg":
+            self._send_webcam_stream()
         elif request_path == "/events":
             self._send_events()
         elif request_path.startswith("/models/") or request_path.startswith("/vendor/") or request_path.startswith("/assets/"):
@@ -5291,7 +5387,13 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                 break
             time.sleep(0.2)
 
+    def _send_webcam_stream(self) -> None:
+        self._send_mjpeg(self.store.wait_for_webcam_frame)
+
     def _send_camera_stream(self) -> None:
+        self._send_mjpeg(self.store.wait_for_camera_frame)
+
+    def _send_mjpeg(self, wait_for_frame) -> None:
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
         self.send_header("Cache-Control", "no-cache")
@@ -5301,7 +5403,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         last_timestamp: float | None = None
         while True:
-            frame, timestamp = self.store.wait_for_camera_frame(last_timestamp, timeout=1.0)
+            frame, timestamp = wait_for_frame(last_timestamp, timeout=1.0)
             if frame is None:
                 continue
             if timestamp == last_timestamp:

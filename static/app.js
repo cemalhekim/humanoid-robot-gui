@@ -2890,8 +2890,21 @@ connectEvents();
   const img = document.getElementById("floatCamStream");
   if (!icon || !panel || !header || !img) return;
 
-  const attach = () => { img.src = `/camera.mjpg?float=${Date.now()}`; };
-  const detach = () => { img.removeAttribute("src"); };
+  const webcam = document.getElementById("floatWebcamStream");
+  let webcamRetry = null;
+  const attachWebcam = () => {
+    if (!webcam) return;
+    window.clearTimeout(webcamRetry);
+    webcam.src = `/webcam.mjpg?float=${Date.now()}`;
+  };
+  const detachWebcam = () => {
+    if (!webcam) return;
+    window.clearTimeout(webcamRetry);
+    webcam.removeAttribute("src");
+    webcam.classList.add("hidden");
+  };
+  const attach = () => { img.src = `/camera.mjpg?float=${Date.now()}`; attachWebcam(); };
+  const detach = () => { img.removeAttribute("src"); detachWebcam(); };
 
   const clampBox = (box) => {
     const minW = 220, minH = 150;
@@ -2981,6 +2994,20 @@ connectEvents();
       grip.addEventListener("pointerup", up);
     });
   });
+
+  if (webcam) {
+    // The webcam slot shows itself only while frames actually flow (üst üste:
+    // head camera on top, webcam below) and keeps retrying quietly while the
+    // panel is open, so it lights up as soon as a webcam is plugged in.
+    webcam.addEventListener("load", () => webcam.classList.remove("hidden"));
+    webcam.addEventListener("error", () => {
+      webcam.classList.add("hidden");
+      window.clearTimeout(webcamRetry);
+      webcamRetry = window.setTimeout(() => {
+        if (!panel.classList.contains("hidden")) attachWebcam();
+      }, 5000);
+    });
+  }
 
   img.addEventListener("error", () => {
     panel.classList.add("offline");

@@ -2540,34 +2540,39 @@ class TelemetryStore:
                     time.sleep(hold_dt)
             finally:
                 with self.command_lock:
-                    if self.replay_cancel is cancel:
+                    is_active_session = self.replay_cancel is cancel
+                    if is_active_session:
                         self.replay_cancel = None
                         self.replay_thread = None
-                self._set_wrist_status(
-                    active=False,
-                    message=(
-                        "arm_sdk trajectory replay cancelled."
-                        if cancel.is_set()
-                        else (
-                            f"arm_sdk closed-loop replay converged ({writes} writes)."
-                            if closed_loop and converged
+                # When a successor (new Move / Home hold) has already claimed the
+                # session slot and published its own active status, don't clobber
+                # it with this dying thread's stop message.
+                if is_active_session:
+                    self._set_wrist_status(
+                        active=False,
+                        message=(
+                            "arm_sdk trajectory replay cancelled."
+                            if cancel.is_set()
                             else (
-                                f"arm_sdk replay stopped: {fault_reason} ({writes} writes)."
-                                if fault_reason
-                                else f"arm_sdk trajectory replay complete ({writes} writes)."
+                                f"arm_sdk closed-loop replay converged ({writes} writes)."
+                                if closed_loop and converged
+                                else (
+                                    f"arm_sdk replay stopped: {fault_reason} ({writes} writes)."
+                                    if fault_reason
+                                    else f"arm_sdk trajectory replay complete ({writes} writes)."
+                                )
                             )
-                        )
-                    ),
-                    last_command=self._arm_replay_status_payload(
-                        path, plan, tuning, approach_frame_count,
-                        writes=writes, closed_loop=closed_loop,
-                        hold_after_convergence=hold_after_convergence,
-                        position_tolerance=position_tolerance,
-                        final_error=final_error, converged=converged,
-                        escalation=escalation, holding=False,
-                        fault_reason=fault_reason,
-                    ),
-                )
+                        ),
+                        last_command=self._arm_replay_status_payload(
+                            path, plan, tuning, approach_frame_count,
+                            writes=writes, closed_loop=closed_loop,
+                            hold_after_convergence=hold_after_convergence,
+                            position_tolerance=position_tolerance,
+                            final_error=final_error, converged=converged,
+                            escalation=escalation, holding=False,
+                            fault_reason=fault_reason,
+                        ),
+                    )
 
         thread = threading.Thread(target=run_replay, name="arm-sdk-trajectory-replay", daemon=True)
         with self.command_lock:

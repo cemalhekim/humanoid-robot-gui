@@ -390,6 +390,17 @@ LLM_MAX_MESSAGE_CHARS = int(os.environ.get("LLM_MAX_MESSAGE_CHARS", "8000"))
 # via the ros2 CLI (cached ~3s) so it can add a little latency; disable with 0.
 LLM_INCLUDE_ROS_GRAPH = os.environ.get("LLM_INCLUDE_ROS_GRAPH", "1") not in ("0", "false", "False", "")
 
+# Tool calling: lets the assistant fetch live data on demand (ros2 CLI queries,
+# per-joint state, loco status) and run the single guarded action tool
+# (chill_motors). Every tool executes locally on the robot PC; the only network
+# traffic is the chat completion to the on-prem Ollama host.
+LLM_TOOLS_ENABLED = os.environ.get("LLM_TOOLS_ENABLED", "1") not in ("0", "false", "False", "")
+LLM_TOOL_CHILL_ENABLED = os.environ.get("LLM_TOOL_CHILL_ENABLED", "1") not in ("0", "false", "False", "")
+LLM_MAX_TOOL_ROUNDS = int(os.environ.get("LLM_MAX_TOOL_ROUNDS", "4"))
+LLM_MAX_TOOL_CALLS_PER_ROUND = int(os.environ.get("LLM_MAX_TOOL_CALLS_PER_ROUND", "5"))
+LLM_TOOL_OUTPUT_CHARS = int(os.environ.get("LLM_TOOL_OUTPUT_CHARS", "6000"))
+ROS2_TOOL_TIMEOUT = float(os.environ.get("ROS2_TOOL_TIMEOUT", "6"))
+
 # ---------------------------------------------------------------------------
 # Voice: speech-to-text (STT) and text-to-speech (TTS).
 #
@@ -434,10 +445,100 @@ LLM_SYSTEM_PROMPT = (
     "Formatting: write plain conversational sentences. Do NOT use markdown or the "
     "symbols * # % _ ` ~ or bullet lists. You MAY use a relevant emoji or two to "
     "keep it warm (e.g. a status emoji), but don't overdo it.\n\n"
+)
+
+LLM_READONLY_PROMPT = (
     "You are a read-only monitor: you cannot move the robot or send commands, so "
     "never claim to have done so. If asked to move the robot, briefly say command "
     "actions are done through the dashboard's dedicated controls, not the chat."
 )
+
+LLM_TOOLS_PROMPT = (
+    "You have tools. Use them when the telemetry snapshot is not enough: the ros2_* "
+    "tools query the live ROS 2 graph and topics on the robot PC, get_joint_details "
+    "returns one joint's full state, get_loco_status returns locomotion state. "
+    "chill_motors is the ONLY action tool: it damps all motors so the robot goes limp "
+    "(it will sag or collapse if unsupported). Call it only when the operator's "
+    "latest message explicitly asks to chill, damp, or relax the motors, and pass "
+    "confirm=true; never call it on your own initiative. You have no other way to "
+    "move the robot; for any other motion request, say command actions are done "
+    "through the dashboard's dedicated controls, not the chat."
+)
+
+
+def _chat_tool(name: str, description: str, properties: dict[str, Any] | None = None,
+               required: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties or {},
+                "required": required or [],
+            },
+        },
+    }
+
+
+# Every handler runs locally on the robot PC (in-process state or the ros2 CLI).
+CHAT_TOOL_SPECS: list[dict[str, Any]] = [
+    _chat_tool(
+        "get_joint_details",
+        "Full live state (q, dq, tau_est, temperature, voltage, mode) of one body motor "
+        "or hand joint, looked up by name (e.g. RightElbow, LeftIndex).",
+        {"joint": {"type": "string", "description": "Joint name or unique fragment of it."}},
+        ["joint"],
+    ),
+    _chat_tool(
+        "get_loco_status",
+        "Current locomotion state: LocoClient availability, motion mode, last command, "
+        "command history, and robot mode fields.",
+    ),
+    _chat_tool("ros2_node_list", "List all live ROS 2 nodes on the robot."),
+    _chat_tool("ros2_topic_list", "List all live ROS 2 topics with their message types."),
+    _chat_tool(
+        "ros2_node_info",
+        "Publishers, subscribers, and services of one ROS 2 node.",
+        {"node": {"type": "string", "description": "Node name, e.g. /telemetry_web."}},
+        ["node"],
+    ),
+    _chat_tool(
+        "ros2_topic_info",
+        "Message type and publisher/subscriber counts of one ROS 2 topic.",
+        {"topic": {"type": "string", "description": "Topic name, e.g. rt/lowstate."}},
+        ["topic"],
+    ),
+    _chat_tool(
+        "ros2_topic_echo",
+        "Capture ONE message from a ROS 2 topic and return it as text. Times out if "
+        "nothing is published within a few seconds.",
+        {"topic": {"type": "string", "description": "Topic name, e.g. rt/lowstate."}},
+        ["topic"],
+    ),
+    _chat_tool(
+        "chill_motors",
+        "GUARDED ACTION: damp all motors (the robot goes limp and may sag or collapse if "
+        "unsupported). Only call when the operator's latest message explicitly asks to "
+        "chill/damp/relax the motors.",
+        {"confirm": {"type": "boolean", "description": "Must be true; confirms the operator explicitly asked."}},
+        ["confirm"],
+    ),
+]
+
+_ROS2_NAME_ALLOWED = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_/~.-")
+
+
+def valid_ros2_name(name: Any) -> bool:
+    """Accept only plain node/topic names so tool args can't smuggle CLI flags
+    or shell metacharacters into the ros2 invocation."""
+    return (
+        isinstance(name, str)
+        and 0 < len(name) <= 256
+        and not name.startswith("-")
+        and set(name) <= _ROS2_NAME_ALLOWED
+    )
 
 
 def _fmt_num(value: Any, digits: int = 3) -> str:
@@ -599,21 +700,26 @@ def build_telemetry_context(snapshot: dict[str, Any], ros_graph: dict[str, Any] 
     return "\n".join(lines)
 
 
-def call_llm(messages: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
+def call_llm(
+    messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
+) -> tuple[int, dict[str, Any]]:
     """POST an OpenAI-compatible chat completion to the configured LLM.
 
     Returns (http_status, response_dict). Never raises for network/LLM errors —
     they are mapped to a JSON error payload so the endpoint stays well-behaved.
+    When the model requests tool calls, the response dict carries them under
+    "tool_calls" and "reply" may be empty.
     """
-    body = json.dumps(
-        {
-            "model": LLM_MODEL,
-            "messages": messages,
-            "stream": False,
-            "temperature": LLM_TEMPERATURE,
-            "max_tokens": LLM_MAX_TOKENS,
-        }
-    ).encode("utf-8")
+    payload: dict[str, Any] = {
+        "model": LLM_MODEL,
+        "messages": messages,
+        "stream": False,
+        "temperature": LLM_TEMPERATURE,
+        "max_tokens": LLM_MAX_TOKENS,
+    }
+    if tools:
+        payload["tools"] = tools
+    body = json.dumps(payload).encode("utf-8")
     url = f"{LLM_BASE_URL}/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
     if LLM_API_KEY:
@@ -634,11 +740,22 @@ def call_llm(messages: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
         return 502, {"ok": False, "error": f"LLM request failed: {exc}"}
 
     try:
-        reply = decoded["choices"][0]["message"]["content"]
+        message = decoded["choices"][0]["message"]
     except (KeyError, IndexError, TypeError):
-        return 502, {"ok": False, "error": "LLM response missing choices[0].message.content"}
+        return 502, {"ok": False, "error": "LLM response missing choices[0].message"}
+    if not isinstance(message, dict):
+        return 502, {"ok": False, "error": "LLM response message is not an object"}
+    reply = message.get("content")
+    tool_calls = message.get("tool_calls")
+    if not isinstance(reply, str):
+        if not tool_calls:
+            return 502, {"ok": False, "error": "LLM response missing choices[0].message.content"}
+        reply = ""
     usage = decoded.get("usage") if isinstance(decoded, dict) else None
-    return 200, {"ok": True, "reply": reply, "model": decoded.get("model", LLM_MODEL), "usage": usage}
+    result = {"ok": True, "reply": reply, "model": decoded.get("model", LLM_MODEL), "usage": usage}
+    if isinstance(tool_calls, list) and tool_calls:
+        result["tool_calls"] = tool_calls
+    return 200, result
 
 
 def _multipart_audio(audio: bytes, filename: str, content_type: str, fields: dict[str, str]) -> tuple[str, bytes]:
@@ -3341,9 +3458,11 @@ class TelemetryStore:
     def chat(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         """Answer an operator chat message using the on-prem LLM.
 
-        Read-only: injects a live telemetry snapshot as context, then proxies to
-        the configured OpenAI-compatible endpoint. Validates and bounds the
-        client-supplied conversation before forwarding.
+        Injects a live telemetry snapshot as context, then proxies to the
+        configured OpenAI-compatible endpoint. Validates and bounds the
+        client-supplied conversation before forwarding. With LLM_TOOLS_ENABLED
+        the model may call local read tools (ros2 CLI, joint/loco state) and
+        the guarded chill_motors action; otherwise the chat is read-only.
         """
         if not LLM_ENABLED:
             return 503, {"ok": False, "error": "Chat assistant is disabled (set LLM_ENABLED=1)."}
@@ -3376,9 +3495,143 @@ class TelemetryStore:
             except Exception:  # pragma: no cover - ros2 CLI can be slow/absent
                 ros_graph = None
         context = build_telemetry_context(self.snapshot(), ros_graph)
-        system = f"{LLM_SYSTEM_PROMPT}\n\nTELEMETRY SNAPSHOT (updated live):\n{context}"
+        behavior = LLM_TOOLS_PROMPT if LLM_TOOLS_ENABLED else LLM_READONLY_PROMPT
+        system = f"{LLM_SYSTEM_PROMPT}{behavior}\n\nTELEMETRY SNAPSHOT (updated live):\n{context}"
         messages = [{"role": "system", "content": system}, *cleaned]
-        return call_llm(messages)
+        if not LLM_TOOLS_ENABLED:
+            return call_llm(messages)
+        return self._chat_tool_loop(messages)
+
+    def chat_tool_specs(self) -> list[dict[str, Any]]:
+        if LLM_TOOL_CHILL_ENABLED:
+            return CHAT_TOOL_SPECS
+        return [spec for spec in CHAT_TOOL_SPECS if spec["function"]["name"] != "chill_motors"]
+
+    def _chat_tool_loop(self, messages: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
+        """Chat completion loop that executes model-requested tool calls.
+
+        Each round forwards the conversation with the tool specs; requested
+        calls are dispatched locally and their JSON results appended as 'tool'
+        messages. After LLM_MAX_TOOL_ROUNDS the model is called once more
+        without tools so it must produce a final answer.
+        """
+        tools = self.chat_tool_specs()
+        tools_used: list[dict[str, Any]] = []
+        for _ in range(LLM_MAX_TOOL_ROUNDS):
+            status, response = call_llm(messages, tools=tools)
+            if status != 200:
+                return status, response
+            calls = response.pop("tool_calls", None)
+            if not calls:
+                response["tools_used"] = tools_used
+                return 200, response
+            messages.append({"role": "assistant", "content": response.get("reply") or "", "tool_calls": calls})
+            for call in calls[:LLM_MAX_TOOL_CALLS_PER_ROUND]:
+                function = call.get("function") if isinstance(call, dict) else None
+                function = function if isinstance(function, dict) else {}
+                name = str(function.get("name") or "")
+                raw_arguments = function.get("arguments")
+                arguments: dict[str, Any] | None
+                if isinstance(raw_arguments, dict):
+                    arguments = raw_arguments
+                elif isinstance(raw_arguments, str) and raw_arguments.strip():
+                    try:
+                        parsed = json.loads(raw_arguments)
+                        arguments = parsed if isinstance(parsed, dict) else None
+                    except json.JSONDecodeError:
+                        arguments = None
+                else:
+                    arguments = {}
+                if arguments is None:
+                    result: dict[str, Any] = {"ok": False, "error": "Tool arguments were not a valid JSON object."}
+                else:
+                    result = self.run_chat_tool(name, arguments)
+                tools_used.append({"name": name, "arguments": arguments or {}, "ok": bool(result.get("ok"))})
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": str((call.get("id") if isinstance(call, dict) else None) or name),
+                        "content": json.dumps(result, default=str)[:LLM_TOOL_OUTPUT_CHARS],
+                    }
+                )
+        status, response = call_llm(messages)
+        if status == 200:
+            response.pop("tool_calls", None)
+            response["tools_used"] = tools_used
+        return status, response
+
+    def run_chat_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Execute one chat tool locally and return a JSON-serializable result.
+
+        Never raises: failures come back as {"ok": False, "error": ...} so the
+        model can report them instead of the request dying.
+        """
+        try:
+            if name == "get_joint_details":
+                return self._tool_joint_details(arguments.get("joint"))
+            if name == "get_loco_status":
+                return {"ok": True, "loco": self.loco_snapshot()}
+            if name == "ros2_node_list":
+                return self._tool_ros2(["node", "list"])
+            if name == "ros2_topic_list":
+                return self._tool_ros2(["topic", "list", "-t"])
+            if name == "ros2_node_info":
+                node = arguments.get("node")
+                if not valid_ros2_name(node):
+                    return {"ok": False, "error": "Invalid node name."}
+                return self._tool_ros2(["node", "info", node])
+            if name == "ros2_topic_info":
+                topic = arguments.get("topic")
+                if not valid_ros2_name(topic):
+                    return {"ok": False, "error": "Invalid topic name."}
+                return self._tool_ros2(["topic", "info", topic])
+            if name == "ros2_topic_echo":
+                topic = arguments.get("topic")
+                if not valid_ros2_name(topic):
+                    return {"ok": False, "error": "Invalid topic name."}
+                result = self._tool_ros2(["topic", "echo", "--once", topic], timeout=ROS2_TOOL_TIMEOUT)
+                if not result["ok"] and "timed out" in result.get("output", "").lower():
+                    result["output"] = f"No message received on {topic} within {ROS2_TOOL_TIMEOUT:g}s."
+                return result
+            if name == "chill_motors":
+                return self._tool_chill(arguments)
+            return {"ok": False, "error": f"Unknown tool: {name or '(empty)'}"}
+        except Exception as exc:  # pragma: no cover - defensive: tool bugs must not kill chat
+            return {"ok": False, "error": f"Tool failed: {exc}"}
+
+    def _tool_ros2(self, args: list[str], timeout: float = ROS2_TOOL_TIMEOUT) -> dict[str, Any]:
+        configure_ros2_camera_environment(self.camera_source)
+        ok, output = run_ros2_command(args, timeout=timeout)
+        return {"ok": ok, "output": output[:LLM_TOOL_OUTPUT_CHARS]}
+
+    def _tool_joint_details(self, joint: Any) -> dict[str, Any]:
+        if not isinstance(joint, str) or not joint.strip():
+            return {"ok": False, "error": "Provide a joint name."}
+        wanted = joint.strip().lower()
+        snapshot = self.snapshot()
+        rows: list[dict[str, Any]] = []
+        for motor in snapshot.get("motors") or []:
+            if isinstance(motor, dict) and motor.get("name"):
+                rows.append({"kind": "body", **motor})
+        hands = snapshot.get("hands") or {}
+        for hand_joint in hands.get("joints") or []:
+            if isinstance(hand_joint, dict) and hand_joint.get("name"):
+                rows.append({"kind": "hand", **hand_joint})
+        exact = [row for row in rows if str(row["name"]).lower() == wanted]
+        matches = exact or [row for row in rows if wanted in str(row["name"]).lower()]
+        if not matches:
+            names = ", ".join(str(row["name"]) for row in rows) or "none (no telemetry)"
+            return {"ok": False, "error": f"No joint matches '{joint}'. Available: {names}"}
+        return {"ok": True, "joints": matches[:3]}
+
+    def _tool_chill(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if not LLM_TOOL_CHILL_ENABLED:
+            return {"ok": False, "error": "The chill_motors tool is disabled (LLM_TOOL_CHILL_ENABLED=0)."}
+        if arguments.get("confirm") is not True:
+            return {"ok": False, "error": "Refused: confirm must be true (operator must have explicitly asked)."}
+        status, result = self.chill_motors()
+        self.record_command_event("chat_chill", {"source": "chat", "status": status, "result": result})
+        return {"ok": status < 400 and bool(result.get("ok")), "status": status, "result": result}
 
     def record_command_event(self, name: str, payload: dict[str, Any]) -> None:
         self.recorder.write_event(name, payload)
@@ -4564,6 +4817,10 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                     "endpoint": LLM_BASE_URL,
                     "voice_input": LLM_STT_ENABLED,
                     "voice_output": LLM_TTS_ENABLED,
+                    "tools_enabled": LLM_TOOLS_ENABLED,
+                    "tools": [spec["function"]["name"] for spec in self.store.chat_tool_specs()]
+                    if LLM_TOOLS_ENABLED
+                    else [],
                 }
             )
         elif request_path == "/camera.mjpg":

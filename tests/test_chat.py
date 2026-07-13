@@ -111,7 +111,7 @@ class ChatValidationTest(unittest.TestCase):
     def test_success_injects_context_and_forwards(self) -> None:
         captured: dict = {}
 
-        def fake_call_llm(messages):
+        def fake_call_llm(messages, tools=None):
             captured["messages"] = messages
             return 200, {"ok": True, "reply": "The hottest joint is RightWristRoll at 48C."}
 
@@ -132,7 +132,7 @@ class ChatValidationTest(unittest.TestCase):
         long = "a" * (server.LLM_MAX_MESSAGE_CHARS + 500)
         captured: dict = {}
 
-        def fake_call_llm(messages):
+        def fake_call_llm(messages, tools=None):
             captured["messages"] = messages
             return 200, {"ok": True, "reply": "ok"}
 
@@ -223,6 +223,136 @@ class VoiceTest(unittest.TestCase):
         with mock.patch.object(server, "LLM_TTS_ENABLED", True):
             status, result, ctype = server.synthesize_speech("   ")
         self.assertEqual(status, 400)
+
+
+class ChatToolsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+    def _chat(self, fake_call_llm) -> tuple[int, dict]:
+        with mock.patch.object(self.store, "snapshot", return_value=SNAPSHOT), mock.patch.object(
+            server, "LLM_INCLUDE_ROS_GRAPH", False
+        ), mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            return self.store.chat({"messages": [{"role": "user", "content": "list the ros nodes"}]})
+
+    def test_tool_call_is_executed_and_result_fed_back(self) -> None:
+        calls: list = []
+
+        def fake_call_llm(messages, tools=None):
+            calls.append({"messages": list(messages), "tools": tools})
+            if len(calls) == 1:
+                return 200, {
+                    "ok": True,
+                    "reply": "",
+                    "tool_calls": [
+                        {"id": "call_1", "function": {"name": "ros2_node_list", "arguments": "{}"}}
+                    ],
+                }
+            return 200, {"ok": True, "reply": "There are 2 nodes: /a and /b."}
+
+        with mock.patch.object(server, "run_ros2_command", return_value=(True, "/a\n/b")) as ros2:
+            status, response = self._chat(fake_call_llm)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(response["reply"], "There are 2 nodes: /a and /b.")
+        self.assertEqual(response["tools_used"], [{"name": "ros2_node_list", "arguments": {}, "ok": True}])
+        ros2.assert_called_once()
+        # First round advertises tools; the tool result is appended for round 2.
+        self.assertTrue(calls[0]["tools"])
+        tool_message = calls[1]["messages"][-1]
+        self.assertEqual(tool_message["role"], "tool")
+        self.assertEqual(tool_message["tool_call_id"], "call_1")
+        self.assertIn("/a", tool_message["content"])
+
+    def test_rounds_exhausted_forces_final_answer_without_tools(self) -> None:
+        calls: list = []
+
+        def fake_call_llm(messages, tools=None):
+            calls.append(tools)
+            if tools:
+                return 200, {
+                    "ok": True,
+                    "reply": "",
+                    "tool_calls": [{"id": "x", "function": {"name": "ros2_node_list", "arguments": "{}"}}],
+                }
+            return 200, {"ok": True, "reply": "final answer"}
+
+        with mock.patch.object(server, "run_ros2_command", return_value=(True, "/a")):
+            status, response = self._chat(fake_call_llm)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(response["reply"], "final answer")
+        self.assertEqual(len(calls), server.LLM_MAX_TOOL_ROUNDS + 1)
+        self.assertIsNone(calls[-1])
+
+    def test_tools_disabled_keeps_plain_chat(self) -> None:
+        def fake_call_llm(messages, tools=None):
+            self.assertIsNone(tools)
+            return 200, {"ok": True, "reply": "plain"}
+
+        with mock.patch.object(server, "LLM_TOOLS_ENABLED", False):
+            status, response = self._chat(fake_call_llm)
+        self.assertEqual(status, 200)
+        self.assertNotIn("tools_used", response)
+
+    def test_unknown_tool_returns_error_result(self) -> None:
+        result = self.store.run_chat_tool("bogus_tool", {})
+        self.assertFalse(result["ok"])
+        self.assertIn("Unknown tool", result["error"])
+
+    def test_ros2_names_are_validated(self) -> None:
+        with mock.patch.object(server, "run_ros2_command") as ros2:
+            result = self.store.run_chat_tool("ros2_topic_echo", {"topic": "rt/lowstate; rm -rf /"})
+        self.assertFalse(result["ok"])
+        ros2.assert_not_called()
+        with mock.patch.object(server, "run_ros2_command") as ros2:
+            result = self.store.run_chat_tool("ros2_node_info", {"node": "--help"})
+        self.assertFalse(result["ok"])
+        ros2.assert_not_called()
+
+    def test_get_joint_details_matches_by_fragment(self) -> None:
+        snapshot = dict(SNAPSHOT)
+        snapshot["motors"] = [
+            {"index": 23, "name": "RightElbow", "q": 0.4, "temperature": 41.0},
+            {"index": 16, "name": "LeftElbow", "q": -0.1, "temperature": 39.0},
+        ]
+        with mock.patch.object(self.store, "snapshot", return_value=snapshot):
+            result = self.store.run_chat_tool("get_joint_details", {"joint": "rightelbow"})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["joints"][0]["name"], "RightElbow")
+        with mock.patch.object(self.store, "snapshot", return_value=snapshot):
+            missing = self.store.run_chat_tool("get_joint_details", {"joint": "Knee"})
+        self.assertFalse(missing["ok"])
+        self.assertIn("RightElbow", missing["error"])
+
+    def test_chill_requires_confirm_and_flag(self) -> None:
+        with mock.patch.object(self.store, "chill_motors") as chill:
+            refused = self.store.run_chat_tool("chill_motors", {})
+        self.assertFalse(refused["ok"])
+        chill.assert_not_called()
+
+        with mock.patch.object(server, "LLM_TOOL_CHILL_ENABLED", False), mock.patch.object(
+            self.store, "chill_motors"
+        ) as chill:
+            disabled = self.store.run_chat_tool("chill_motors", {"confirm": True})
+        self.assertFalse(disabled["ok"])
+        self.assertIn("disabled", disabled["error"])
+        chill.assert_not_called()
+
+        with mock.patch.object(
+            self.store, "chill_motors", return_value=(202, {"ok": True, "message": "damped"})
+        ) as chill, mock.patch.object(self.store, "record_command_event") as recorded:
+            result = self.store.run_chat_tool("chill_motors", {"confirm": True})
+        self.assertTrue(result["ok"])
+        chill.assert_called_once()
+        recorded.assert_called_once()
+
+    def test_chill_tool_hidden_when_disabled(self) -> None:
+        names = [spec["function"]["name"] for spec in self.store.chat_tool_specs()]
+        self.assertIn("chill_motors", names)
+        with mock.patch.object(server, "LLM_TOOL_CHILL_ENABLED", False):
+            names = [spec["function"]["name"] for spec in self.store.chat_tool_specs()]
+        self.assertNotIn("chill_motors", names)
 
 
 class _fake_response:

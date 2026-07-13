@@ -2595,6 +2595,16 @@ function setupChat() {
       }
       pending.card.classList.remove("pending");
       pending.p.textContent = payload.reply;
+      if (Array.isArray(payload.tools_used) && payload.tools_used.length) {
+        const note = document.createElement("p");
+        note.className = "chat-tools-note";
+        note.textContent =
+          "🔧 " +
+          payload.tools_used
+            .map((tool) => tool.name + (tool.ok ? "" : " (failed)"))
+            .join(", ");
+        pending.card.append(note);
+      }
       history.push({ role: "assistant", content: payload.reply });
       if (viaVoice) speak(payload.reply);
     } catch (error) {

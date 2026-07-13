@@ -31,7 +31,10 @@ const vrViewUrl = "https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012";
 const trajectorySampleRateHz = 60;
 const trajectoryDenseMaxDt = 1 / 30;
 const trajectoryMaxJointStep = 0.05;
-const replayResponseMax = 2.5;
+// Doubled range: the old 100% (2.5) is the new 50% and the default; the new
+// 100% (5.0) drives the PID at twice the old top aggressiveness (overdrive).
+const replayResponseMax = 5.0;
+const replayResponseDefault = 2.5;
 const currentRobotPoseValue = "__current_robot_pose__";
 const sequenceDraftStorageKey = "h1_sequence_builder_draft_v1";
 const fallbackBodyJointNames = [
@@ -1010,14 +1013,15 @@ function robotReplayLockReason({ canMoveArms, moveTarget }) {
 }
 
 function replayResponseValue() {
-  const value = Number(els.recordingReplayResponse?.value ?? replayResponseMax);
-  if (!Number.isFinite(value)) return replayResponseMax;
+  const value = Number(els.recordingReplayResponse?.value ?? replayResponseDefault);
+  if (!Number.isFinite(value)) return replayResponseDefault;
   return Math.max(0, Math.min(replayResponseMax, value));
 }
 
 function replayResponseLabel(value = replayResponseValue()) {
-  if (value < 0.34) return "Damped";
-  if (value > 1.5) return "Responsive";
+  if (value < 0.7) return "Damped";
+  if (value > 4.0) return "Overdrive";
+  if (value > 2.5) return "Responsive";
   return "Balanced";
 }
 

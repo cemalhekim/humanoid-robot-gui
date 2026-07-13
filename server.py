@@ -170,7 +170,13 @@ ARM_REPLAY_GRAVITY_TAU_FILTER_SECONDS = 0.4
 ARM_REPLAY_INNER_KP_SCALE = 0.35
 ARM_REPLAY_INNER_KD_SCALE = 1.2
 ARM_REPLAY_RESPONSE_DEFAULT = 0.5
-ARM_REPLAY_RESPONSE_MAX = 2.5
+# The legacy damped→balanced→responsive curve tops out here (the OLD 100%).
+# Values <= this behave exactly as before the range was doubled.
+ARM_REPLAY_RESPONSE_LEGACY_MAX = 2.5
+# Doubled slider range: (legacy_max, max] is the overdrive zone, scaling the
+# PID linearly up to 2x the legacy-top aggressiveness at the new 100%.
+# The old 100% now sits at the slider's 50% mark and is the UI default.
+ARM_REPLAY_RESPONSE_MAX = 5.0
 # --- Convergence / holding upgrade (drive the arm ONTO the recorded pose) ---
 # Gravity feed-forward completeness. When a joint is inside the lock band and
 # steady we feed forward (almost) the full measured holding torque, so the
@@ -2631,10 +2637,13 @@ class TelemetryStore:
 
     @staticmethod
     def _response_lerp(response: float, damped: float, balanced: float, responsive: float) -> float:
+        # The legacy curve is evaluated over [0, LEGACY_MAX] only; the doubled
+        # slider's overdrive zone is applied separately in _arm_replay_tuning.
+        response = min(response, ARM_REPLAY_RESPONSE_LEGACY_MAX)
         if response <= ARM_REPLAY_RESPONSE_DEFAULT:
             ratio = response / ARM_REPLAY_RESPONSE_DEFAULT if ARM_REPLAY_RESPONSE_DEFAULT else 0.0
             return damped + (balanced - damped) * ratio
-        ratio = (response - ARM_REPLAY_RESPONSE_DEFAULT) / (ARM_REPLAY_RESPONSE_MAX - ARM_REPLAY_RESPONSE_DEFAULT)
+        ratio = (response - ARM_REPLAY_RESPONSE_DEFAULT) / (ARM_REPLAY_RESPONSE_LEGACY_MAX - ARM_REPLAY_RESPONSE_DEFAULT)
         return balanced + (responsive - balanced) * ratio
 
     def _arm_replay_tuning(self, payload: dict[str, Any] | None = None) -> dict[str, float]:
@@ -2680,6 +2689,26 @@ class TelemetryStore:
             "converge_velocity_rad_s": ARM_REPLAY_CONVERGE_VELOCITY_RAD_S,
             "cartesian_tolerance_m": ARM_REPLAY_CARTESIAN_TOLERANCE_M,
         }
+        # Overdrive zone of the doubled slider: above the legacy top (the old
+        # 100%, now the 50% default) scale the PID linearly up to exactly 2x the
+        # legacy-top aggressiveness at the new 100%. Gain-like values multiply,
+        # time-like values divide (faster), damping ratios stay at their
+        # legacy-top values so the doubled stiffness is not paired with reduced
+        # damping.
+        if response > ARM_REPLAY_RESPONSE_LEGACY_MAX:
+            factor = min(2.0, response / ARM_REPLAY_RESPONSE_LEGACY_MAX)
+            for key in (
+                "inner_kp_scale",
+                "direct_kp_scale",
+                "approach_kp_scale",
+                "playback_speed",
+                "pid_kp_scale",
+                "pid_ki_scale",
+                "max_pid_correction_rad",
+            ):
+                tuning[key] *= factor
+            for key in ("smooth_approach_seconds", "settle_seconds"):
+                tuning[key] /= factor
         return {key: round(value, 6) for key, value in tuning.items()}
 
     def _smooth_arm_replay_frames(

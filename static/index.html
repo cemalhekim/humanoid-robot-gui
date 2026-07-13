@@ -624,15 +624,6 @@
       </div>
     </div>
 
-    <script src="/app.js?v=b2b1f89"></script>
-    <script src="/diagram.js?v=b2b1f89"></script>
-    <script type="module">
-      const params = new URLSearchParams(window.location.search);
-      const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
-      if (!lite) {
-        import("/viewer.js?v=b2b1f89");
-      }
-    </script>
     <div id="floatPad" class="float-pad hidden" aria-label="Floating walking controls">
       <button id="floatPadHeader" class="float-cam-header" type="button" title="Pull up / drop down the drive pad">
         <span class="float-cam-dot" aria-hidden="true"></span>
@@ -670,5 +661,14 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
+    <script src="/app.js?v=b2b1f89"></script>
+    <script src="/diagram.js?v=b2b1f89"></script>
+    <script type="module">
+      const params = new URLSearchParams(window.location.search);
+      const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
+      if (!lite) {
+        import("/viewer.js?v=b2b1f89");
+      }
+    </script>
   </body>
 </html>

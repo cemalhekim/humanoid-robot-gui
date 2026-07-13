@@ -272,6 +272,10 @@ ARM_SDK_KD = [2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1
 # via lowcmd during a torso twist (motion mode released) so they hold against
 # gravity just like the arm_sdk path.
 ARM_SDK_GAIN_BY_INDEX = {joint: (ARM_SDK_KP[k], ARM_SDK_KD[k]) for k, joint in enumerate(ARM_SDK_JOINTS)}
+
+# Home button: hold the arms at their press-time pose with the closed-loop
+# (PID + gravity feed-forward) corrector instead of raw position targets.
+HOME_HOLD_CLOSED_LOOP = os.environ.get("HOME_HOLD_CLOSED_LOOP", "1") not in ("0", "false", "False", "")
 REPLAY_COMMAND_SCOPES = {
     "all": list(JOINT_NAMES),
     "arms": JOINT_GROUPS["left_arm"] + JOINT_GROUPS["right_arm"] + JOINT_GROUPS["waist"],
@@ -4170,6 +4174,9 @@ class TelemetryStore:
         cancel = threading.Event()
         ramp_seconds = 1.2
         dt = 0.02
+        closed_loop = HOME_HOLD_CLOSED_LOOP
+        tuning = self._arm_replay_tuning()
+        pid_state: dict[int, dict[str, float]] = {}
 
         def run_hold() -> None:
             writes = 0
@@ -4179,8 +4186,20 @@ class TelemetryStore:
                     weight = min(1.0, (time.monotonic() - start) / ramp_seconds)
                     with self.command_lock:
                         latest_msg = self.lowstate_msg or msg
+                    if closed_loop:
+                        # Same PID + gravity feed-forward loop as arm replay:
+                        # corrects the commanded q from measured error so the
+                        # arms hold the press-time pose instead of sagging.
+                        commanded, _metrics, tau_ff = self._closed_loop_arm_targets(
+                            latest_msg, targets, pid_state, dt, tuning
+                        )
+                    else:
+                        commanded, tau_ff = targets, None
                     publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(latest_msg, targets, gain_by_index, weight=weight)
+                        self._build_arm_sdk_trajectory_cmd(
+                            latest_msg, commanded, gain_by_index,
+                            feedforward_tau_by_index=tau_ff, weight=weight,
+                        )
                     )
                     writes += 1
                     time.sleep(dt)
@@ -4198,7 +4217,8 @@ class TelemetryStore:
             self.replay_cancel = cancel
         self._set_wrist_status(
             active=True,
-            message="Home: holding arms at their current position (arm_sdk).",
+            message="Home: holding arms at their current position (arm_sdk"
+            + (", closed-loop PID)." if closed_loop else ")."),
             last_command={"mode": "home_hold", "joints": len(targets)},
         )
         thread.start()

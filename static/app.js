@@ -2097,11 +2097,17 @@ function sendRobotHome() {
 }
 
 function sendRobotStraight() {
+  // "Stand Up": recovery after Release — the RC left+up (lock stand) combo,
+  // done in software through the LocoClient instead of the physical remote.
   if (!els.straightRobot) return;
   els.straightRobot.disabled = true;
   els.straightRobot.classList.add("pending");
-  els.straightRobot.textContent = "Straightening";
-  fetch("/api/robot/straight", { method: "POST" })
+  els.straightRobot.textContent = "Standing";
+  fetch("/api/loco/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "stand_up" }),
+  })
     .then((response) =>
       response.json().then((data) => {
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
@@ -2109,18 +2115,19 @@ function sendRobotStraight() {
       }),
     )
     .then((data) => {
-      els.subtitle.textContent = data.message || "Straight command sent.";
-      if (els.wristMessage) els.wristMessage.textContent = data.message || "Straight command sent.";
-      if (els.locoMessage) els.locoMessage.textContent = data.message || "Straight command sent.";
+      const message = data.message || "Stand up (lock stand) requested.";
+      els.subtitle.textContent = message;
+      if (els.wristMessage) els.wristMessage.textContent = message;
+      if (els.locoMessage) els.locoMessage.textContent = message;
     })
     .catch((error) => {
-      els.subtitle.textContent = `Straight failed: ${error.message}`;
+      els.subtitle.textContent = `Stand up failed: ${error.message}`;
       if (els.wristMessage) els.wristMessage.textContent = error.message;
     })
     .finally(() => {
       els.straightRobot.disabled = false;
       els.straightRobot.classList.remove("pending");
-      els.straightRobot.textContent = "Straight";
+      els.straightRobot.textContent = "Stand Up";
       loadWristStatus();
       loadLocoStatus();
     });

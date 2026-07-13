@@ -145,10 +145,14 @@ Dashboard command surfaces:
   go limp.
 - `Home` (green): engages an arm_sdk hold whose target is always the arms'
   measured position at the moment the button is pressed, so it stiffens the
-  arms in place without commanding motion. Release or any new arm command
-  stops the hold. Falls back to the legacy XR teleop home command when DDS is
-  unavailable.
-- `Straight`: requests the straight arm/posture preset.
+  arms in place without commanding motion. The hold runs the same closed-loop
+  PID + gravity feed-forward corrector as arm replay (disable with
+  `HOME_HOLD_CLOSED_LOOP=0`). Release or any new arm command stops the hold.
+  Falls back to the legacy XR teleop home command when DDS is unavailable.
+- `Stand Up` (formerly "Straight"): recovery after Release — sends the
+  LocoClient `StandUp()` lock-stand request, the software equivalent of the
+  RC left+up combo. The legacy XR straight-arm preset remains available at
+  `POST /api/robot/straight`.
 - `Loco Control`: ready, stand, start, damp, zero torque, velocity, target
   position, and odometry requests.
 - `Right Wrist`: target position, relative step, gains, duration, command rate,

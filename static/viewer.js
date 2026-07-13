@@ -1501,13 +1501,15 @@ class EndEffectorPanel {
   }
 
   position() {
+    // Always open along the right edge of the viewer (never over the robot),
+    // vertically tracking the clicked ball. Draggable from there.
     const screen = this.viewer.endEffectorScreenPosition(this.side);
     const container = this.viewer.container.getBoundingClientRect();
-    if (!screen) return;
     const width = this.root.offsetWidth || 250;
     const height = this.root.offsetHeight || 220;
-    const x = Math.max(8, Math.min(container.width - width - 8, screen.x + 24));
-    const y = Math.max(8, Math.min(container.height - height - 8, screen.y - height / 2));
+    const x = Math.max(8, container.width - width - 14);
+    const anchorY = screen ? screen.y - height / 2 : 14;
+    const y = Math.max(8, Math.min(container.height - height - 8, anchorY));
     this.root.style.left = `${x}px`;
     this.root.style.top = `${y}px`;
   }

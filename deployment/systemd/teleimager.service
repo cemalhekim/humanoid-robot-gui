@@ -10,6 +10,12 @@ Environment=MAMBA_ROOT_PREFIX=/home/unitree/.micromamba
 Environment=PYTHONPATH=src
 Environment=XR_TELEOP_CERT=/home/unitree/.config/xr_teleoperate/cert.pem
 Environment=XR_TELEOP_KEY=/home/unitree/.config/xr_teleoperate/key.pem
+# The head camera is a "videohub" network source (Unitree VideoClient over DDS
+# on eth0). If the image server starts before eth0 has its 192.168.123.x IP,
+# the camera fails to initialize ONCE and the server runs degraded forever
+# ("Waiting for Teleimager head camera frame" on the dashboard). Wait for the
+# interface like robot-telemetry-web does; start anyway after the timeout.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do ip -br addr show eth0 2>/dev/null | grep -Eq "UP .*192\\.168\\.123\\." && exit 0; sleep 1; done; echo "eth0 robot-network IP not ready after 60s; starting anyway" >&2; exit 0'
 ExecStart=/home/unitree/.micromamba/envs/tv/bin/python -m teleimager.image_server
 Restart=always
 RestartSec=2

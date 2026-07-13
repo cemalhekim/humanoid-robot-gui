@@ -257,22 +257,55 @@
       document.getElementById(textId).textContent = text;
     }
 
-    // Reachability probes: no-cors fetches resolve (opaque) when the host
-    // answers and reject/time out when it does not. From an https origin the
-    // browser blocks http probes (mixed content) — report that honestly
-    // instead of claiming the robot is down.
+    // Reachability probes. From an http origin (lab network) the page probes
+    // the robot directly — device-local truth. From an https origin (GitHub
+    // Pages / tunnel) browsers block direct http probes as mixed content, so
+    // the live Wi-Fi/Ethernet status is fetched from the operator Mac's https
+    // tunnel (/api/entrances, CORS-open), which checks the robot over the lab
+    // network on the page's behalf.
     async function probe(base, dotId, textId) {
-      if (location.protocol === "https:" && base.startsWith("http:")) {
-        setStatus(dotId, textId, "unknown", "status visible when opened on the lab network");
-        return;
-      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 3500);
       try {
         await fetch(`${base}/api/chat/status`, { mode: "no-cors", cache: "no-store", signal: controller.signal });
         setStatus(dotId, textId, "ok", "reachable");
+        return true;
       } catch {
         setStatus(dotId, textId, "down", "not reachable from here");
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function applyEntrances(data) {
+      const items = [
+        ["wifi", "wifiDot", "wifiText"],
+        ["ethernet", "ethDot", "ethText"],
+      ];
+      for (const [key, dotId, textId] of items) {
+        const entry = data && data[key];
+        if (entry && entry.reachable) {
+          const latency = entry.latency_ms != null ? ` · ${Math.round(entry.latency_ms)} ms` : "";
+          setStatus(dotId, textId, "ok", `robot online${latency}`);
+        } else {
+          setStatus(dotId, textId, "down", "robot offline");
+        }
+      }
+    }
+
+    async function remoteEntranceStatus(tunnelUrl) {
+      // Live robot status via the tunnel relay (works from anywhere).
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      try {
+        const response = await fetch(`${tunnelUrl}/api/entrances`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(String(response.status));
+        applyEntrances(await response.json());
+        setStatus("remoteDot", "remoteText", "ok", "reachable");
+        return true;
+      } catch {
+        return false;
       } finally {
         clearTimeout(timer);
       }
@@ -288,12 +321,24 @@
           const card = document.getElementById("remoteCard");
           card.href = data.url;
           document.getElementById("remoteAddr").textContent = data.url.replace(/^https?:\/\//, "");
+          if (location.protocol === "https:") {
+            // One call gives remote AND relayed Wi-Fi/Ethernet status.
+            if (await remoteEntranceStatus(data.url)) return;
+            setStatus("remoteDot", "remoteText", "down", "tunnel offline (start the operator Mac)");
+            setStatus("wifiDot", "wifiText", "unknown", "unknown — status relay offline");
+            setStatus("ethDot", "ethText", "unknown", "unknown — status relay offline");
+            return;
+          }
           await probe(data.url, "remoteDot", "remoteText");
           return;
         } catch { /* try the next source */ }
       }
       setStatus("remoteDot", "remoteText", "down", "tunnel offline (start the operator Mac)");
       document.getElementById("remoteAddr").textContent = "tunnel not published";
+      if (location.protocol === "https:") {
+        setStatus("wifiDot", "wifiText", "unknown", "unknown — status relay offline");
+        setStatus("ethDot", "ethText", "unknown", "unknown — status relay offline");
+      }
     }
 
     function servedFrom() {
@@ -309,8 +354,13 @@
 
     markLastUsed();
     servedFrom();
-    probe("http://10.2.100.142:8088", "wifiDot", "wifiText");
-    probe("http://192.168.123.164:8088", "ethDot", "ethText");
+    if (location.protocol !== "https:") {
+      // Lab network: probe the robot directly from this device.
+      probe("http://10.2.100.142:8088", "wifiDot", "wifiText");
+      probe("http://192.168.123.164:8088", "ethDot", "ethText");
+    }
+    // On https (GitHub Pages / tunnel) resolveRemote() also fills the
+    // Wi-Fi/Ethernet status via the tunnel relay.
     resolveRemote();
   </script>
 </body>

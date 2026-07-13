@@ -51,6 +51,14 @@ RECORDINGS_DIR = APP_DIR / "recordings"
 # same validated pipeline as saved recordings, then deleted. A subdirectory keeps
 # them out of the recordings file list (which globs RECORDINGS_DIR non-recursively).
 EPHEMERAL_REPLAY_DIR = RECORDINGS_DIR / ".ephemeral"
+# The always-on welcome/onboarding page (GitHub Pages). The robot only
+# redirects here; it never serves its own copy.
+WELCOME_PAGE_URL = "https://cemalhekim.github.io/humanoid-robot-gui/"
+# Entrances the welcome page offers; probed by /api/entrances.
+ENTRANCE_PROBES = {
+    "wifi": "http://10.2.100.142:8088",
+    "ethernet": "http://192.168.123.164:8088",
+}
 DOCS_DIR = APP_DIR / "docs"
 XR_TELEOP_MODE_DROPIN = Path.home() / ".config/systemd/user/xr-teleop.service.d/10-control-mode.conf"
 XR_MOTION_SERVICES = ("xr-home-watchdog.service", "xr-teleop.service")
@@ -4123,6 +4131,33 @@ class TelemetryStore:
         self._set_wrist_status(active=False, message="Right wrist command stopped.")
         return self.wrist_snapshot()
 
+    def probe_entrances(self) -> dict[str, Any]:
+        """Reachability of the robot's dashboard entrances (see /api/entrances).
+
+        Runs wherever this server runs: on the robot it reports its own
+        addresses; on the operator Mac it reports what the Mac can reach over
+        the lab network — which is what the remote welcome page needs."""
+        now = time.time()
+        with self.lock:
+            cached = getattr(self, "_entrance_probe_cache", None)
+            if cached and now - cached[0] < 5.0:
+                return cached[1]
+        result: dict[str, Any] = {"checked_at": now}
+        for name, base in ENTRANCE_PROBES.items():
+            started = time.monotonic()
+            try:
+                request = urllib.request.Request(base + "/api/chat/status", method="HEAD")
+                with urllib.request.urlopen(request, timeout=1.5) as response:
+                    result[name] = {
+                        "reachable": response.status < 500,
+                        "latency_ms": round((time.monotonic() - started) * 1000, 1),
+                    }
+            except Exception:
+                result[name] = {"reachable": False, "latency_ms": None}
+        with self.lock:
+            self._entrance_probe_cache = (now, result)
+        return result
+
     def chill_motors(self) -> tuple[int, dict[str, Any]]:
         return self.request_chill({"armed": True, "i_understand_risk": True})
 
@@ -4896,11 +4931,23 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         if request_path in ("/", "/index.html"):
             self._send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
         elif request_path in ("/welcome", "/welcome.html"):
-            self._send_file(STATIC_DIR / "welcome.html", "text/html; charset=utf-8")
+            # The welcome page lives on GitHub Pages so it stays reachable with
+            # the robot (and the operator Mac) switched off. Redirect old
+            # bookmarks instead of serving a robot-hosted copy.
+            self.send_response(HTTPStatus.FOUND)
+            self.send_header("Location", WELCOME_PAGE_URL)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         elif request_path == "/remote-entrance.json":
             # Current remote-tunnel hostname for the welcome page's Remote card
             # (kept fresh by tools/update_remote_entrance.py on the operator Mac).
             self._send_file(STATIC_DIR / "remote-entrance.json", "application/json; charset=utf-8")
+        elif request_path == "/api/entrances":
+            # Live reachability of the robot's Wi-Fi/Ethernet entrances, CORS-open
+            # so the GitHub-Pages welcome page (https) can read it through the
+            # operator Mac's https tunnel — browsers block the page's own direct
+            # http probes as mixed content.
+            self._send_json_cors(self.store.probe_entrances())
         elif request_path == "/app.js":
             self._send_file(STATIC_DIR / "app.js", "application/javascript; charset=utf-8")
         elif request_path == "/viewer.js":
@@ -5166,6 +5213,19 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, data: dict[str, Any]) -> None:
         self._send_json_status(data, HTTPStatus.OK)
+
+    def _send_json_cors(self, data: dict[str, Any]) -> None:
+        # Like _send_json but readable cross-origin (read-only status payloads
+        # consumed by the GitHub-Pages welcome page).
+        body = json.dumps(data, separators=(",", ":")).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+            self.wfile.write(body)
 
     def _send_json_status(self, data: dict[str, Any], status: HTTPStatus) -> None:
         body = json.dumps(data, separators=(",", ":")).encode("utf-8")

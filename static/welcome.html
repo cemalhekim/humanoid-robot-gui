@@ -54,7 +54,7 @@
     @keyframes gridfloat { from { background-position: 0 0, 0 0; } to { background-position: 0 56px, 56px 0; } }
 
     /* ---------- shell ---------- */
-    .shell { position: relative; width: min(880px, 94vw); text-align: center; padding: 48px 0 40px; }
+    .shell { position: relative; width: min(1080px, 94vw); text-align: center; padding: 48px 0 40px; }
 
     /* ---------- hero ---------- */
     .hero { display: flex; flex-direction: column; align-items: center; }
@@ -116,8 +116,9 @@
     .step-arrow { opacity: 0.35; }
 
     /* ---------- entrance cards ---------- */
-    .cards { display: flex; gap: 18px; margin-top: 30px; }
-    @media (max-width: 720px) { .cards { flex-direction: column; } }
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 30px; }
+    @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } }
     .card {
       flex: 1; position: relative; display: block; padding: 26px 20px 20px;
       border: 1px solid var(--line); border-radius: 16px;
@@ -129,6 +130,7 @@
     .card:nth-child(1) { animation-delay: 0.42s; }
     .card:nth-child(2) { animation-delay: 0.54s; }
     .card:nth-child(3) { animation-delay: 0.66s; }
+    .card:nth-child(4) { animation-delay: 0.78s; }
     @keyframes cardin { from { opacity: 0; transform: translateY(26px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
     .card::after {
       content: ""; position: absolute; inset: 0;
@@ -217,16 +219,23 @@
         <p class="desc">Robot control-link (eth0). Requires a wired connection to the 192.168.123.x network — lowest latency, immune to Wi-Fi drops.</p>
         <span class="status"><span class="dot checking" id="ethDot"></span><span id="ethText">checking…</span></span>
       </a>
+      <a class="card" id="offlineCard" data-net="offline" href="#" rel="noopener">
+        <div class="icon">🗂️</div>
+        <h2>Offline</h2>
+        <p class="addr" id="offlineAddr">resolving tunnel…</p>
+        <p class="desc">Read-only mirror served from the operator Mac over a secure tunnel. Works from anywhere — even with the robot switched off (docs, diagrams, recordings, assistant).</p>
+        <span class="status"><span class="dot checking" id="offlineDot"></span><span id="offlineText">checking…</span></span>
+      </a>
       <a class="card remote" id="remoteCard" data-net="remote" href="#" rel="noopener">
         <div class="icon">🌍</div>
         <h2>Remote</h2>
         <p class="addr" id="remoteAddr">resolving tunnel…</p>
-        <p class="desc">Read-only mirror served from the operator Mac over a secure tunnel. Works from anywhere — even with the robot switched off (docs, diagrams, recordings, assistant).</p>
+        <p class="desc">Live link to the robot through the operator Mac: its wired Ethernet connection is streamed over a secure tunnel, so the full dashboard works from anywhere in the world.</p>
         <span class="status"><span class="dot checking" id="remoteDot"></span><span id="remoteText">checking…</span></span>
       </a>
     </div>
 
-    <p class="note"><b>Robot switched off?</b> The Wi-Fi and Ethernet entrances will be dark — use <b>Remote</b> to keep working,
+    <p class="note"><b>Robot switched off?</b> The Wi-Fi, Ethernet and Remote entrances will be dark — use <b>Offline</b> to keep working,
       or bookmark this page: it is hosted independently of the robot.</p>
     <p class="served" id="servedFrom"></p>
   </main>
@@ -294,47 +303,74 @@
       }
     }
 
-    async function remoteEntranceStatus(tunnelUrl) {
-      // Live robot status via the tunnel relay (works from anywhere).
+    async function fetchEntrances(tunnelUrl) {
+      // Robot reachability as seen from the operator Mac (works from anywhere).
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 6000);
       try {
         const response = await fetch(`${tunnelUrl}/api/entrances`, { cache: "no-store", signal: controller.signal });
         if (!response.ok) throw new Error(String(response.status));
-        applyEntrances(await response.json());
-        setStatus("remoteDot", "remoteText", "ok", "reachable");
-        return true;
+        return await response.json();
       } catch {
-        return false;
+        return null;
       } finally {
         clearTimeout(timer);
       }
     }
 
+    function setCardTunnel(cardId, addrId, url) {
+      if (!url) {
+        document.getElementById(addrId).textContent = "tunnel not published";
+        return false;
+      }
+      document.getElementById(cardId).href = url;
+      document.getElementById(addrId).textContent = url.replace(/^https?:\/\//, "");
+      return true;
+    }
+
     async function resolveRemote() {
+      let data = null;
       for (const source of REMOTE_JSON_SOURCES) {
         try {
           const response = await fetch(source, { cache: "no-store" });
           if (!response.ok) continue;
-          const data = await response.json();
-          if (!data || !data.url) continue;
-          const card = document.getElementById("remoteCard");
-          card.href = data.url;
-          document.getElementById("remoteAddr").textContent = data.url.replace(/^https?:\/\//, "");
-          if (location.protocol === "https:") {
-            // One call gives remote AND relayed Wi-Fi/Ethernet status.
-            if (await remoteEntranceStatus(data.url)) return;
-            setStatus("remoteDot", "remoteText", "down", "tunnel offline (start the operator Mac)");
-            setStatus("wifiDot", "wifiText", "unknown", "unknown — status relay offline");
-            setStatus("ethDot", "ethText", "unknown", "unknown — status relay offline");
-            return;
-          }
-          await probe(data.url, "remoteDot", "remoteText");
-          return;
+          const candidate = await response.json();
+          if (candidate && (candidate.url || candidate.robot_url)) { data = candidate; break; }
         } catch { /* try the next source */ }
       }
-      setStatus("remoteDot", "remoteText", "down", "tunnel offline (start the operator Mac)");
-      document.getElementById("remoteAddr").textContent = "tunnel not published";
+
+      const hasMirror = setCardTunnel("offlineCard", "offlineAddr", data && data.url);
+      const hasLive = setCardTunnel("remoteCard", "remoteAddr", data && data.robot_url);
+
+      // Both cards' statuses come from the operator Mac's relay: the Offline
+      // card is up when the mirror answers, and the Remote (live) card mirrors
+      // the Mac's wired Ethernet link to the robot — the same path the live
+      // tunnel streams.
+      const entrances = hasMirror ? await fetchEntrances(data.url) : null;
+      if (entrances) {
+        setStatus("offlineDot", "offlineText", "ok", "reachable");
+        if (hasLive) {
+          const eth = entrances.ethernet;
+          if (eth && eth.reachable) {
+            const latency = eth.latency_ms != null ? ` · ${Math.round(eth.latency_ms)} ms via Mac` : "";
+            setStatus("remoteDot", "remoteText", "ok", `reachable${latency}`);
+          } else {
+            setStatus("remoteDot", "remoteText", "down", "robot offline (Mac Ethernet link dark)");
+          }
+        } else {
+          setStatus("remoteDot", "remoteText", "down", "live tunnel not published");
+        }
+        if (location.protocol === "https:") {
+          // Browsers here block direct http probes as mixed content; use the
+          // relayed status for the Wi-Fi/Ethernet cards too.
+          applyEntrances(entrances);
+        }
+        return;
+      }
+
+      setStatus("offlineDot", "offlineText", "down", "tunnel offline (start the operator Mac)");
+      setStatus("remoteDot", "remoteText", hasLive ? "unknown" : "down",
+        hasLive ? "unknown — status relay offline" : "live tunnel not published");
       if (location.protocol === "https:") {
         setStatus("wifiDot", "wifiText", "unknown", "unknown — status relay offline");
         setStatus("ethDot", "ethText", "unknown", "unknown — status relay offline");
@@ -347,7 +383,7 @@
       if (host === "10.2.100.142") origin = "the robot (Wi-Fi)";
       else if (host === "192.168.123.164") origin = "the robot (Ethernet)";
       else if (host.endsWith("github.io")) origin = "GitHub Pages — independent of the robot";
-      else if (host.endsWith("trycloudflare.com")) origin = "the operator Mac (remote tunnel)";
+      else if (host.endsWith("trycloudflare.com")) origin = "a secure tunnel via the operator Mac";
       else if (host === "127.0.0.1" || host === "localhost") origin = "this machine";
       document.getElementById("servedFrom").textContent = `page served from ${origin}`;
     }

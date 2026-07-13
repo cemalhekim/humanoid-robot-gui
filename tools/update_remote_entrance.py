@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
-"""Publish the current cloudflared quick-tunnel URL for the welcome page.
+"""Publish the current cloudflared quick-tunnel URLs for the welcome page.
 
 Runs periodically on the operator Mac (LaunchAgent
-com.vodafone.robot-dashboard-tunnel-url). The quick tunnel gets a fresh
-https://<random>.trycloudflare.com hostname whenever cloudflared restarts, so
-this script:
+com.vodafone.robot-dashboard-tunnel-url). Two quick tunnels run on the Mac:
 
-1. extracts the newest tunnel URL from the cloudflared logs,
-2. verifies the tunnel actually answers,
-3. writes it to static/remote-entrance.json, and
-4. commits + pushes when (and only when) the URL changed, so the copy served
+- "url"       -> the read-only mirror of the Mac's dashboard copy
+                 (com.vodafone.robot-dashboard-cloudflared, welcome "Offline"
+                 card — works even with the robot switched off), and
+- "robot_url" -> a live relay straight to the robot's Ethernet interface
+                 http://192.168.123.164:8088 over the Mac's wired link
+                 (com.vodafone.robot-dashboard-cloudflared-robot, welcome
+                 "Remote" card — full dashboard from anywhere in the world).
+
+Each quick tunnel gets a fresh https://<random>.trycloudflare.com hostname
+whenever cloudflared restarts, so this script:
+
+1. extracts the newest tunnel URL of each from the cloudflared logs,
+2. verifies the tunnel edge actually answers,
+3. writes them to static/remote-entrance.json, and
+4. commits + pushes when (and only when) a URL changed, so the copy served
    from GitHub (raw + Pages) and the robot stays current.
 
 The welcome page reads the JSON same-origin first, then falls back to the raw
@@ -22,22 +31,39 @@ import json
 import re
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 TARGET = REPO / "static" / "remote-entrance.json"
-LOG_CANDIDATES = (
-    Path("/tmp/robot-dashboard-remote/cloudflared.err.log"),
-    Path("/tmp/robot-dashboard-remote/cloudflared.log"),
-)
+LOG_DIR = Path("/tmp/robot-dashboard-remote")
+TUNNELS: dict[str, dict] = {
+    "url": {
+        "logs": (LOG_DIR / "cloudflared.err.log", LOG_DIR / "cloudflared.log"),
+        "check_path": "/welcome",
+    },
+    "robot_url": {
+        "logs": (
+            LOG_DIR / "cloudflared-robot.err.log",
+            LOG_DIR / "cloudflared-robot.log",
+        ),
+        "check_path": "/",
+    },
+}
 URL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+NOTE = (
+    "Auto-updated by tools/update_remote_entrance.py on the operator Mac; "
+    "quick-tunnel hostnames change when cloudflared restarts. url = read-only "
+    "mirror (Offline card), robot_url = live Ethernet relay to the robot "
+    "(Remote card)."
+)
 
 
-def newest_tunnel_url() -> str | None:
+def newest_tunnel_url(logs: tuple[Path, ...]) -> str | None:
     best: tuple[float, str] | None = None
-    for log in LOG_CANDIDATES:
+    for log in logs:
         try:
             text = log.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -50,43 +76,54 @@ def newest_tunnel_url() -> str | None:
     return best[1] if best else None
 
 
-def tunnel_answers(url: str) -> bool:
+def tunnel_answers(url: str, check_path: str) -> bool:
     try:
-        request = urllib.request.Request(url + "/welcome", method="GET")
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return response.status < 500
+        request = urllib.request.Request(url + check_path, method="GET")
+        with urllib.request.urlopen(request, timeout=10):
+            return True
+    except urllib.error.HTTPError:
+        # Any HTTP status — even the 502 cloudflared serves while the robot is
+        # switched off — means the tunnel edge itself is up and routable.
+        return True
     except Exception:
         return False
 
 
-def current_published_url() -> str | None:
+def current_published() -> dict:
     try:
-        return json.loads(TARGET.read_text(encoding="utf-8")).get("url")
+        data = json.loads(TARGET.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
     except Exception:
-        return None
+        return {}
 
 
 def main() -> int:
-    url = newest_tunnel_url()
-    if not url:
-        print("no tunnel URL found in cloudflared logs; nothing to do")
-        return 0
-    if url == current_published_url():
-        print(f"tunnel URL unchanged ({url})")
-        return 0
-    if not tunnel_answers(url):
-        print(f"tunnel {url} does not answer yet; will retry next run")
+    published = current_published()
+    changed: list[str] = []
+    for key, spec in TUNNELS.items():
+        url = newest_tunnel_url(spec["logs"])
+        if not url:
+            print(f"{key}: no tunnel URL found in cloudflared logs")
+            continue
+        if url == published.get(key):
+            print(f"{key}: tunnel URL unchanged ({url})")
+            continue
+        if not tunnel_answers(url, spec["check_path"]):
+            print(f"{key}: tunnel {url} does not answer yet; will retry next run")
+            continue
+        published[key] = url
+        changed.append(f"{key} -> {url}")
+
+    if not changed:
         return 0
 
     TARGET.write_text(
         json.dumps(
             {
-                "url": url,
+                "url": published.get("url"),
+                "robot_url": published.get("robot_url"),
                 "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "note": (
-                    "Auto-updated by tools/update_remote_entrance.py on the operator Mac; "
-                    "the quick-tunnel hostname changes when cloudflared restarts."
-                ),
+                "note": NOTE,
             },
             indent=2,
         )
@@ -100,14 +137,15 @@ def main() -> int:
     run("git", "add", str(TARGET))
     commit = run(
         "git", "commit", "-m",
-        f"Publish new remote tunnel URL for the welcome page\n\n{url}\n\n"
-        "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+        "Publish new remote tunnel URL for the welcome page\n\n"
+        + "\n".join(changed)
+        + "\n\nCo-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
     )
     if commit.returncode != 0:
         print(f"nothing committed: {commit.stdout} {commit.stderr}")
         return 0
     push = run("git", "push")
-    print(f"published {url}; push rc={push.returncode} {push.stderr.strip()}")
+    print(f"published {', '.join(changed)}; push rc={push.returncode} {push.stderr.strip()}")
     return 0
 
 

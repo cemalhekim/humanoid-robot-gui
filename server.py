@@ -2347,18 +2347,19 @@ class TelemetryStore:
             for joint in commanded_body_joints
         }
         approach_frame_count = 0
-        if closed_loop:
-            first_targets = self._arm_replay_frame_targets(frames[0], commanded_body_joints) if frames else {}
-            if first_targets:
-                approach_frame_count = max(1, math.ceil(tuning["smooth_approach_seconds"] / TRAJECTORY_DEFAULT_DT))
-            execution_frames = self._smooth_arm_replay_frames(
-                frames,
-                msg,
-                commanded_body_joints,
-                tuning["smooth_approach_seconds"],
-            )
-        else:
-            execution_frames = frames
+        first_targets = self._arm_replay_frame_targets(frames[0], commanded_body_joints) if frames else {}
+        if first_targets:
+            approach_frame_count = max(1, math.ceil(tuning["smooth_approach_seconds"] / TRAJECTORY_DEFAULT_DT))
+        # Velocity-bounded smooth approach ALWAYS — closed-loop or not. Without
+        # it, a single-frame pose in direct mode is commanded in ONE step at full
+        # arm_sdk gains and the arm snaps to the target at maximum motor speed.
+        # The PID toggle only controls error correction, never the ramp.
+        execution_frames = self._smooth_arm_replay_frames(
+            frames,
+            msg,
+            commanded_body_joints,
+            tuning["smooth_approach_seconds"],
+        )
 
         def run_replay() -> None:
             previous_timestamp: float | None = None
@@ -2396,9 +2397,11 @@ class TelemetryStore:
                         else (target_by_index, {}, {})
                     )
                     target_by_index, _, feedforward_tau_by_index = publish_targets
+                    # Softer approach gains during the ramp in BOTH modes — the
+                    # direct path used to hit the approach at full gains.
                     frame_gain_by_index = (
                         approach_gain_by_index
-                        if closed_loop and writes < approach_frame_count
+                        if writes < approach_frame_count
                         else gain_by_index
                     )
                     latest_publisher.Write(
@@ -4287,10 +4290,15 @@ finally:
             cancel = self.wrist_cancel
             motion_switcher = self.motion_switcher
             loco_client = self.loco_client
+        # Cancel only the wrist oscillation here. Any arm_sdk hold/replay KEEPS
+        # publishing through the mode/damp transition below: if the hold were
+        # dropped first (weight -> 0), the onboard controller would instantly
+        # reassert its own arm targets at full gains — a violent "snap toward
+        # home" right before the motors go limp. With the hold alive until damp
+        # is engaged, the arms simply sag from where they are.
         if cancel is not None:
             cancel.set()
 
-        wrist_status = self.stop_wrist()
         select_code = None
         stop_code = None
         damp_code = None
@@ -4299,10 +4307,14 @@ finally:
                 select_code, _ = motion_switcher.SelectMode("ai")
                 time.sleep(0.15)
             if loco_client is None:
+                wrist_status = self.stop_wrist()
                 return 503, {"ok": False, "error": "H1 loco client is not available.", "wrist": wrist_status}
             stop_code = loco_client.SetVelocity(0.0, 0.0, 0.0, 0.2)
             damp_code = loco_client.SetFsmId(1)
+            # Give damp a moment to actually engage before dropping the hold.
+            time.sleep(0.3)
         except Exception as exc:
+            wrist_status = self.stop_wrist()
             return 500, {
                 "ok": False,
                 "error": f"Could not request damp mode: {exc}",
@@ -4311,6 +4323,9 @@ finally:
                 "damp_code": damp_code,
                 "wrist": wrist_status,
             }
+
+        # Motors are damped now — releasing the arm_sdk weight cannot snap.
+        wrist_status = self.stop_wrist()
 
         ok = damp_code == 0
         message = "Damp mode requested. Motors should stop actively pushing." if ok else f"Damp request returned code {damp_code}."

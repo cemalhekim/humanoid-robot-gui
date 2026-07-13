@@ -2260,18 +2260,16 @@ pre {
   display: block;
   min-height: 0;
   position: relative;
-  /* The sprite is 3 portrait slices of 512x1024 (1:2). Keep the slice's true
-     aspect so it is never smashed from the sides or the top; when max-height
-     caps the tile the image is center-cropped (background-size: 300% auto
-     scales by width only) instead of distorted. */
+  /* The sprite is 3 portrait slices of 512x1024 (1:2). The tile keeps the
+     slice's exact aspect ratio, so the full image is always visible top to
+     bottom — never cropped, never smashed. */
   aspect-ratio: 1 / 2;
-  max-height: 380px;
   width: 100%;
   background-image:
     linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.58)),
     url("/assets/teleoperation-methods.png");
   background-repeat: no-repeat;
-  background-size: 300% auto;
+  background-size: 300% 100%;
 }
 
 .method-pad .method-art {
@@ -3124,3 +3122,14 @@ button:not(:disabled):active { transform: scale(0.96); }
   50% { transform: scale(1.07); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .method-lock { animation: none; } }
+
+/* ---- teleoperation method explanations ---- */
+.method-copy { min-height: 0; }
+.method-desc {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  text-transform: none;
+  letter-spacing: normal;
+}

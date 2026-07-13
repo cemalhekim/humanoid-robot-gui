@@ -2906,3 +2906,24 @@ window.setInterval(loadRecordingFiles, 5000);
 setupLocoControls();
 setupWristControls();
 connectEvents();
+
+// ---- Fluent "reveal" highlight: cards glow around the cursor ----
+// One delegated pointermove handler; writes the pointer position into CSS
+// vars on the hovered card so .reveal-target::before can paint the glow.
+(function setupRevealHighlight() {
+  const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+  if (media?.matches) return;
+  const selector = ".mini-panel, .camera-card, .loco-card, .wrist-card, .panel";
+  document.querySelectorAll(selector).forEach((el) => el.classList.add("reveal-target"));
+  document.addEventListener(
+    "pointermove",
+    (event) => {
+      const card = event.target.closest?.(".reveal-target");
+      if (!card) return;
+      const rect = card.getBoundingClientRect();
+      card.style.setProperty("--reveal-x", `${event.clientX - rect.left}px`);
+      card.style.setProperty("--reveal-y", `${event.clientY - rect.top}px`);
+    },
+    { passive: true },
+  );
+})();

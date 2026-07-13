@@ -104,6 +104,12 @@ const els = {
   recordingSaveSequence: document.getElementById("recordingSaveSequence"),
   recordingRobotMotionToggle: document.getElementById("recordingRobotMotionToggle"),
   recordingCapturePose: document.getElementById("recordingCapturePose"),
+  cameraStream: document.getElementById("cameraStream"),
+  cameraPlaceholder: document.getElementById("cameraPlaceholder"),
+  cameraPlaceholderText: document.getElementById("cameraPlaceholderText"),
+  cameraDot: document.getElementById("cameraDot"),
+  cameraStatusText: document.getElementById("cameraStatusText"),
+  cameraDiagnostics: document.getElementById("cameraDiagnostics"),
   recordingSamples: document.getElementById("recordingSamples"),
   recordingEvents: document.getElementById("recordingEvents"),
   recordingElapsed: document.getElementById("recordingElapsed"),
@@ -2176,6 +2182,60 @@ function setupWristControls() {
   }, 2000);
 }
 
+// Same-origin MJPEG stream from this dashboard (/camera.mjpg): no other
+// website, no certificates, no browser permission prompts — and it works from
+// every entrance (Wi-Fi, Ethernet, tunnel) because the URL is relative.
+const cameraPreview = { retryTimer: null, started: false };
+
+function startCameraStream() {
+  if (!els.cameraStream) return;
+  window.clearTimeout(cameraPreview.retryTimer);
+  cameraPreview.retryTimer = null;
+  els.cameraStream.src = `/camera.mjpg?ts=${Date.now()}`;
+}
+
+function scheduleCameraRetry(delayMs = 3000) {
+  if (cameraPreview.retryTimer) return;
+  cameraPreview.retryTimer = window.setTimeout(() => {
+    cameraPreview.retryTimer = null;
+    startCameraStream();
+  }, delayMs);
+}
+
+function setCameraStatus(live, text) {
+  if (els.cameraDot) {
+    els.cameraDot.style.background = live ? "#35e08a" : "";
+    els.cameraDot.style.boxShadow = live ? "0 0 0 4px rgba(53, 224, 138, 0.18)" : "";
+  }
+  if (els.cameraStatusText) els.cameraStatusText.textContent = text;
+}
+
+async function refreshCameraStatus() {
+  if (!els.cameraStream) return;
+  try {
+    const response = await fetch("/api/camera", { cache: "no-store" });
+    const info = await response.json();
+    if (info.available) {
+      setCameraStatus(true, "Live");
+      if (els.cameraDiagnostics) els.cameraDiagnostics.textContent = `streaming (${info.source || "teleimager/head"})`;
+      // Bridge came (back) up: (re)attach the stream if it is not running.
+      if (!cameraPreview.started || !els.cameraStream.src) {
+        cameraPreview.started = true;
+        startCameraStream();
+      }
+    } else {
+      setCameraStatus(false, "Camera bridge waiting");
+      if (els.cameraDiagnostics) els.cameraDiagnostics.textContent = info.error || "waiting for frames";
+      if (els.cameraPlaceholderText) {
+        els.cameraPlaceholderText.textContent = info.error || "Waiting for the robot's camera bridge…";
+      }
+    }
+  } catch {
+    setCameraStatus(false, "Dashboard unreachable");
+    if (els.cameraDiagnostics) els.cameraDiagnostics.textContent = "cannot reach /api/camera";
+  }
+}
+
 function connectCameraPreview() {
   if (!els.cameraStream || !els.cameraPlaceholder) return;
   els.cameraStream.addEventListener("load", () => {
@@ -2183,7 +2243,14 @@ function connectCameraPreview() {
   });
   els.cameraStream.addEventListener("error", () => {
     els.cameraPlaceholder.classList.remove("hidden");
+    // The MJPEG connection dropped (dashboard restart, network blip) —
+    // reconnect automatically, no interaction needed.
+    scheduleCameraRetry();
   });
+  startCameraStream();
+  cameraPreview.started = true;
+  refreshCameraStatus();
+  window.setInterval(refreshCameraStatus, 5000);
 }
 
 function renderRosGraph(graph) {

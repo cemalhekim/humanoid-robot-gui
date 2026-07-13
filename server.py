@@ -4146,8 +4146,10 @@ class TelemetryStore:
         for name, base in ENTRANCE_PROBES.items():
             started = time.monotonic()
             try:
-                request = urllib.request.Request(base + "/api/chat/status", method="HEAD")
-                with urllib.request.urlopen(request, timeout=1.5) as response:
+                # GET, not HEAD: this dashboard's HTTP handler implements
+                # do_GET/do_POST only, so HEAD would 501 and read as offline.
+                with urllib.request.urlopen(base + "/api/chat/status", timeout=1.5) as response:
+                    response.read(512)
                     result[name] = {
                         "reachable": response.status < 500,
                         "latency_ms": round((time.monotonic() - started) * 1000, 1),

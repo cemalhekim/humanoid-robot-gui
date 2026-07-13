@@ -215,12 +215,12 @@
             <div class="section-head">
               <div>
                 <h2>Camera Stream</h2>
-                <p class="panel-subtitle">Unitree TeleImager WebRTC camera and Vision Pro teleoperation</p>
+                <p class="panel-subtitle">Live view from the robot's head camera</p>
               </div>
               <div class="camera-actions">
                 <div class="camera-status">
-                  <span class="camera-dot"></span>
-                  <strong>Waiting for stream</strong>
+                  <span class="camera-dot" id="cameraDot"></span>
+                  <strong id="cameraStatusText">Connecting…</strong>
                 </div>
                 <a
                   class="camera-link-button"
@@ -235,40 +235,30 @@
             <div class="camera-layout">
               <div class="camera-stage">
                 <div class="camera-frame">
-                  <iframe
-                    id="cameraStream"
-                    src="https://10.2.100.142:60001"
-                    title="TeleImager WebRTC camera stream"
-                    allow="autoplay; encrypted-media; fullscreen"
-                  ></iframe>
+                  <img id="cameraStream" alt="Robot head camera live stream" />
                   <div class="camera-placeholder" id="cameraPlaceholder">
                     <div class="placeholder-mark">Live View</div>
-                    <p>TeleImager WebRTC preview starts automatically when this panel opens.</p>
-                    <small>If the browser blocks the certificate, open `https://10.2.100.142:60001` once and trust it.</small>
+                    <p id="cameraPlaceholderText">Connecting to the robot's head camera…</p>
+                    <small>Streamed same-origin from this dashboard (/camera.mjpg) — no certificates, no teleoperation needed.</small>
                   </div>
                 </div>
                 <div class="camera-footer">
                   <span>Source</span>
-                  <strong>TeleImager WebRTC</strong>
+                  <strong>Robot head camera (TeleImager)</strong>
                   <span>Mode</span>
-                  <strong>Embedded preview</strong>
+                  <strong>MJPEG live stream</strong>
                 </div>
               </div>
               <aside class="camera-side">
                 <article class="camera-card">
-                  <span>Connection</span>
-                  <strong>Robot PC</strong>
-                  <p>Use the robot-side interface that reaches the front camera topic.</p>
+                  <span>Pipeline</span>
+                  <strong>Head camera → TeleImager → dashboard</strong>
+                  <p>The robot's built-in head camera is read over the internal network and streamed here as MJPEG. Runs at boot — teleoperation not required.</p>
                 </article>
                 <article class="camera-card">
-                  <span>Example</span>
-                  <strong>teleimager.image_server</strong>
-                  <p>Standalone camera server from Unitree's XR teleoperation workflow.</p>
-                </article>
-                <article class="camera-card">
-                  <span>Fallback</span>
-                  <strong>Direct camera page</strong>
-                  <p>Open `https://10.2.100.142:60001` once if the embedded preview is blocked by certificate trust.</p>
+                  <span>Diagnostics</span>
+                  <strong id="cameraDiagnostics">checking…</strong>
+                  <p>Live state of the camera bridge (from <code>/api/camera</code>). If it reports waiting, the TeleImager service on the robot may need a restart.</p>
                 </article>
                 <div class="camera-drive-pad" aria-label="Vision Pro walking controls">
                   <div class="camera-drive-grid">

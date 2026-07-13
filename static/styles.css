@@ -2731,3 +2731,184 @@ pre {
     width: 100%;
   }
 }
+
+/* ============================================================
+   Motion layer — sleek modern animations & moving backgrounds
+   (appended last so it wins the cascade; append-only = safe)
+   ============================================================ */
+
+/* ---- moving aurora + drifting grid behind everything ---- */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -40%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 42% 34% at 22% 24%, rgba(230, 0, 0, 0.16), transparent 62%),
+    radial-gradient(ellipse 38% 30% at 82% 12%, rgba(255, 48, 48, 0.10), transparent 60%),
+    radial-gradient(ellipse 46% 38% at 76% 86%, rgba(64, 100, 255, 0.05), transparent 62%),
+    radial-gradient(ellipse 36% 30% at 12% 84%, rgba(230, 0, 0, 0.08), transparent 58%);
+  animation: auroraDrift 32s ease-in-out infinite alternate;
+  will-change: transform;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: 54px 54px;
+  mask-image: radial-gradient(ellipse 80% 72% at 55% 40%, rgba(0, 0, 0, 0.85), transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 72% at 55% 40%, rgba(0, 0, 0, 0.85), transparent 80%);
+  animation: gridDrift 22s linear infinite;
+}
+@keyframes auroraDrift {
+  from { transform: translate3d(-2.5%, -1.5%, 0) scale(1) rotate(-0.6deg); }
+  to   { transform: translate3d(2.5%, 2%, 0) scale(1.07) rotate(0.6deg); }
+}
+@keyframes gridDrift {
+  from { background-position: 0 0, 0 0; }
+  to   { background-position: 0 54px, 54px 0; }
+}
+.app-shell { position: relative; z-index: 1; }
+
+/* ---- staggered panel entrances ---- */
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.995); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.panel { animation: panelIn 0.55s cubic-bezier(0.2, 0.8, 0.25, 1) backwards; }
+main .panel:nth-child(1) { animation-delay: 0.05s; }
+main .panel:nth-child(2) { animation-delay: 0.13s; }
+main .panel:nth-child(3) { animation-delay: 0.21s; }
+.mini-panel { animation: panelIn 0.5s cubic-bezier(0.2, 0.8, 0.25, 1) backwards; }
+.summary-grid .mini-panel:nth-child(1) { animation-delay: 0.18s; }
+.summary-grid .mini-panel:nth-child(2) { animation-delay: 0.24s; }
+.summary-grid .mini-panel:nth-child(3) { animation-delay: 0.30s; }
+.summary-grid .mini-panel:nth-child(4) { animation-delay: 0.36s; }
+.summary-grid .mini-panel:nth-child(5) { animation-delay: 0.42s; }
+
+/* ---- hover micro-interactions ---- */
+.mini-panel,
+.camera-card,
+.loco-card,
+.wrist-card {
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.25, 1), border-color 0.2s, box-shadow 0.25s;
+}
+.mini-panel:hover,
+.camera-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(230, 0, 0, 0.45);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(230, 0, 0, 0.12);
+}
+button {
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.25, 1), box-shadow 0.2s, background 0.2s, border-color 0.2s, filter 0.2s;
+}
+button:not(:disabled):hover { filter: brightness(1.12); }
+button:not(:disabled):active { transform: scale(0.96); }
+
+/* ---- sidebar nav: sweep + active glow ---- */
+.nav-item { position: relative; overflow: hidden; transition: color 0.18s, background 0.2s, transform 0.2s; }
+.nav-item::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.06) 50%, transparent 65%);
+  transform: translateX(-130%);
+  transition: transform 0.6s ease;
+  pointer-events: none;
+}
+.nav-item:hover::after { transform: translateX(130%); }
+.nav-item:hover { transform: translateX(3px); }
+.nav-item.active { animation: activeGlow 3.2s ease-in-out infinite; }
+@keyframes activeGlow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(230, 0, 0, 0.35), 0 6px 22px rgba(230, 0, 0, 0.18); }
+  50%      { box-shadow: 0 0 0 1px rgba(230, 0, 0, 0.6), 0 6px 30px rgba(230, 0, 0, 0.32); }
+}
+
+/* ---- brand + headline sheen ---- */
+.brand-lockup span,
+.title-block h1 {
+  background: linear-gradient(100deg, #ffffff 30%, #ffb1b1 45%, #ffffff 60%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: headlineSheen 8s linear 1.5s infinite;
+}
+@keyframes headlineSheen { from { background-position: 0% 0; } to { background-position: -220% 0; } }
+
+/* ---- live indicators: gentle pulse rings ---- */
+.status-dot { position: relative; }
+.status-dot::after {
+  content: "";
+  position: absolute; left: 6px; top: 50%; margin-top: -7px;
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1px solid rgba(50, 240, 93, 0.55);
+  animation: ringPing 2.2s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes ringPing {
+  0% { transform: scale(0.4); opacity: 0.85; }
+  80% { opacity: 0; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+.pill.good { animation: pillBreath 3.4s ease-in-out infinite; }
+@keyframes pillBreath {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(50, 240, 93, 0.0); }
+  50%      { box-shadow: 0 0 14px 0 rgba(50, 240, 93, 0.25); }
+}
+
+/* ---- topbar metric chips: glass shimmer on hover ---- */
+.metric { position: relative; overflow: hidden; transition: border-color 0.2s, transform 0.2s; }
+.metric:hover { transform: translateY(-1px); border-color: rgba(255, 255, 255, 0.3); }
+
+/* ---- sidebar signal radar ---- */
+.signal-rings { position: relative; }
+.signal-rings::before,
+.signal-rings::after {
+  content: "";
+  position: absolute; inset: 0; margin: auto;
+  width: 66px; height: 66px; border-radius: 50%;
+  border: 1px solid rgba(230, 0, 0, 0.5);
+  animation: ringPing 3s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+.signal-rings::after { animation-delay: 1.5s; border-color: rgba(255, 255, 255, 0.25); }
+
+/* ---- camera frame: subtle scanline sweep while live ---- */
+.camera-frame::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, 0.025) 48%, transparent 52%);
+  background-size: 100% 240%;
+  animation: scan 7s linear infinite;
+  pointer-events: none;
+}
+@keyframes scan { from { background-position: 0 -140%; } to { background-position: 0 140%; } }
+
+/* ---- smooth scrollbars ---- */
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgba(230, 0, 0, 0.45); background-clip: padding-box; }
+
+/* ---- accessibility: honour reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  body::before, body::after,
+  .panel, .mini-panel, .nav-item::after, .nav-item.active,
+  .brand-lockup span, .title-block h1,
+  .status-dot::after, .pill.good, .signal-rings::before, .signal-rings::after,
+  .camera-frame::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

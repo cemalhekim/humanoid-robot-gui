@@ -18,6 +18,10 @@ Environment=XR_TELEOP_KEY=/home/unitree/.config/xr_teleoperate/key.pem
 # interface AND on the camera source actually answering GetImageSample.
 ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do ip -br addr show eth0 2>/dev/null | grep -Eq "UP .*192\\.168\\.123\\." && exit 0; sleep 1; done; echo "eth0 robot-network IP not ready after 60s; starting anyway" >&2; exit 0'
 ExecStartPre=/home/unitree/.micromamba/envs/tv/bin/python /home/unitree/robot_telemetry_web/deployment/wait_for_videohub.py
+# ~/teleimager is a git checkout that update flows reset, wiping hand-edits to
+# cam_config_server.yaml (enable_zmq flipped back to false after a reboot and
+# the dashboard camera died). Re-apply the required config on EVERY start.
+ExecStartPre=/home/unitree/.micromamba/envs/tv/bin/python /home/unitree/robot_telemetry_web/deployment/patch_teleimager_config.py
 ExecStart=/home/unitree/.micromamba/envs/tv/bin/python -m teleimager.image_server
 Restart=always
 RestartSec=2

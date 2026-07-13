@@ -2950,49 +2950,139 @@ connectEvents();
   });
 })();
 
-// ---- floating robot camera view: hovers on every page, pull up / drop down ----
+// ---- floating robot camera: icon bubble -> draggable, corner-resizable view ----
 (function setupFloatCam() {
-  const FLOAT_KEY = "h1_float_cam_collapsed";
-  const root = document.getElementById("floatCam");
+  const OPEN_KEY = "h1_float_cam_open";
+  const BOX_KEY = "h1_float_cam_box";
+  const icon = document.getElementById("floatCamIcon");
+  const panel = document.getElementById("floatCam");
   const header = document.getElementById("floatCamHeader");
+  const minimize = document.getElementById("floatCamMinimize");
   const img = document.getElementById("floatCamStream");
-  if (!root || !header || !img) return;
+  if (!icon || !panel || !header || !img) return;
 
   const attach = () => { img.src = `/camera.mjpg?float=${Date.now()}`; };
   const detach = () => { img.removeAttribute("src"); };
+  const onCameraPage = () => window.location.hash === "#cameraPage";
 
-  const applyCollapsed = (collapsed) => {
-    root.classList.toggle("collapsed", collapsed);
-    // Collapsed = no video element visible; drop the MJPEG connection to save
-    // bandwidth and re-attach on expand.
-    if (collapsed) detach();
-    else attach();
+  const clampBox = (box) => {
+    const minW = 220, minH = 150;
+    const maxW = window.innerWidth - 24, maxH = window.innerHeight - 24;
+    box.w = Math.max(minW, Math.min(maxW, box.w));
+    box.h = Math.max(minH, Math.min(maxH, box.h));
+    box.x = Math.max(4, Math.min(window.innerWidth - box.w - 4, box.x));
+    box.y = Math.max(4, Math.min(window.innerHeight - box.h - 4, box.y));
+    return box;
+  };
+  const defaultBox = () => clampBox({
+    x: window.innerWidth - 380, y: window.innerHeight - 264, w: 360, h: 240,
+  });
+  let box = (() => {
+    try { return clampBox({ ...defaultBox(), ...JSON.parse(localStorage.getItem(BOX_KEY) || "{}") }); }
+    catch { return defaultBox(); }
+  })();
+  const applyBox = () => {
+    panel.style.left = `${box.x}px`;
+    panel.style.top = `${box.y}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+    panel.style.width = `${box.w}px`;
+    panel.style.height = `${box.h}px`;
+  };
+  const saveBox = () => { try { localStorage.setItem(BOX_KEY, JSON.stringify(box)); } catch {} };
+
+  const render = () => {
+    const open = localStorage.getItem(OPEN_KEY) === "1";
+    const hidden = onCameraPage();
+    icon.classList.toggle("hidden", hidden || open);
+    panel.classList.toggle("hidden", hidden || !open);
+    if (!hidden && open) { applyBox(); if (!img.getAttribute("src")) attach(); }
+    else detach();
   };
 
-  // Hide the floating view on the Camera page itself (the big player is there;
-  // two simultaneous MJPEG streams would double the bandwidth for nothing).
-  const applyPageVisibility = () => {
-    const onCameraPage = window.location.hash === "#cameraPage";
-    root.classList.toggle("hidden", onCameraPage);
-    if (onCameraPage) detach();
-    else if (!root.classList.contains("collapsed") && !img.src) attach();
-  };
+  icon.addEventListener("click", () => { localStorage.setItem(OPEN_KEY, "1"); render(); });
+  minimize.addEventListener("click", (event) => {
+    event.stopPropagation();
+    localStorage.setItem(OPEN_KEY, "0");
+    render();
+  });
+
+  // Drag to move (header).
+  header.addEventListener("pointerdown", (event) => {
+    if (event.target === minimize) return;
+    event.preventDefault();
+    header.setPointerCapture(event.pointerId);
+    const startX = event.clientX, startY = event.clientY;
+    const origX = box.x, origY = box.y;
+    const move = (ev) => {
+      box.x = origX + (ev.clientX - startX);
+      box.y = origY + (ev.clientY - startY);
+      clampBox(box); applyBox();
+    };
+    const up = () => {
+      header.removeEventListener("pointermove", move);
+      header.removeEventListener("pointerup", up);
+      saveBox();
+    };
+    header.addEventListener("pointermove", move);
+    header.addEventListener("pointerup", up);
+  });
+
+  // Resize from any corner.
+  panel.querySelectorAll(".fc-resize").forEach((grip) => {
+    grip.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      grip.setPointerCapture(event.pointerId);
+      const corner = grip.dataset.corner;
+      const startX = event.clientX, startY = event.clientY;
+      const orig = { ...box };
+      const move = (ev) => {
+        const dx = ev.clientX - startX, dy = ev.clientY - startY;
+        if (corner.includes("r")) box.w = orig.w + dx;
+        if (corner.includes("b")) box.h = orig.h + dy;
+        if (corner.includes("l")) { box.w = orig.w - dx; box.x = orig.x + dx; }
+        if (corner.includes("t")) { box.h = orig.h - dy; box.y = orig.y + dy; }
+        clampBox(box); applyBox();
+      };
+      const up = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        saveBox();
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+    });
+  });
 
   img.addEventListener("error", () => {
-    root.classList.add("offline");
+    panel.classList.add("offline");
     window.setTimeout(() => {
-      if (!root.classList.contains("collapsed") && !root.classList.contains("hidden")) attach();
+      if (!panel.classList.contains("hidden")) attach();
     }, 4000);
   });
-  img.addEventListener("load", () => root.classList.remove("offline"));
+  img.addEventListener("load", () => panel.classList.remove("offline"));
 
+  window.addEventListener("hashchange", render);
+  window.addEventListener("resize", () => { clampBox(box); applyBox(); });
+  render();
+})();
+
+// ---- floating drive bubble: walking controls on the Loco Control page ----
+(function setupFloatPad() {
+  const COLLAPSE_KEY = "h1_float_pad_collapsed";
+  const pad = document.getElementById("floatPad");
+  const header = document.getElementById("floatPadHeader");
+  if (!pad || !header) return;
+  const render = () => {
+    pad.classList.toggle("hidden", window.location.hash !== "#locoPage");
+    pad.classList.toggle("collapsed", localStorage.getItem(COLLAPSE_KEY) === "1");
+  };
   header.addEventListener("click", () => {
-    const collapsed = !root.classList.contains("collapsed");
-    window.localStorage?.setItem(FLOAT_KEY, collapsed ? "1" : "0");
-    applyCollapsed(collapsed);
+    const collapsed = !pad.classList.contains("collapsed");
+    localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0");
+    render();
   });
-  window.addEventListener("hashchange", applyPageVisibility);
-
-  applyCollapsed(window.localStorage?.getItem(FLOAT_KEY) === "1");
-  applyPageVisibility();
+  window.addEventListener("hashchange", render);
+  render();
 })();

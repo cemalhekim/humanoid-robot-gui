@@ -5187,6 +5187,10 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("X-Content-Type-Options", "nosniff")
+        # Without this, browsers heuristically cache app.js/styles.css and the
+        # UI keeps running STALE code after a deploy (widgets render with no
+        # behavior). no-cache = revalidate every load; fine on the LAN.
+        self.send_header("Cache-Control", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

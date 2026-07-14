@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import unittest
 from unittest import mock
+from tempfile import TemporaryDirectory
 
 import server
 
@@ -56,10 +57,22 @@ class McpRequestTest(unittest.TestCase):
         self.assertEqual(response["error"]["code"], -32601)
 
     def test_tools_list_matches_chat_tools(self) -> None:
-        names = [t["name"] for t in self.store.mcp_request(rpc("tools/list"))["result"]["tools"]]
+        # named_positions() reads the real recordings dir; pin it empty so the
+        # dynamic move tool is absent regardless of local saved poses.
+        with TemporaryDirectory() as directory:
+            with mock.patch.object(server, "RECORDINGS_DIR", server.Path(directory)):
+                names = [t["name"] for t in self.store.mcp_request(rpc("tools/list"))["result"]["tools"]]
         self.assertEqual(
             names, [spec["function"]["name"] for spec in server.CHAT_TOOL_SPECS]
         )
+
+    def test_tools_list_gains_move_when_named_position_exists(self) -> None:
+        with TemporaryDirectory() as directory:
+            (server.Path(directory) / "20260714-111543-home.pose.json").write_text("{}", encoding="utf-8")
+            with mock.patch.object(server, "RECORDINGS_DIR", server.Path(directory)):
+                tools = self.store.mcp_request(rpc("tools/list"))["result"]["tools"]
+        move = next(t for t in tools if t["name"] == "move")
+        self.assertEqual(move["inputSchema"]["properties"]["position"]["enum"], ["home"])
 
     def test_tools_list_hides_chill_when_disabled(self) -> None:
         with mock.patch.object(server, "LLM_TOOL_CHILL_ENABLED", False):

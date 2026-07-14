@@ -400,7 +400,9 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3:30b-a3b-instruct-2507-q4_K_M")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1024"))
-LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.3"))
+# 0 keeps action commands deterministic: at 0.3 qwen3-30b intermittently skipped
+# the move tool call on short Turkish imperatives and narrated motion instead.
+LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
 # Cap on how much conversation the browser may send, to bound proxy work.
 LLM_MAX_MESSAGES = int(os.environ.get("LLM_MAX_MESSAGES", "24"))
 LLM_MAX_MESSAGE_CHARS = int(os.environ.get("LLM_MAX_MESSAGE_CHARS", "8000"))
@@ -414,6 +416,7 @@ LLM_INCLUDE_ROS_GRAPH = os.environ.get("LLM_INCLUDE_ROS_GRAPH", "1") not in ("0"
 # traffic is the chat completion to the on-prem Ollama host.
 LLM_TOOLS_ENABLED = os.environ.get("LLM_TOOLS_ENABLED", "1") not in ("0", "false", "False", "")
 LLM_TOOL_CHILL_ENABLED = os.environ.get("LLM_TOOL_CHILL_ENABLED", "1") not in ("0", "false", "False", "")
+LLM_TOOL_MOVE_ENABLED = os.environ.get("LLM_TOOL_MOVE_ENABLED", "1") not in ("0", "false", "False", "")
 LLM_MAX_TOOL_ROUNDS = int(os.environ.get("LLM_MAX_TOOL_ROUNDS", "4"))
 LLM_MAX_TOOL_CALLS_PER_ROUND = int(os.environ.get("LLM_MAX_TOOL_CALLS_PER_ROUND", "5"))
 LLM_TOOL_OUTPUT_CHARS = int(os.environ.get("LLM_TOOL_OUTPUT_CHARS", "6000"))
@@ -431,10 +434,11 @@ MCP_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 MCP_SERVER_INFO = {"name": "unitree-h1-2-dashboard", "version": "1.0.0"}
 MCP_INSTRUCTIONS = (
     "Telemetry and diagnostics tools for a Unitree H1-2 humanoid robot. All "
-    "tools are read-only except chill_motors, which damps all motors so the "
-    "robot goes limp (it may sag or collapse if unsupported). Call chill_motors "
-    "only when the operator explicitly asked to release/chill/damp/relax the "
-    "motors, and pass confirm=true."
+    "tools are read-only except two guarded actions: chill_motors damps all "
+    "motors so the robot goes limp (it may sag or collapse if unsupported), and "
+    "move drives the arms to a saved named position via the validated arm "
+    "replay. Call an action tool only when the operator explicitly asked for "
+    "that action (in any language), and pass confirm=true."
 )
 
 # ---------------------------------------------------------------------------
@@ -480,7 +484,15 @@ LLM_SYSTEM_PROMPT = (
     "snapshot lacks the data, say so plainly.\n\n"
     "Formatting: write plain conversational sentences. Do NOT use markdown or the "
     "symbols * # % _ ` ~ or bullet lists. You MAY use a relevant emoji or two to "
-    "keep it warm (e.g. a status emoji), but don't overdo it.\n\n"
+    "keep it warm (e.g. a status emoji), but don't overdo it.\n"
+    # Keep this AFTER the style rules and phrased as subordinate to tool use:
+    # placing a bare "always reply in the operator's language" instruction earlier
+    # makes qwen3-30b answer in prose instead of emitting tool calls.
+    "\nLanguage: your final answer must be written in the operator's language "
+    "(Turkish, German, English, ...). This never replaces tool use: when the "
+    "operator commands an action or asks for live data, call the tool first, "
+    "then answer in their language. Tool results arrive in English; translate "
+    "what matters into the operator's language instead of quoting them.\n\n"
 )
 
 LLM_READONLY_PROMPT = (
@@ -493,12 +505,32 @@ LLM_TOOLS_PROMPT = (
     "You have tools. Use them when the telemetry snapshot is not enough: the ros2_* "
     "tools query the live ROS 2 graph and topics on the robot PC, get_joint_details "
     "returns one joint's full state, get_loco_status returns locomotion state. "
-    "chill_motors is the ONLY action tool: it damps all motors so the robot goes limp "
-    "(it will sag or collapse if unsupported). Call it only when the operator's "
-    "latest message explicitly asks to release, chill, damp, or relax the motors, "
-    "and pass confirm=true; never call it on your own initiative. You have no other way to "
-    "move the robot; for any other motion request, say command actions are done "
-    "through the dashboard's dedicated controls, not the chat."
+    "There are two GUARDED action tools. Never trigger them on your own "
+    "initiative, but when the operator's latest message directly commands that "
+    "action, that command IS the confirmation: call the tool immediately in the "
+    "same turn with confirm=true, without asking again. Never claim the robot "
+    "moved or is moving unless the tool call returned ok=true. chill_motors "
+    "damps all motors so the robot goes "
+    "limp (it will sag or collapse if unsupported); use it only for explicit "
+    "release/chill/damp/relax requests. move drives the arms to a saved named "
+    "position through the dashboard's validated arm replay (same as the Move "
+    "button); a direct imperative like 'raise your hand' or 'elini kaldir' must "
+    "produce a move call right away. Operators speak any language (e.g. English, Turkish, German); "
+    "translate their request into English and pick the position name that "
+    "matches it LITERALLY, distinguishing directions carefully: raising a hand "
+    "UP ('raise your hand' / 'elini kaldir' / 'heb die Hand') is a raise-style "
+    "position, extending a hand FORWARD ('reach forward' / 'elini one dogru "
+    "uzat' / 'streck die Hand nach vorne') is a forward-style position, and "
+    "returning to rest ('go home' / 'home pozisyonuna git' / 'Grundstellung') "
+    "is a home-style position. If no position fits, say which "
+    "positions exist instead of guessing. For any other motion request, say "
+    "command actions are done through the dashboard's dedicated controls, not the "
+    "chat.\n"
+    "Example: the operator writes 'elini kaldır' (raise your hand) -> you MUST "
+    "answer with a move tool call {\"position\": \"raise-hand\", \"confirm\": true}, "
+    "not with text. Replying to an action command with prose like 'raising your "
+    "hand now' without the tool call is a critical error: nothing physically "
+    "happens."
 )
 
 
@@ -562,6 +594,70 @@ CHAT_TOOL_SPECS: list[dict[str, Any]] = [
         ["confirm"],
     ),
 ]
+
+def normalize_position_name(name: str) -> str:
+    """Canonical form for saved position names: lowercase, '-' separators."""
+    return name.strip().lower().replace("_", "-").replace(" ", "-")
+
+
+def move_tool_spec(positions: list[str]) -> dict[str, Any]:
+    """Build the move tool spec with the currently saved positions as an enum."""
+    return _chat_tool(
+        "move",
+        "GUARDED ACTION: physically move the robot's arms to a saved named position "
+        "using the dashboard's validated arm replay (identical to the Move button: "
+        "arm_sdk, arms scope, closed-loop, safety-checked). Only call when the "
+        "operator's latest message, in any language, explicitly asks for that "
+        "motion. Position names are short ENGLISH descriptions of the resulting "
+        "pose; translate the request literally before choosing (Turkish: 'kaldir' "
+        "= raise = up, 'one uzat' = forward; German: 'heben' = raise = up, 'nach "
+        "vorne strecken' = forward). Available positions: " + ", ".join(positions) + ".",
+        {
+            "position": {
+                "type": "string",
+                "enum": positions,
+                "description": "Name of the saved position to move to.",
+            },
+            "confirm": {
+                "type": "boolean",
+                "description": "Must be true; confirms the operator explicitly asked for this movement.",
+            },
+        },
+        ["position", "confirm"],
+    )
+
+
+def extract_textual_tool_call(reply: str, tools: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Fallback for models that emit a tool call as plain text instead of a
+    structured tool_calls entry (qwen3-30b does this for some Turkish
+    imperatives): find an embedded JSON object shaped like a tool call and
+    promote it to a real one so the guarded handler still runs it."""
+    if not reply or "{" not in reply:
+        return None
+    names = {spec["function"]["name"] for spec in tools}
+    decoder = json.JSONDecoder()
+    index = reply.find("{")
+    while index != -1:
+        try:
+            candidate, _ = decoder.raw_decode(reply, index)
+        except ValueError:
+            candidate = None
+        if isinstance(candidate, dict):
+            if candidate.get("name") in names and isinstance(candidate.get("arguments"), dict):
+                return {
+                    "id": "text-fallback",
+                    "type": "function",
+                    "function": {"name": candidate["name"], "arguments": json.dumps(candidate["arguments"])},
+                }
+            if "move" in names and isinstance(candidate.get("position"), str) and set(candidate) <= {"position", "confirm"}:
+                return {
+                    "id": "text-fallback",
+                    "type": "function",
+                    "function": {"name": "move", "arguments": json.dumps(candidate)},
+                }
+        index = reply.find("{", index + 1)
+    return None
+
 
 _ROS2_NAME_ALLOWED = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_/~.-")
 
@@ -2176,6 +2272,20 @@ class TelemetryStore:
         files.sort(key=lambda item: (not item["custom_named"], -item["modified_at"]))
         return {"files": files}
 
+    def named_positions(self) -> dict[str, str]:
+        """Operator-named recordings keyed by normalized position name.
+
+        Only custom-named (renamed) files count; the newest file wins when two
+        share a name. These are the targets the chat 'move' tool can drive to.
+        """
+        positions: dict[str, str] = {}
+        for item in self.recording_files()["files"]:
+            if not item.get("custom_named"):
+                continue
+            label = recording_name_parts(item["name"])[1]
+            positions.setdefault(normalize_position_name(label), item["name"])
+        return positions
+
     def recording_file_path(self, filename: str) -> Path:
         name = Path(filename).name
         if not (name.endswith(".jsonl") or name.endswith(".pose.json") or name.endswith(".sequence.json")):
@@ -3723,9 +3833,14 @@ class TelemetryStore:
         return self._chat_tool_loop(messages)
 
     def chat_tool_specs(self) -> list[dict[str, Any]]:
-        if LLM_TOOL_CHILL_ENABLED:
-            return CHAT_TOOL_SPECS
-        return [spec for spec in CHAT_TOOL_SPECS if spec["function"]["name"] != "chill_motors"]
+        specs = list(CHAT_TOOL_SPECS)
+        if not LLM_TOOL_CHILL_ENABLED:
+            specs = [spec for spec in specs if spec["function"]["name"] != "chill_motors"]
+        if LLM_TOOL_MOVE_ENABLED:
+            positions = sorted(self.named_positions())
+            if positions:
+                specs.append(move_tool_spec(positions))
+        return specs
 
     def _chat_tool_loop(self, messages: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
         """Chat completion loop that executes model-requested tool calls.
@@ -3743,8 +3858,11 @@ class TelemetryStore:
                 return status, response
             calls = response.pop("tool_calls", None)
             if not calls:
-                response["tools_used"] = tools_used
-                return 200, response
+                fallback = extract_textual_tool_call(response.get("reply") or "", tools)
+                if fallback is None:
+                    response["tools_used"] = tools_used
+                    return 200, response
+                calls = [fallback]
             messages.append({"role": "assistant", "content": response.get("reply") or "", "tool_calls": calls})
             for call in calls[:LLM_MAX_TOOL_CALLS_PER_ROUND]:
                 function = call.get("function") if isinstance(call, dict) else None
@@ -3815,6 +3933,8 @@ class TelemetryStore:
                 return result
             if name == "chill_motors":
                 return self._tool_chill(arguments)
+            if name == "move":
+                return self._tool_move(arguments)
             return {"ok": False, "error": f"Unknown tool: {name or '(empty)'}"}
         except Exception as exc:  # pragma: no cover - defensive: tool bugs must not kill chat
             return {"ok": False, "error": f"Tool failed: {exc}"}
@@ -3852,6 +3972,45 @@ class TelemetryStore:
         status, result = self.chill_motors()
         self.record_command_event("chat_chill", {"source": "chat", "status": status, "result": result})
         return {"ok": status < 400 and bool(result.get("ok")), "status": status, "result": result}
+
+    def _tool_move(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if not LLM_TOOL_MOVE_ENABLED:
+            return {"ok": False, "error": "The move tool is disabled (LLM_TOOL_MOVE_ENABLED=0)."}
+        if arguments.get("confirm") is not True:
+            return {"ok": False, "error": "Refused: confirm must be true (operator must have explicitly asked for this movement)."}
+        raw = arguments.get("position")
+        if not isinstance(raw, str) or not raw.strip():
+            return {"ok": False, "error": "Provide a position name."}
+        positions = self.named_positions()
+        wanted = normalize_position_name(raw)
+        filename = positions.get(wanted)
+        if not filename:
+            fragments = [name for name in sorted(positions) if wanted in name or name in wanted]
+            if len(fragments) == 1:
+                wanted = fragments[0]
+                filename = positions[wanted]
+            else:
+                available = ", ".join(sorted(positions)) or "none (rename a saved pose in the dashboard to create one)"
+                return {"ok": False, "error": f"No saved position matches '{raw}'. Available: {available}"}
+        # Identical request body to the dashboard's Move button (see requestRobotReplay
+        # in static/app.js), so every arm_sdk safety gate applies unchanged.
+        status, result = self.request_robot_replay(
+            {
+                "filename": filename,
+                "execute_arm_sdk": True,
+                "command_scope": "arms",
+                "closed_loop": True,
+                "hold_after_convergence": True,
+                "position_tolerance_rad": 0.01,
+                "replay_response": 2.5,
+            }
+        )
+        self.record_command_event(
+            "chat_move", {"source": "chat", "position": wanted, "filename": filename, "status": status}
+        )
+        if isinstance(result, dict):
+            result = {key: value for key, value in result.items() if key != "plan"}
+        return {"ok": status < 400 and bool(result.get("ok")), "status": status, "position": wanted, **result}
 
     def mcp_request(self, payload: Any) -> dict[str, Any] | None:
         """Handle one MCP JSON-RPC message (stateless streamable HTTP).

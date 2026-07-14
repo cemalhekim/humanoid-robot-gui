@@ -581,6 +581,114 @@ class TelemetryContractsTest(unittest.TestCase):
 
         self.assertEqual(names, [old_custom.name, new_auto.name])
 
+    def test_named_positions_maps_custom_labels_to_files(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            original_dir = server.RECORDINGS_DIR
+            server.RECORDINGS_DIR = server.Path(directory)
+            try:
+                for name in (
+                    "20260714-112404-raise-hand.pose.json",
+                    "20260714-112354-hand_forward.pose.json",
+                    "20260714-111543-home.pose.json",
+                    "20260714-101500-h1_2_pose_point.pose.json",
+                ):
+                    (server.RECORDINGS_DIR / name).write_text("{}", encoding="utf-8")
+                positions = store.named_positions()
+            finally:
+                server.RECORDINGS_DIR = original_dir
+
+        self.assertEqual(
+            positions,
+            {
+                "raise-hand": "20260714-112404-raise-hand.pose.json",
+                "hand-forward": "20260714-112354-hand_forward.pose.json",
+                "home": "20260714-111543-home.pose.json",
+            },
+        )
+
+    def test_chat_tool_specs_include_move_with_position_enum(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            original_dir = server.RECORDINGS_DIR
+            server.RECORDINGS_DIR = server.Path(directory)
+            try:
+                (server.RECORDINGS_DIR / "20260714-111543-home.pose.json").write_text("{}", encoding="utf-8")
+                specs = {spec["function"]["name"]: spec for spec in store.chat_tool_specs()}
+                empty_dir_specs = None
+                for item in server.RECORDINGS_DIR.glob("*.pose.json"):
+                    item.unlink()
+                empty_dir_specs = {spec["function"]["name"] for spec in store.chat_tool_specs()}
+            finally:
+                server.RECORDINGS_DIR = original_dir
+
+        move = specs["move"]["function"]
+        self.assertEqual(move["parameters"]["properties"]["position"]["enum"], ["home"])
+        self.assertEqual(move["parameters"]["required"], ["position", "confirm"])
+        self.assertNotIn("move", empty_dir_specs)
+
+    def test_move_tool_requires_confirm_and_known_position(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            original_dir = server.RECORDINGS_DIR
+            server.RECORDINGS_DIR = server.Path(directory)
+            try:
+                (server.RECORDINGS_DIR / "20260714-111543-home.pose.json").write_text("{}", encoding="utf-8")
+                no_confirm = store.run_chat_tool("move", {"position": "home"})
+                unknown = store.run_chat_tool("move", {"position": "backflip", "confirm": True})
+            finally:
+                server.RECORDINGS_DIR = original_dir
+
+        self.assertFalse(no_confirm["ok"])
+        self.assertIn("confirm", no_confirm["error"])
+        self.assertFalse(unknown["ok"])
+        self.assertIn("home", unknown["error"])
+
+    def test_move_tool_replays_named_position_like_move_button(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            original_dir = server.RECORDINGS_DIR
+            server.RECORDINGS_DIR = server.Path(directory)
+            try:
+                (server.RECORDINGS_DIR / "20260714-112354-hand-forward.pose.json").write_text("{}", encoding="utf-8")
+                with mock.patch.object(
+                    store, "request_robot_replay", return_value=(200, {"ok": True, "message": "moving", "plan": {"x": 1}})
+                ) as replay:
+                    result = store.run_chat_tool("move", {"position": "hand_forward", "confirm": True})
+            finally:
+                server.RECORDINGS_DIR = original_dir
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["position"], "hand-forward")
+        self.assertNotIn("plan", result)
+        payload = replay.call_args[0][0]
+        self.assertEqual(payload["filename"], "20260714-112354-hand-forward.pose.json")
+        self.assertIs(payload["execute_arm_sdk"], True)
+        self.assertEqual(payload["command_scope"], "arms")
+
+    def test_extract_textual_tool_call_promotes_move_json(self) -> None:
+        tools = [server.move_tool_spec(["home", "raise-hand"])]
+        for reply in (
+            '{"position": "raise-hand", "confirm": true}',
+            'Sure: {"position": "raise-hand", "confirm": true} done',
+            '<tool_call>{"name": "move", "arguments": {"position": "raise-hand", "confirm": true}}</tool_call>',
+        ):
+            call = server.extract_textual_tool_call(reply, tools)
+            self.assertIsNotNone(call, reply)
+            self.assertEqual(call["function"]["name"], "move")
+            self.assertEqual(server.json.loads(call["function"]["arguments"])["position"], "raise-hand")
+
+    def test_extract_textual_tool_call_ignores_plain_answers(self) -> None:
+        tools = [server.move_tool_spec(["home"])]
+        for reply in (
+            "Motor sayısı: 0",
+            "raising your hand now.",
+            'The config is {"port": 8088} on eth0',
+            "",
+        ):
+            self.assertIsNone(server.extract_textual_tool_call(reply, tools), reply)
+        self.assertIsNone(server.extract_textual_tool_call('{"position": "home", "confirm": true}', []))
+
     def test_robot_replay_accepts_inline_edited_pose_without_saving(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         with TemporaryDirectory() as directory:

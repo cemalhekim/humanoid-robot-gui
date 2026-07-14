@@ -564,12 +564,20 @@ function render(snapshot) {
     : snapshot.error || "Waiting for rt/lowstate";
   renderNetwork(snapshot.network);
 
-  renderRobotStatus(snapshot);
-  renderMotors(motorTableRows(snapshot));
-  renderWristTelemetry(snapshot);
-  renderLocoTelemetry(snapshot);
-  if (snapshot.loco) renderLocoStatus(snapshot.loco);
-  els.rawJson.textContent = snapshotToCsv(snapshot);
+  // Perf: only rebuild the DOM of the page the operator is actually looking
+  // at. The motor table (35 rows of innerHTML) and the CSV dump used to be
+  // rebuilt on EVERY 200 ms telemetry message even while hidden. Each page
+  // re-renders from state.latest the moment it becomes active (see the
+  // telemetry-tab-change listener).
+  const activeHash = window.location.hash || "#dashboard";
+  if (activeHash === "#dashboard" || activeHash === "") renderRobotStatus(snapshot);
+  if (activeHash === "#motorPage") renderMotors(motorTableRows(snapshot));
+  if (activeHash === "#wristPage") renderWristTelemetry(snapshot);
+  if (activeHash === "#locoPage") {
+    renderLocoTelemetry(snapshot);
+    if (snapshot.loco) renderLocoStatus(snapshot.loco);
+  }
+  if (activeHash === "#rawView") els.rawJson.textContent = snapshotToCsv(snapshot);
   updateRobotMotionToggle();
   window.dispatchEvent(new CustomEvent("telemetry-state", { detail: { snapshot } }));
 }
@@ -2422,6 +2430,11 @@ window.addEventListener("recording-viewer-ready", () => {
   setTimeout(refreshReplayTarget, 250);
 });
 window.addEventListener("telemetry-tab-change", () => {
+  // Freshly shown page: render it from the latest snapshot right away instead
+  // of waiting for the next SSE message.
+  if (state.latest) render(state.latest);
+}, { once: false });
+window.addEventListener("telemetry-tab-change", () => {
   if (window.location.hash === "#recordingPage") {
     setTimeout(refreshReplayTarget, 0);
     setTimeout(refreshReplayTarget, 250);
@@ -2844,14 +2857,23 @@ connectEvents();
   if (media?.matches) return;
   const selector = ".mini-panel, .camera-card, .loco-card, .wrist-card, .panel";
   document.querySelectorAll(selector).forEach((el) => el.classList.add("reveal-target"));
+  // Perf: batch to one layout read per frame instead of per pointer event.
+  let pending = null;
   document.addEventListener(
     "pointermove",
     (event) => {
       const card = event.target.closest?.(".reveal-target");
       if (!card) return;
-      const rect = card.getBoundingClientRect();
-      card.style.setProperty("--reveal-x", `${event.clientX - rect.left}px`);
-      card.style.setProperty("--reveal-y", `${event.clientY - rect.top}px`);
+      if (!pending) {
+        window.requestAnimationFrame(() => {
+          const { card: c, x, y } = pending;
+          pending = null;
+          const rect = c.getBoundingClientRect();
+          c.style.setProperty("--reveal-x", `${x - rect.left}px`);
+          c.style.setProperty("--reveal-y", `${y - rect.top}px`);
+        });
+      }
+      pending = { card, x: event.clientX, y: event.clientY };
     },
     { passive: true },
   );

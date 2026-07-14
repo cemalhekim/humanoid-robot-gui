@@ -1151,7 +1151,7 @@ class RobotViewer {
     this.camera.position.set(2.15, 0.55, 0);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.container.appendChild(this.renderer.domElement);
 
@@ -1182,8 +1182,15 @@ class RobotViewer {
 
   animate() {
     requestAnimationFrame(() => this.animate());
+    // Perf: skip all per-frame work while this viewer's page is hidden, and
+    // only touch layout (getBoundingClientRect) when the size actually changed
+    // (ResizeObserver flags it) instead of forcing a layout read every frame.
+    if (this._hidden) return;
+    if (this._sizeDirty) {
+      this._sizeDirty = false;
+      this.resize();
+    }
     this.controls?.update();
-    this.resize();
     this.updateCollisionDebugHelpers();
     this.renderer?.render(this.scene, this.camera);
   }
@@ -1191,6 +1198,16 @@ class RobotViewer {
   start() {
     if (!this.container || this.started) return;
     this.started = true;
+    this._hidden = false;
+    this._sizeDirty = true;
+    if (typeof IntersectionObserver !== "undefined") {
+      new IntersectionObserver((entries) => {
+        for (const entry of entries) this._hidden = !entry.isIntersecting;
+      }).observe(this.container);
+    }
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => { this._sizeDirty = true; }).observe(this.container);
+    }
     this.initScene();
     this.bindViewTools();
     this.setFields({ model: "loading", status: "loading URDF", meshes: "0/0" });
@@ -1251,8 +1268,8 @@ window.addEventListener("telemetry-tab-change", () => {
   }, 0);
 });
 window.addEventListener("resize", () => {
-  liveViewer.resize();
-  replayViewer.resize();
+  liveViewer._sizeDirty = true;
+  replayViewer._sizeDirty = true;
 });
 
 function startReplayViewer() {

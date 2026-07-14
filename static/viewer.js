@@ -287,10 +287,12 @@ class RobotViewer {
       if (urdfJoint) this.setJointValue(urdfJoint, motor.q);
     }
 
-    for (const hand of snapshot.hands?.joints || []) {
-      const urdfJoints = HAND_JOINTS[hand.name] || [];
-      for (const jointConfig of urdfJoints) {
-        this.setJointValue(jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+    if (this.handsVisible !== false) {
+      for (const hand of snapshot.hands?.joints || []) {
+        const urdfJoints = HAND_JOINTS[hand.name] || [];
+        for (const jointConfig of urdfJoints) {
+          this.setJointValue(jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+        }
       }
     }
 
@@ -319,10 +321,12 @@ class RobotViewer {
       const urdfJoint = BODY_JOINTS[motor.name];
       if (urdfJoint) this.setJointValueIn(this.referenceJointGroups, urdfJoint, motor.q);
     }
-    for (const hand of snapshot.hands?.joints || []) {
-      const urdfJoints = HAND_JOINTS[hand.name] || [];
-      for (const jointConfig of urdfJoints) {
-        this.setJointValueIn(this.referenceJointGroups, jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+    if (this.handsVisible !== false) {
+      for (const hand of snapshot.hands?.joints || []) {
+        const urdfJoints = HAND_JOINTS[hand.name] || [];
+        for (const jointConfig of urdfJoints) {
+          this.setJointValueIn(this.referenceJointGroups, jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+        }
       }
     }
   }
@@ -336,10 +340,12 @@ class RobotViewer {
       const urdfJoint = BODY_JOINTS[motor.name];
       if (urdfJoint) this.setJointValueIn(this.trajectoryJointGroups, urdfJoint, motor.q);
     }
-    for (const hand of snapshot.hands?.joints || []) {
-      const urdfJoints = HAND_JOINTS[hand.name] || [];
-      for (const jointConfig of urdfJoints) {
-        this.setJointValueIn(this.trajectoryJointGroups, jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+    if (this.handsVisible !== false) {
+      for (const hand of snapshot.hands?.joints || []) {
+        const urdfJoints = HAND_JOINTS[hand.name] || [];
+        for (const jointConfig of urdfJoints) {
+          this.setJointValueIn(this.trajectoryJointGroups, jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+        }
       }
     }
     this.setFields({
@@ -356,6 +362,22 @@ class RobotViewer {
 
   setTrajectoryVisible(visible) {
     if (this.trajectoryRoot) this.trajectoryRoot.visible = visible;
+  }
+
+  queueTelemetry(snapshot, mode) {
+    // Perf: while this viewer's page is hidden, don't burn CPU posing ~60
+    // joints per message — remember only the newest snapshot and apply it
+    // when the page becomes visible again.
+    if (this._hidden) {
+      this._pendingTelemetry = { snapshot, mode };
+      return;
+    }
+    this._applyByMode(snapshot, mode);
+  }
+
+  _applyByMode(snapshot, mode) {
+    if (mode === "reference") this.applyReference(snapshot);
+    else this.applyTelemetry(snapshot, mode);
   }
 
   setHandsVisible(visible) {
@@ -1203,6 +1225,12 @@ class RobotViewer {
     if (typeof IntersectionObserver !== "undefined") {
       new IntersectionObserver((entries) => {
         for (const entry of entries) this._hidden = !entry.isIntersecting;
+        // Back on screen: apply the newest telemetry that arrived while hidden.
+        if (!this._hidden && this._pendingTelemetry) {
+          const pending = this._pendingTelemetry;
+          this._pendingTelemetry = null;
+          this._applyByMode(pending.snapshot, pending.mode);
+        }
       }).observe(this.container);
     }
     if (typeof ResizeObserver !== "undefined") {
@@ -1236,8 +1264,8 @@ const replayViewer = new RobotViewer({
 });
 
 window.addEventListener("telemetry-state", (event) => {
-  liveViewer.applyTelemetry(event.detail.snapshot, "live");
-  replayViewer.applyReference(event.detail.snapshot);
+  liveViewer.queueTelemetry(event.detail.snapshot, "live");
+  replayViewer.queueTelemetry(event.detail.snapshot, "reference");
 });
 window.addEventListener("recording-replay-frame", (event) => replayViewer.applyTelemetry(event.detail.snapshot, "replay"));
 window.addEventListener("recording-replay-target", (event) => replayViewer.applyTelemetry(event.detail.snapshot, "target"));

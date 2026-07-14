@@ -639,6 +639,11 @@ async function loadRecordingFiles({ loadSelected = false } = {}) {
   try {
     const response = await fetch("/api/recording/files");
     const payload = await response.json();
+    // Perf: the list is polled every 5 s but rarely changes — skip the DOM
+    // rebuild (and selection churn) when nothing did.
+    const signature = (payload.files || []).map((f) => `${f.name}:${f.modified_at}`).join("|");
+    if (!loadSelected && signature === state.recordingFilesSignature) return;
+    state.recordingFilesSignature = signature;
     const selected = renderRecordingFiles(payload.files || []);
     if (loadSelected && selected && selected !== state.replay.loadedFile && !state.replay.playing) {
       await loadReplayRecording();
@@ -2386,13 +2391,24 @@ function syncActiveNav() {
   window.dispatchEvent(new CustomEvent("telemetry-tab-change", { detail: { hash: activeHash } }));
 }
 
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.latest) render(state.latest);
+});
+
 function connectEvents() {
   if (state.events) return;
   const events = new EventSource("/events");
   state.events = events;
   events.onmessage = (event) => {
     try {
-      render(JSON.parse(event.data));
+      const snapshot = JSON.parse(event.data);
+      // Perf: browser tab in the background — keep state fresh but skip all
+      // DOM/3D work; one render catches up when the tab becomes visible.
+      if (document.hidden) {
+        state.latest = snapshot;
+        return;
+      }
+      render(snapshot);
     } catch (error) {
       console.error(error);
     }

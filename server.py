@@ -909,6 +909,36 @@ def recording_timestamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
 
+# Labels the UI/server assign automatically when saving without an operator-chosen
+# name. Files whose label is NOT in this set were renamed by the operator and are
+# listed above auto-named ones.
+AUTO_RECORDING_LABELS = {
+    "pose_point",
+    "h1_2_pose_point",
+    "h1_2_edited_pose_point",
+    "sequence",
+    "h1_2_edited_sequence",
+    "telemetry",
+    "h1_2_full_body_hands",
+}
+
+RECORDING_FILE_SUFFIXES = (".pose.json", ".sequence.json", ".jsonl")
+
+
+def recording_name_parts(name: str) -> tuple[str, str, str]:
+    """Split a recording filename into (timestamp prefix incl. trailing '-', label, extension)."""
+    stem = name
+    extension = ""
+    for suffix in RECORDING_FILE_SUFFIXES:
+        if name.endswith(suffix):
+            extension = suffix
+            stem = name[: -len(suffix)]
+            break
+    if len(stem) >= 16 and stem[:8].isdigit() and stem[8] == "-" and stem[9:15].isdigit() and stem[15] == "-":
+        return stem[:16], stem[16:], extension
+    return "", stem, extension
+
+
 class TelemetryRecorder:
     def __init__(self, directory: Path) -> None:
         self.directory = directory
@@ -2127,19 +2157,23 @@ class TelemetryStore:
             *RECORDINGS_DIR.glob("*.pose.json"),
             *RECORDINGS_DIR.glob("*.sequence.json"),
         ]
-        for path in sorted(paths, key=lambda item: item.stat().st_mtime, reverse=True):
+        for path in paths:
             try:
                 stat = path.stat()
             except OSError:
                 continue
+            custom_named = recording_name_parts(path.name)[1] not in AUTO_RECORDING_LABELS
             files.append(
                 {
                     "name": path.name,
                     "path": str(path),
                     "size": stat.st_size,
                     "modified_at": stat.st_mtime,
+                    "custom_named": custom_named,
                 }
             )
+        # Operator-renamed files first, then auto-named ones; newest first within each group.
+        files.sort(key=lambda item: (not item["custom_named"], -item["modified_at"]))
         return {"files": files}
 
     def recording_file_path(self, filename: str) -> Path:
@@ -2258,6 +2292,41 @@ class TelemetryStore:
                 "path": str(path),
                 "size": path.stat().st_size,
                 "modified_at": path.stat().st_mtime,
+            },
+        }
+
+    def rename_recording(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        name = str(payload.get("name", "")).strip() if payload else ""
+        label = str(payload.get("label", "")).strip() if payload else ""
+        if not name or not label:
+            return 400, {"ok": False, "error": "Rename requires the current filename and a new name."}
+        try:
+            path = self.recording_file_path(name)
+        except FileNotFoundError:
+            return 404, {"ok": False, "error": f"Recording {name} was not found."}
+        except ValueError as exc:
+            return 400, {"ok": False, "error": str(exc)}
+        safe_label = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in label)
+        safe_label = safe_label.strip("_")[:48]
+        if not safe_label:
+            return 400, {"ok": False, "error": "New name must contain letters, digits, '-', or '_'."}
+        prefix, _, extension = recording_name_parts(path.name)
+        if not prefix:
+            prefix = f"{recording_timestamp()}-"
+        new_path = path.with_name(f"{prefix}{safe_label}{extension}")
+        if new_path != path and new_path.exists():
+            return 409, {"ok": False, "error": f"A recording named {new_path.name} already exists."}
+        if new_path != path:
+            path.rename(new_path)
+        stat = new_path.stat()
+        return 200, {
+            "ok": True,
+            "file": {
+                "name": new_path.name,
+                "path": str(new_path),
+                "size": stat.st_size,
+                "modified_at": stat.st_mtime,
+                "custom_named": recording_name_parts(new_path.name)[1] not in AUTO_RECORDING_LABELS,
             },
         }
 
@@ -5317,6 +5386,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/recording/sequence":
             status, response = self.store.save_sequence(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/recording/rename":
+            status, response = self.store.rename_recording(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

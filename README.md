@@ -481,6 +481,20 @@ claude mcp add --transport http robot http://10.2.100.142:8088/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
+Or drive the tools with the on-prem LLM (Ollama on the AI host) using the
+bundled agent CLI — an interactive REPL, or one-shot with `-p`:
+
+```bash
+python3 tools/mcp_agent.py --token <token> \
+  -p "What is the robot's locomotion status right now?"
+```
+
+`tools/mcp_agent.py` is a stdlib-only MCP client: it discovers the tools via
+`tools/list`, offers them to the model as OpenAI-style function specs, and
+executes requested calls via `tools/call`. Defaults target the robot dashboard
+(`--mcp-url`) and the AI host's Ollama (`--llm-url`, `--model`); run with
+`--help` for options.
+
 Protocol notes: stateless JSON responses only (no SSE stream, no sessions, no
 resumability); notifications are acknowledged with `202`; `GET /mcp` returns
 `405`. Supported methods: `initialize`, `ping`, `tools/list`, `tools/call`.

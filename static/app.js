@@ -116,6 +116,7 @@ const els = {
   recordingLastSample: document.getElementById("recordingLastSample"),
   recordingError: document.getElementById("recordingError"),
   recordingFileSelect: document.getElementById("recordingFileSelect"),
+  recordingRename: document.getElementById("recordingRename"),
   recordingPlay: document.getElementById("recordingPlay"),
   recordingRobotPlay: document.getElementById("recordingRobotPlay"),
   recordingReplayResponse: document.getElementById("recordingReplayResponse"),
@@ -631,7 +632,13 @@ function renderRecordingFiles(files) {
     els.recordingFileSelect.value = current;
   }
   els.recordingFileSelect.disabled = false;
+  updateRenameButton();
   return els.recordingFileSelect.value;
+}
+
+function updateRenameButton() {
+  if (!els.recordingRename) return;
+  els.recordingRename.disabled = !isRobotReplayFileName(els.recordingFileSelect?.value || "");
 }
 
 async function loadRecordingFiles({ loadSelected = false } = {}) {

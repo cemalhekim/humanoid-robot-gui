@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 import unittest
 from unittest import mock
@@ -528,6 +529,57 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(len(saved["points"]), 2)
         self.assertEqual(saved["points"][0]["motors"], points[0]["motors"])
         self.assertEqual(saved["points"][0]["type"], "telemetry_sample")
+
+    def test_rename_recording_keeps_timestamp_prefix_and_extension(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            original_dir = server.RECORDINGS_DIR
+            server.RECORDINGS_DIR = server.Path(directory)
+            try:
+                path = server.RECORDINGS_DIR / "20260714-101500-h1_2_pose_point.pose.json"
+                path.write_text("{}", encoding="utf-8")
+                status, response = store.rename_recording({"name": path.name, "label": "wave hello!"})
+            finally:
+                server.RECORDINGS_DIR = original_dir
+
+        self.assertEqual(status, 200)
+        self.assertEqual(response["file"]["name"], "20260714-101500-wave_hello.pose.json")
+        self.assertTrue(response["file"]["custom_named"])
+
+    def test_rename_recording_rejects_missing_file_and_existing_target(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            original_dir = server.RECORDINGS_DIR
+            server.RECORDINGS_DIR = server.Path(directory)
+            try:
+                source = server.RECORDINGS_DIR / "20260714-101500-pose_point.pose.json"
+                source.write_text("{}", encoding="utf-8")
+                (server.RECORDINGS_DIR / "20260714-101500-taken.pose.json").write_text("{}", encoding="utf-8")
+                missing_status, _ = store.rename_recording({"name": "20260714-000000-gone.pose.json", "label": "x"})
+                conflict_status, _ = store.rename_recording({"name": source.name, "label": "taken"})
+            finally:
+                server.RECORDINGS_DIR = original_dir
+
+        self.assertEqual(missing_status, 404)
+        self.assertEqual(conflict_status, 409)
+
+    def test_recording_files_lists_custom_named_before_auto_named(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            original_dir = server.RECORDINGS_DIR
+            server.RECORDINGS_DIR = server.Path(directory)
+            try:
+                old_custom = server.RECORDINGS_DIR / "20260101-000000-wave_hello.pose.json"
+                new_auto = server.RECORDINGS_DIR / "20260714-101500-h1_2_pose_point.pose.json"
+                old_custom.write_text("{}", encoding="utf-8")
+                new_auto.write_text("{}", encoding="utf-8")
+                os.utime(old_custom, (1_700_000_000, 1_700_000_000))
+                os.utime(new_auto, (1_800_000_000, 1_800_000_000))
+                names = [item["name"] for item in store.recording_files()["files"]]
+            finally:
+                server.RECORDINGS_DIR = original_dir
+
+        self.assertEqual(names, [old_custom.name, new_auto.name])
 
     def test_robot_replay_accepts_inline_edited_pose_without_saving(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")

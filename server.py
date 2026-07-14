@@ -5322,6 +5322,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/stop",
             "/api/recording/pose",
             "/api/recording/sequence",
+            "/api/recording/rename",
             "/api/recording/replay/robot",
             "/mcp",
         ):

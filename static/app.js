@@ -1182,6 +1182,7 @@ async function requestRobotReplay() {
 
 async function loadReplayRecording() {
   if (!els.recordingFileSelect?.value) return;
+  updateRenameButton();
   pauseReplay();
   try {
     const name = els.recordingFileSelect.value;
@@ -1392,6 +1393,7 @@ async function setSequenceMode(active) {
   if (active) loadSequenceDraft();
   if (active && els.recordingFileSelect) {
     els.recordingFileSelect.value = currentRobotPoseValue;
+    updateRenameButton();
     await loadReplayRecording();
   }
   renderSequenceBuilder();
@@ -1518,6 +1520,36 @@ async function capturePosePoint() {
     }
   } finally {
     els.recordingCapturePose.disabled = false;
+  }
+}
+
+async function renameRecordingFile() {
+  const name = els.recordingFileSelect?.value || "";
+  if (!isRobotReplayFileName(name)) {
+    if (els.recordingError) els.recordingError.textContent = "Select a saved pose, sequence, or recording to rename.";
+    return;
+  }
+  const suggested = name.replace(/^\d{8}-\d{6}-/, "").replace(/(\.pose\.json|\.sequence\.json|\.jsonl)$/, "");
+  const label = window.prompt("New name (letters, digits, - and _):", suggested);
+  if (label === null || !label.trim()) return;
+  if (els.recordingRename) els.recordingRename.disabled = true;
+  try {
+    const response = await fetch("/api/recording/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, label: label.trim() }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || "Rename failed.");
+    const newName = payload.file?.name;
+    if (newName && state.replay.loadedFile === name) state.replay.loadedFile = newName;
+    await loadRecordingFiles();
+    if (newName && els.recordingFileSelect) els.recordingFileSelect.value = newName;
+    if (els.recordingError) els.recordingError.textContent = newName ? `Renamed to ${newName}` : "Renamed.";
+  } catch (error) {
+    if (els.recordingError) els.recordingError.textContent = error instanceof Error ? error.message : "Rename failed.";
+  } finally {
+    updateRenameButton();
   }
 }
 
@@ -2530,7 +2562,11 @@ els.sequencePointList?.addEventListener("keydown", (event) => {
   event.preventDefault();
   showSequencePoint(Number(item.dataset.sequenceSelect));
 });
-els.recordingFileSelect?.addEventListener("change", loadReplayRecording);
+els.recordingRename?.addEventListener("click", renameRecordingFile);
+els.recordingFileSelect?.addEventListener("change", () => {
+  updateRenameButton();
+  loadReplayRecording();
+});
 els.recordingFileSelect?.addEventListener("click", () => {
   if (els.recordingFileSelect.value === currentRobotPoseValue) loadReplayRecording();
 });

@@ -4,13 +4,9 @@
 Runs periodically on the operator Mac (LaunchAgent
 com.vodafone.robot-dashboard-tunnel-url). Two quick tunnels run on the Mac:
 
-- "url"       -> the read-only mirror of the Mac's dashboard copy
-                 (com.vodafone.robot-dashboard-cloudflared, welcome "Offline"
-                 card — works even with the robot switched off), and
-- "robot_url" -> a live relay straight to the robot's Ethernet interface
-                 http://192.168.123.164:8088 over the Mac's wired link
-                 (com.vodafone.robot-dashboard-cloudflared-robot, welcome
-                 "Remote" card — full dashboard from anywhere in the world).
+- "url" -> the read-only mirror of the Mac's dashboard copy
+           (com.vodafone.robot-dashboard-cloudflared, welcome "Offline" card —
+           works even with the robot switched off).
 
 Each quick tunnel gets a fresh https://<random>.trycloudflare.com hostname
 whenever cloudflared restarts, so this script:
@@ -39,25 +35,20 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 TARGET = REPO / "static" / "remote-entrance.json"
 LOG_DIR = Path("/tmp/robot-dashboard-remote")
+# SECURITY: only the READ-ONLY mirror is ever published. A second "live relay"
+# tunnel straight to the robot's dashboard was removed on operator request —
+# it exposed unauthenticated robot control to the public internet.
 TUNNELS: dict[str, dict] = {
     "url": {
         "logs": (LOG_DIR / "cloudflared.err.log", LOG_DIR / "cloudflared.log"),
         "check_path": "/welcome",
-    },
-    "robot_url": {
-        "logs": (
-            LOG_DIR / "cloudflared-robot.err.log",
-            LOG_DIR / "cloudflared-robot.log",
-        ),
-        "check_path": "/",
     },
 }
 URL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 NOTE = (
     "Auto-updated by tools/update_remote_entrance.py on the operator Mac; "
     "quick-tunnel hostnames change when cloudflared restarts. url = read-only "
-    "mirror (Offline card), robot_url = live Ethernet relay to the robot "
-    "(Remote card)."
+    "mirror (Offline card). No live-control tunnel is published, by design."
 )
 
 
@@ -121,7 +112,6 @@ def main() -> int:
         json.dumps(
             {
                 "url": published.get("url"),
-                "robot_url": published.get("robot_url"),
                 "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "note": NOTE,
             },

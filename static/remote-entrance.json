@@ -1,6 +1,5 @@
 {
   "url": "https://elements-alien-sons-bob.trycloudflare.com",
-  "robot_url": "https://males-patrol-rivers-bone.trycloudflare.com",
   "updated_at": "2026-07-13T13:17:38+00:00",
-  "note": "Auto-updated by tools/update_remote_entrance.py on the operator Mac; quick-tunnel hostnames change when cloudflared restarts. url = read-only mirror (Offline card), robot_url = live Ethernet relay to the robot (Remote card)."
+  "note": "Auto-updated by tools/update_remote_entrance.py on the operator Mac; quick-tunnel hostnames change when cloudflared restarts. url = read-only mirror (Offline card). No live-control tunnel is published, by design."
 }

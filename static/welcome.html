@@ -226,17 +226,10 @@
         <p class="desc">Read-only mirror served from the operator Mac over a secure tunnel. Works from anywhere — even with the robot switched off (docs, diagrams, recordings, assistant).</p>
         <span class="status"><span class="dot checking" id="offlineDot"></span><span id="offlineText">checking…</span></span>
       </a>
-      <a class="card remote" id="remoteCard" data-net="remote" href="#" rel="noopener">
-        <div class="icon">🌍</div>
-        <h2>Remote</h2>
-        <p class="addr" id="remoteAddr">resolving tunnel…</p>
-        <p class="desc">Live link to the robot through the operator Mac: its wired Ethernet connection is streamed over a secure tunnel, so the full dashboard works from anywhere in the world.</p>
-        <span class="status"><span class="dot checking" id="remoteDot"></span><span id="remoteText">checking…</span></span>
-      </a>
     </div>
 
-    <p class="note"><b>Robot switched off?</b> The Wi-Fi, Ethernet and Remote entrances will be dark — use <b>Offline</b> to keep working,
-      or bookmark this page: it is hosted independently of the robot.</p>
+    <p class="note"><b>Robot switched off?</b> The Wi-Fi and Ethernet entrances will be dark — use <b>Offline</b> (read-only) to keep working,
+      or bookmark this page: it is hosted independently of the robot. Robot control is deliberately only possible from the lab network.</p>
     <p class="served" id="servedFrom"></p>
   </main>
 
@@ -335,31 +328,15 @@
           const response = await fetch(source, { cache: "no-store" });
           if (!response.ok) continue;
           const candidate = await response.json();
-          if (candidate && (candidate.url || candidate.robot_url)) { data = candidate; break; }
+          if (candidate && candidate.url) { data = candidate; break; }
         } catch { /* try the next source */ }
       }
 
       const hasMirror = setCardTunnel("offlineCard", "offlineAddr", data && data.url);
-      const hasLive = setCardTunnel("remoteCard", "remoteAddr", data && data.robot_url);
 
-      // Both cards' statuses come from the operator Mac's relay: the Offline
-      // card is up when the mirror answers, and the Remote (live) card mirrors
-      // the Mac's wired Ethernet link to the robot — the same path the live
-      // tunnel streams.
       const entrances = hasMirror ? await fetchEntrances(data.url) : null;
       if (entrances) {
         setStatus("offlineDot", "offlineText", "ok", "reachable");
-        if (hasLive) {
-          const eth = entrances.ethernet;
-          if (eth && eth.reachable) {
-            const latency = eth.latency_ms != null ? ` · ${Math.round(eth.latency_ms)} ms via Mac` : "";
-            setStatus("remoteDot", "remoteText", "ok", `reachable${latency}`);
-          } else {
-            setStatus("remoteDot", "remoteText", "down", "robot offline (Mac Ethernet link dark)");
-          }
-        } else {
-          setStatus("remoteDot", "remoteText", "down", "live tunnel not published");
-        }
         if (location.protocol === "https:") {
           // Browsers here block direct http probes as mixed content; use the
           // relayed status for the Wi-Fi/Ethernet cards too.
@@ -369,8 +346,6 @@
       }
 
       setStatus("offlineDot", "offlineText", "down", "tunnel offline (start the operator Mac)");
-      setStatus("remoteDot", "remoteText", hasLive ? "unknown" : "down",
-        hasLive ? "unknown — status relay offline" : "live tunnel not published");
       if (location.protocol === "https:") {
         setStatus("wifiDot", "wifiText", "unknown", "unknown — status relay offline");
         setStatus("ethDot", "ethText", "unknown", "unknown — status relay offline");

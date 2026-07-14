@@ -5509,6 +5509,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/start",
             "/api/recording/pose",
             "/api/recording/sequence",
+            "/api/recording/rename",
             "/api/recording/replay/robot",
         ):
             try:

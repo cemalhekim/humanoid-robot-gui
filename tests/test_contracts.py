@@ -666,6 +666,37 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertIs(payload["execute_arm_sdk"], True)
         self.assertEqual(payload["command_scope"], "arms")
 
+    def test_chat_replays_history_tools_used_as_tool_calls(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        captured: dict[str, list] = {}
+
+        def fake_call_llm(messages, tools=None):
+            captured["messages"] = messages
+            return 200, {"ok": True, "reply": "done"}
+
+        payload = {
+            "messages": [
+                {"role": "user", "content": "raise your hand"},
+                {
+                    "role": "assistant",
+                    "content": "Raising your hand now.",
+                    "tools_used": [{"name": "move", "arguments": {"position": "raise-hand", "confirm": True}, "ok": True}],
+                },
+                {"role": "user", "content": "go home"},
+            ]
+        }
+        with mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            with mock.patch.object(server, "LLM_TOOLS_ENABLED", True):
+                status, _ = store.chat(payload)
+
+        self.assertEqual(status, 200)
+        roles = [m["role"] for m in captured["messages"]]
+        self.assertEqual(roles, ["system", "user", "assistant", "tool", "assistant", "user"])
+        replayed = captured["messages"][2]["tool_calls"][0]["function"]
+        self.assertEqual(replayed["name"], "move")
+        self.assertEqual(server.json.loads(replayed["arguments"])["position"], "raise-hand")
+        self.assertEqual(server.json.loads(captured["messages"][3]["content"]), {"ok": True})
+
     def test_extract_textual_tool_call_promotes_move_json(self) -> None:
         tools = [server.move_tool_spec(["home", "raise-hand"])]
         for reply in (

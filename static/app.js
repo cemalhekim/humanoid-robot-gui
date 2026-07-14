@@ -2685,7 +2685,17 @@ function setupChat() {
             .join(", ");
         pending.card.append(note);
       }
-      history.push({ role: "assistant", content: payload.reply });
+      // Keep which tools ran with this reply: the server replays them to the
+      // LLM as real tool calls so later motion commands aren't answered with
+      // imitation prose (text in history looks like it "worked" without one).
+      const used = Array.isArray(payload.tools_used)
+        ? payload.tools_used.map((tool) => ({ name: tool.name, arguments: tool.arguments, ok: tool.ok }))
+        : [];
+      history.push(
+        used.length
+          ? { role: "assistant", content: payload.reply, tools_used: used }
+          : { role: "assistant", content: payload.reply },
+      );
       if (viaVoice) speak(payload.reply);
     } catch (error) {
       pending.card.classList.remove("pending");

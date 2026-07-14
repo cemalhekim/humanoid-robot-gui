@@ -3813,6 +3813,35 @@ class TelemetryStore:
                 return 400, {"ok": False, "error": "Message role must be 'user' or 'assistant'."}
             if not isinstance(content, str) or not content.strip():
                 return 400, {"ok": False, "error": "Message content must be a non-empty string."}
+            # Replay the tool calls that ran with a past assistant reply as real
+            # tool_calls/tool messages. Without them the model sees only prose
+            # like "Raising your hand now" in history and imitates it, answering
+            # later motion commands with text instead of a move call.
+            if role == "assistant":
+                replayed = []
+                for used in item.get("tools_used") or []:
+                    if not isinstance(used, dict):
+                        continue
+                    name = used.get("name")
+                    arguments = used.get("arguments")
+                    if not isinstance(name, str) or not name or not isinstance(arguments, dict):
+                        continue
+                    replayed.append(
+                        (
+                            {
+                                "id": f"replay{len(cleaned)}_{len(replayed)}",
+                                "type": "function",
+                                "function": {"name": name[:64], "arguments": json.dumps(arguments)[:2000]},
+                            },
+                            bool(used.get("ok")),
+                        )
+                    )
+                    if len(replayed) >= LLM_MAX_TOOL_CALLS_PER_ROUND:
+                        break
+                if replayed:
+                    cleaned.append({"role": "assistant", "content": "", "tool_calls": [call for call, _ in replayed]})
+                    for call, ok in replayed:
+                        cleaned.append({"role": "tool", "tool_call_id": call["id"], "content": json.dumps({"ok": ok})})
             cleaned.append({"role": role, "content": content[:LLM_MAX_MESSAGE_CHARS]})
 
         if cleaned[-1]["role"] != "user":

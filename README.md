@@ -417,6 +417,7 @@ POST endpoints:
 | `/api/recording/stop` | Stops the active telemetry recording |
 | `/api/recording/pose` | Captures the current full-body pose as a single target point |
 | `/api/recording/replay/robot` | Locked robot playback request; validates preview state but refuses physical playback until a safety controller exists |
+| `/mcp` | MCP endpoint (off by default; see the MCP Endpoint section) |
 
 State check:
 
@@ -455,6 +456,34 @@ Stop recording:
 ```bash
 curl -sS -X POST http://10.2.100.142:8088/api/recording/stop
 ```
+
+## MCP Endpoint
+
+`POST /mcp` exposes the chat assistant's tools to any MCP (Model Context
+Protocol) client over stateless streamable HTTP — same tool specs, same
+dispatch (`run_chat_tool`), and therefore exactly the same guards as the
+dashboard chat: the `chill_motors` confirm gate, ros2 name validation, and the
+`LLM_TOOL_CHILL_ENABLED` flag all apply unchanged. This is the stable,
+client-agnostic interface for LLM access to the robot; future motion skills
+should be added here (as guarded tools) rather than in any one client.
+
+Configuration (service environment):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MCP_ENABLED` | `0` | Serve `POST /mcp`. Off by default so an autoupdate deploy never silently opens the endpoint. |
+| `MCP_TOKEN` | empty | If set, requests must send `Authorization: Bearer <token>`. |
+
+Connect from Claude Code on the operator Mac:
+
+```bash
+claude mcp add --transport http robot http://10.2.100.142:8088/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+Protocol notes: stateless JSON responses only (no SSE stream, no sessions, no
+resumability); notifications are acknowledged with `202`; `GET /mcp` returns
+`405`. Supported methods: `initialize`, `ping`, `tools/list`, `tools/call`.
 
 ## Telemetry Recording
 

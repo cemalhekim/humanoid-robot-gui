@@ -419,6 +419,24 @@ LLM_MAX_TOOL_CALLS_PER_ROUND = int(os.environ.get("LLM_MAX_TOOL_CALLS_PER_ROUND"
 LLM_TOOL_OUTPUT_CHARS = int(os.environ.get("LLM_TOOL_OUTPUT_CHARS", "6000"))
 ROS2_TOOL_TIMEOUT = float(os.environ.get("ROS2_TOOL_TIMEOUT", "6"))
 
+# MCP (Model Context Protocol): exposes the SAME chat tools — same specs, same
+# dispatch, same guards (chill confirm gate, ros2 name validation, feature
+# flags) — to any MCP client over stateless streamable HTTP at POST /mcp.
+# Off by default because pushing to main auto-deploys to the robot; enable
+# deliberately with MCP_ENABLED=1 in the service environment. If MCP_TOKEN is
+# set, requests must carry "Authorization: Bearer <token>".
+MCP_ENABLED = os.environ.get("MCP_ENABLED", "0") not in ("0", "false", "False", "")
+MCP_TOKEN = os.environ.get("MCP_TOKEN", "")
+MCP_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+MCP_SERVER_INFO = {"name": "unitree-h1-2-dashboard", "version": "1.0.0"}
+MCP_INSTRUCTIONS = (
+    "Telemetry and diagnostics tools for a Unitree H1-2 humanoid robot. All "
+    "tools are read-only except chill_motors, which damps all motors so the "
+    "robot goes limp (it may sag or collapse if unsupported). Call chill_motors "
+    "only when the operator explicitly asked to release/chill/damp/relax the "
+    "motors, and pass confirm=true."
+)
+
 # ---------------------------------------------------------------------------
 # Voice: speech-to-text (STT) and text-to-speech (TTS).
 #
@@ -557,6 +575,26 @@ def valid_ros2_name(name: Any) -> bool:
         and not name.startswith("-")
         and set(name) <= _ROS2_NAME_ALLOWED
     )
+
+
+def mcp_tool_descriptors(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """OpenAI-style chat tool specs -> MCP tool descriptors (same JSON Schema)."""
+    return [
+        {
+            "name": spec["function"]["name"],
+            "description": spec["function"]["description"],
+            "inputSchema": spec["function"]["parameters"],
+        }
+        for spec in specs
+    ]
+
+
+def mcp_result(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def mcp_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
 def _fmt_num(value: Any, digits: int = 3) -> str:
@@ -3746,6 +3784,54 @@ class TelemetryStore:
         self.record_command_event("chat_chill", {"source": "chat", "status": status, "result": result})
         return {"ok": status < 400 and bool(result.get("ok")), "status": status, "result": result}
 
+    def mcp_request(self, payload: Any) -> dict[str, Any] | None:
+        """Handle one MCP JSON-RPC message (stateless streamable HTTP).
+
+        Returns the JSON-RPC response object, or None for notifications (the
+        HTTP handler answers those with 202 and no body). Tool calls go through
+        run_chat_tool, so MCP clients hit exactly the guards the chat does.
+        """
+        if not isinstance(payload, dict) or payload.get("jsonrpc") != "2.0":
+            return mcp_error(None, -32600, "Expected a JSON-RPC 2.0 request object.")
+        method = payload.get("method")
+        request_id = payload.get("id")
+        if not isinstance(method, str) or not method:
+            return mcp_error(request_id, -32600, "Request must include a 'method' string.")
+        if request_id is None:
+            return None  # notification (e.g. notifications/initialized)
+        params = payload.get("params")
+        params = params if isinstance(params, dict) else {}
+
+        if method == "initialize":
+            requested = params.get("protocolVersion")
+            version = requested if requested in MCP_PROTOCOL_VERSIONS else MCP_PROTOCOL_VERSIONS[0]
+            return mcp_result(request_id, {
+                "protocolVersion": version,
+                "capabilities": {"tools": {}},
+                "serverInfo": MCP_SERVER_INFO,
+                "instructions": MCP_INSTRUCTIONS,
+            })
+        if method == "ping":
+            return mcp_result(request_id, {})
+        if method == "tools/list":
+            return mcp_result(request_id, {"tools": mcp_tool_descriptors(self.chat_tool_specs())})
+        if method == "tools/call":
+            name = params.get("name")
+            available = {spec["function"]["name"] for spec in self.chat_tool_specs()}
+            if name not in available:
+                return mcp_error(request_id, -32602, f"Unknown tool: {name!r}")
+            arguments = params.get("arguments")
+            if arguments is None:
+                arguments = {}
+            if not isinstance(arguments, dict):
+                return mcp_error(request_id, -32602, "Tool 'arguments' must be an object.")
+            result = self.run_chat_tool(name, arguments)
+            return mcp_result(request_id, {
+                "content": [{"type": "text", "text": json.dumps(result, default=str)}],
+                "isError": not bool(result.get("ok")),
+            })
+        return mcp_error(request_id, -32601, f"Method not supported: {method}")
+
     def record_command_event(self, name: str, payload: dict[str, Any]) -> None:
         self.recorder.write_event(name, payload)
 
@@ -5142,6 +5228,9 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_webcam_stream()
         elif request_path == "/events":
             self._send_events()
+        elif request_path == "/mcp":
+            # Stateless MCP: no server-initiated SSE stream, POST only.
+            self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "MCP endpoint is POST-only")
         elif request_path.startswith("/models/") or request_path.startswith("/vendor/") or request_path.startswith("/assets/"):
             self._send_static_asset(request_path)
         else:
@@ -5165,6 +5254,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/pose",
             "/api/recording/sequence",
             "/api/recording/replay/robot",
+            "/mcp",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -5172,6 +5262,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         # Speech-to-text takes a raw audio body (not JSON) — handle it up front.
         if request_path == "/api/stt":
             self._handle_stt()
+            return
+
+        # MCP needs JSON-RPC-shaped errors, so it parses its own body.
+        if request_path == "/mcp":
+            self._handle_mcp()
             return
 
         payload: dict[str, Any] = {}
@@ -5335,6 +5430,47 @@ class TelemetryHandler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "audio/webm")
         status, response = transcribe_audio(audio, content_type)
         self._send_json_status(response, HTTPStatus(status))
+
+    def _handle_mcp(self) -> None:
+        """POST /mcp — stateless MCP over streamable HTTP (single JSON responses,
+        no SSE stream, no sessions)."""
+        if not MCP_ENABLED:
+            self._send_json_status(
+                {"ok": False, "error": "MCP endpoint is disabled (set MCP_ENABLED=1)."},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
+        if MCP_TOKEN and self.headers.get("Authorization", "") != f"Bearer {MCP_TOKEN}":
+            self._send_json_status(
+                {"ok": False, "error": "Missing or invalid bearer token."},
+                HTTPStatus.UNAUTHORIZED,
+            )
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length > MAX_JSON_BODY_BYTES:
+            self.close_connection = True
+            self._send_json_status(
+                mcp_error(None, -32600, f"Body must be at most {MAX_JSON_BODY_BYTES} bytes."),
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else None
+        except Exception as exc:
+            self._send_json_status(
+                mcp_error(None, -32700, f"Parse error: {exc}"), HTTPStatus.BAD_REQUEST
+            )
+            return
+        response = self.store.mcp_request(payload)
+        if response is None:  # notification: acknowledge with no body
+            self.send_response(HTTPStatus.ACCEPTED)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self._send_json(response)
 
     def _send_bytes(self, body: bytes, content_type: str) -> None:
         self.send_response(HTTPStatus.OK)

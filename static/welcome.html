@@ -7,146 +7,95 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0b0e11;
-      --panel: rgba(255, 255, 255, 0.035);
-      --line: rgba(255, 255, 255, 0.12);
-      --text: #e8edf2;
-      --muted: rgba(232, 237, 242, 0.62);
-      --red: #e60000;
-      --blue: #40a6ff;
-      --green: #35e08a;
-      --amber: #ffb340;
+      --bg: #0b0e11; --panel: rgba(255,255,255,0.035); --line: rgba(255,255,255,0.12);
+      --text: #e8edf2; --muted: rgba(232,237,242,0.62);
+      --red: #e60000; --blue: #40a6ff; --green: #35e08a; --amber: #ffb340;
     }
-    html, body { height: 100%; }
+    html { scroll-behavior: smooth; }
     body {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--bg);
-      color: var(--text);
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-      overflow-x: hidden;
+      min-height: 100vh; background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif; overflow-x: hidden;
     }
+
+    /* ---------- scroll progress ---------- */
+    .progress { position: fixed; top: 0; left: 0; height: 3px; width: 100%; z-index: 50; transform-origin: 0 50%; transform: scaleX(0);
+      background: linear-gradient(90deg, var(--red), #ff7a7a, var(--blue)); }
 
     /* ---------- animated backdrop ---------- */
-    .backdrop { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
-    .backdrop::before {
-      content: "";
-      position: absolute; inset: -50%;
+    .backdrop { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 0; }
+    .backdrop::before { content: ""; position: absolute; inset: -50%;
       background:
-        radial-gradient(ellipse 60% 40% at 50% 18%, rgba(230, 0, 0, 0.10), transparent 60%),
-        radial-gradient(ellipse 50% 45% at 78% 82%, rgba(64, 166, 255, 0.07), transparent 60%),
-        radial-gradient(ellipse 45% 40% at 18% 78%, rgba(53, 224, 138, 0.05), transparent 60%);
-      animation: drift 26s ease-in-out infinite alternate;
-    }
-    .grid {
-      position: absolute; inset: 0;
-      background-image:
-        linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
+        radial-gradient(ellipse 60% 40% at 50% 18%, rgba(230,0,0,0.11), transparent 60%),
+        radial-gradient(ellipse 50% 45% at 78% 82%, rgba(64,166,255,0.07), transparent 60%),
+        radial-gradient(ellipse 45% 40% at 18% 78%, rgba(53,224,138,0.05), transparent 60%);
+      animation: drift 26s ease-in-out infinite alternate; will-change: transform; }
+    .grid { position: absolute; inset: 0;
+      background-image: linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
       background-size: 56px 56px;
-      mask-image: radial-gradient(ellipse 75% 65% at 50% 42%, rgba(0,0,0,0.9), transparent 78%);
-      -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 42%, rgba(0,0,0,0.9), transparent 78%);
-      animation: gridfloat 18s linear infinite;
-    }
-    @keyframes drift { from { transform: translate3d(-2%, -1%, 0) scale(1); } to { transform: translate3d(2%, 2%, 0) scale(1.06); } }
-    @keyframes gridfloat { from { background-position: 0 0, 0 0; } to { background-position: 0 56px, 56px 0; } }
+      mask-image: radial-gradient(ellipse 75% 65% at 50% 30%, rgba(0,0,0,0.9), transparent 78%);
+      -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 30%, rgba(0,0,0,0.9), transparent 78%); }
+    @keyframes drift { from { transform: translate3d(-2%,-1%,0) scale(1); } to { transform: translate3d(2%,2%,0) scale(1.06); } }
 
-    /* ---------- shell ---------- */
-    .shell { position: relative; width: min(1080px, 94vw); text-align: center; padding: 48px 0 40px; }
+    .shell { position: relative; z-index: 1; width: min(1080px, 94vw); margin: 0 auto; text-align: center; padding: 56px 0 60px; }
 
     /* ---------- hero ---------- */
     .hero { display: flex; flex-direction: column; align-items: center; }
     .beacon { position: relative; width: 118px; height: 118px; margin-bottom: 6px; }
-    .beacon .ring {
-      position: absolute; inset: 0; border-radius: 50%;
-      border: 2px solid rgba(230, 0, 0, 0.55);
-      animation: ping 3s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
-    }
-    .beacon .ring:nth-child(2) { animation-delay: 1s; border-color: rgba(64, 166, 255, 0.45); }
-    .beacon .ring:nth-child(3) { animation-delay: 2s; border-color: rgba(230, 0, 0, 0.35); }
+    .beacon .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(230,0,0,0.55);
+      animation: ping 3s cubic-bezier(0.2,0.6,0.3,1) infinite; }
+    .beacon .ring:nth-child(2) { animation-delay: 1s; border-color: rgba(64,166,255,0.45); }
+    .beacon .ring:nth-child(3) { animation-delay: 2s; border-color: rgba(230,0,0,0.35); }
     @keyframes ping { 0% { transform: scale(0.42); opacity: 0.9; } 75% { opacity: 0.12; } 100% { transform: scale(1.18); opacity: 0; } }
-    .beacon .bot {
-      position: absolute; inset: 26px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      background: linear-gradient(160deg, #171d24, #0d1116);
-      border: 1px solid var(--line);
-      box-shadow: 0 6px 30px rgba(230, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.08);
-      animation: bob 4.5s ease-in-out infinite;
-    }
-    @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+    .beacon .bot { position: absolute; inset: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(160deg, #171d24, #0d1116); border: 1px solid var(--line);
+      box-shadow: 0 6px 30px rgba(230,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.08); animation: bob 4.5s ease-in-out infinite; }
+    @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
     .beacon svg { width: 36px; height: 36px; stroke: var(--text); fill: none; stroke-width: 1.5; }
     .beacon .eye { fill: var(--red); stroke: none; animation: blink 5s infinite; transform-origin: center; }
-    @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+    @keyframes blink { 0%,92%,100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
 
-    .eyebrow {
-      font-size: 12px; letter-spacing: 0.34em; text-transform: uppercase; color: var(--muted);
-      animation: rise 0.7s 0.05s cubic-bezier(0.2, 0.8, 0.25, 1) both;
-    }
-    h1 {
-      margin-top: 10px; font-size: clamp(28px, 4.6vw, 42px); font-weight: 700; letter-spacing: 0.01em;
-      background: linear-gradient(100deg, #ffffff 20%, #ffb1b1 38%, var(--blue) 62%, #ffffff 82%);
-      background-size: 240% 100%;
+    .eyebrow { font-size: 12px; letter-spacing: 0.34em; text-transform: uppercase; color: var(--muted);
+      animation: rise 0.7s 0.05s cubic-bezier(0.2,0.8,0.25,1) both; }
+    h1 { margin-top: 10px; font-size: clamp(30px, 4.8vw, 46px); font-weight: 750; letter-spacing: 0.01em;
+      background: linear-gradient(100deg, #fff 20%, #ffb1b1 38%, var(--blue) 62%, #fff 82%); background-size: 240% 100%;
       -webkit-background-clip: text; background-clip: text; color: transparent;
-      animation: rise 0.7s 0.14s cubic-bezier(0.2, 0.8, 0.25, 1) both, shine 7s linear 1.2s infinite;
-    }
+      animation: rise 0.7s 0.14s cubic-bezier(0.2,0.8,0.25,1) both, shine 7s linear 1.2s infinite; }
     @keyframes shine { from { background-position: 0% 0; } to { background-position: -240% 0; } }
-    .sub {
-      margin-top: 12px; font-size: 15px; color: var(--muted); max-width: 560px;
-      animation: rise 0.7s 0.24s cubic-bezier(0.2, 0.8, 0.25, 1) both;
-    }
     @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
-    /* ---------- onboarding steps ---------- */
-    .steps {
-      display: flex; align-items: center; justify-content: center; gap: 10px;
-      margin-top: 26px; font-size: 12.5px; color: var(--muted);
-      animation: rise 0.7s 0.32s cubic-bezier(0.2, 0.8, 0.25, 1) both;
-      flex-wrap: wrap;
-    }
-    .step { display: inline-flex; align-items: center; gap: 8px; }
-    .step b {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 22px; height: 22px; border-radius: 50%;
-      border: 1px solid var(--line); background: var(--panel);
-      font-size: 11px; font-weight: 650; color: var(--text);
-    }
-    .step.active b { border-color: rgba(230, 0, 0, 0.7); box-shadow: 0 0 10px rgba(230, 0, 0, 0.35); }
-    .step-arrow { opacity: 0.35; }
+    .type-line { margin-top: 14px; min-height: 24px; font-size: 15.5px; color: var(--muted);
+      animation: rise 0.7s 0.24s cubic-bezier(0.2,0.8,0.25,1) both; }
+    .type-line .caret { display: inline-block; width: 9px; margin-left: 2px; border-bottom: 2px solid var(--red); animation: caret 0.9s steps(1) infinite; }
+    @keyframes caret { 50% { opacity: 0; } }
 
-    /* ---------- entrance cards ---------- */
-    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 30px; }
-    @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } }
-    .card {
-      flex: 1; position: relative; display: block; padding: 26px 20px 20px;
-      border: 1px solid var(--line); border-radius: 16px;
-      background: var(--panel); color: inherit; text-decoration: none;
-      transition: border-color 0.18s, background 0.18s, transform 0.22s, box-shadow 0.22s;
-      opacity: 0; animation: cardin 0.65s cubic-bezier(0.2, 0.8, 0.25, 1) forwards;
-      overflow: hidden;
-    }
-    .card:nth-child(1) { animation-delay: 0.42s; }
-    .card:nth-child(2) { animation-delay: 0.54s; }
-    .card:nth-child(3) { animation-delay: 0.66s; }
-    .card:nth-child(4) { animation-delay: 0.78s; }
-    @keyframes cardin { from { opacity: 0; transform: translateY(26px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
-    .card::after {
-      content: ""; position: absolute; inset: 0;
+    /* ---------- live status strip ---------- */
+    .status-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 22px;
+      animation: rise 0.7s 0.32s cubic-bezier(0.2,0.8,0.25,1) both; }
+    .spill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--panel); font-size: 12.5px; color: var(--muted); }
+    .spill b { color: var(--text); font-weight: 600; }
+
+    /* ---------- sections ---------- */
+    section { margin-top: 74px; }
+    .sec-title { font-size: clamp(20px, 2.6vw, 27px); font-weight: 700; }
+    .sec-sub { margin-top: 8px; font-size: 14px; color: var(--muted); max-width: 620px; margin-left: auto; margin-right: auto; }
+    .revealable { opacity: 0; transform: translateY(26px); transition: opacity 0.7s cubic-bezier(0.2,0.8,0.25,1), transform 0.7s cubic-bezier(0.2,0.8,0.25,1); }
+    .revealable.in { opacity: 1; transform: translateY(0); }
+
+    /* ---------- entrance cards (3D tilt) ---------- */
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; perspective: 1100px; }
+    @media (max-width: 860px) { .cards { grid-template-columns: 1fr; } }
+    .card { position: relative; display: block; padding: 26px 20px 20px; border: 1px solid var(--line); border-radius: 16px;
+      background: var(--panel); color: inherit; text-decoration: none; overflow: hidden;
+      transition: border-color 0.18s, background 0.18s, box-shadow 0.25s; transform-style: preserve-3d; will-change: transform; }
+    .card::after { content: ""; position: absolute; inset: 0;
       background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.06) 46%, transparent 62%);
-      transform: translateX(-120%);
-      transition: transform 0.7s ease;
-      pointer-events: none;
-    }
-    .card:hover { border-color: rgba(64, 166, 255, 0.65); background: rgba(64, 166, 255, 0.07); transform: translateY(-4px); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45); }
+      transform: translateX(-120%); transition: transform 0.7s ease; pointer-events: none; }
+    .card:hover { border-color: rgba(64,166,255,0.65); background: rgba(64,166,255,0.07); box-shadow: 0 18px 44px rgba(0,0,0,0.5); }
     .card:hover::after { transform: translateX(120%); }
-    .card.remote:hover { border-color: rgba(230, 0, 0, 0.6); background: rgba(230, 0, 0, 0.06); }
-    .card.last-used { border-color: rgba(64, 166, 255, 0.5); }
-    .card.last-used::before {
-      content: "last used"; position: absolute; top: 10px; right: 12px;
-      font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--blue); opacity: 0.85;
-    }
+    .card.last-used { border-color: rgba(64,166,255,0.5); }
+    .card.last-used::before { content: "last used"; position: absolute; top: 10px; right: 12px; font-size: 10px;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--blue); opacity: 0.85; }
     .card .icon { font-size: 32px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5)); }
     .card h2 { margin-top: 12px; font-size: 17px; font-weight: 650; }
     .card .addr { margin-top: 6px; font-size: 12.5px; font-family: ui-monospace, SFMono-Regular, monospace; color: var(--muted); word-break: break-all; }
@@ -154,28 +103,119 @@
     .status { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 12px; }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #5c6770; position: relative; flex: none; }
     .dot.ok { background: var(--green); }
-    .dot.ok::after {
-      content: ""; position: absolute; inset: -4px; border-radius: 50%;
-      border: 1px solid rgba(53, 224, 138, 0.6); animation: ping 1.8s ease-out infinite;
-    }
+    .dot.ok::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1px solid rgba(53,224,138,0.6); animation: ping 1.8s ease-out infinite; }
     .dot.down { background: #ff453a; }
     .dot.unknown { background: var(--amber); }
     .dot.checking { background: #5c6770; animation: pulse 1.1s ease-in-out infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+    @keyframes pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }
 
-    .note {
-      margin-top: 30px; font-size: 12.5px; color: var(--muted); line-height: 1.6;
-      animation: rise 0.7s 0.8s cubic-bezier(0.2, 0.8, 0.25, 1) both;
-    }
+    /* ---------- tutorial grid ---------- */
+    .tutorials { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; text-align: left; }
+    @media (max-width: 900px) { .tutorials { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 620px) { .tutorials { grid-template-columns: 1fr; } }
+    .tut { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); overflow: hidden;
+      transition: border-color 0.2s, transform 0.22s, box-shadow 0.25s; }
+    .tut:hover { border-color: rgba(230,0,0,0.5); transform: translateY(-3px); box-shadow: 0 16px 38px rgba(0,0,0,0.5); }
+    .tut-stage { height: 120px; display: flex; align-items: center; justify-content: center; position: relative;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent); border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .tut-body { padding: 16px 16px 14px; }
+    .tut h3 { font-size: 15px; font-weight: 650; }
+    .tut p { margin-top: 7px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+    .tut details { margin-top: 10px; }
+    .tut summary { cursor: pointer; font-size: 12px; color: var(--blue); user-select: none; list-style: none; }
+    .tut summary::before { content: "▸ "; transition: none; }
+    .tut details[open] summary::before { content: "▾ "; }
+    .tut ol { margin: 8px 0 2px 18px; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+    .tut ol b { color: var(--text); font-weight: 600; }
+
+    /* ---- tutorial illustrations (pure CSS, compositor-only) ---- */
+    /* arm drag */
+    .ill-arm { position: relative; width: 130px; height: 80px; }
+    .ill-arm .torso { position: absolute; left: 12px; top: 10px; width: 26px; height: 60px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.5); }
+    .ill-arm .limb { position: absolute; left: 38px; top: 22px; width: 56px; height: 4px; border-radius: 4px; background: rgba(255,255,255,0.55);
+      transform-origin: 0 50%; animation: armSwing 3.2s ease-in-out infinite; }
+    .ill-arm .hand { position: absolute; right: -7px; top: -5px; width: 14px; height: 14px; border-radius: 50%;
+      background: var(--blue); box-shadow: 0 0 12px rgba(64,166,255,0.8); }
+    @keyframes armSwing { 0%,100% { transform: rotate(18deg); } 50% { transform: rotate(-26deg); } }
+    .ill-arm .ghost { position: absolute; left: 38px; top: 22px; width: 56px; height: 4px; border-radius: 4px; background: rgba(230,0,0,0.35); transform-origin: 0 50%; transform: rotate(-26deg); }
+    /* torso ring */
+    .ill-ring { position: relative; width: 90px; height: 90px; }
+    .ill-ring .band { position: absolute; inset: 12px; border-radius: 50%; border: 3px dashed rgba(53,224,138,0.7); animation: spin 6s linear infinite; }
+    .ill-ring .knob { position: absolute; top: 4px; left: 50%; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+      background: var(--green); box-shadow: 0 0 10px rgba(53,224,138,0.8); }
+    .ill-ring .core { position: absolute; inset: 32px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.5); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* camera bubble */
+    .ill-cam { position: relative; width: 120px; height: 84px; }
+    .ill-cam .bubble { position: absolute; right: 0; bottom: 0; width: 34px; height: 34px; border-radius: 50%;
+      background: linear-gradient(160deg, #b40000, #7a0000); animation: bubbleGrow 4s ease-in-out infinite; transform-origin: 100% 100%; }
+    .ill-cam .frame { position: absolute; left: 0; top: 0; width: 78px; height: 54px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.5);
+      overflow: hidden; }
+    .ill-cam .scan { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 20%, rgba(64,166,255,0.35) 50%, transparent 80%);
+      animation: scanline 2.6s linear infinite; }
+    @keyframes bubbleGrow { 0%,55%,100% { transform: scale(1); } 70%,85% { transform: scale(1.25); } }
+    @keyframes scanline { from { transform: translateY(-100%); } to { transform: translateY(100%); } }
+    /* drive pad */
+    .ill-pad { display: grid; grid-template-columns: repeat(3, 22px); gap: 6px; }
+    .ill-pad span { width: 22px; height: 22px; border-radius: 6px; background: rgba(230,0,0,0.5); }
+    .ill-pad span:nth-child(2) { animation: padPress 2.4s ease-in-out infinite; }
+    .ill-pad span:nth-child(4) { animation: padPress 2.4s ease-in-out 0.6s infinite; }
+    .ill-pad span:nth-child(6) { animation: padPress 2.4s ease-in-out 1.2s infinite; }
+    .ill-pad span:nth-child(5) { animation: padPress 2.4s ease-in-out 1.8s infinite; }
+    @keyframes padPress { 0%,20%,100% { transform: scale(1); background: rgba(230,0,0,0.5); } 10% { transform: scale(0.82); background: rgba(255,80,80,0.95); } }
+    /* chat */
+    .ill-chat { position: relative; width: 110px; height: 76px; }
+    .ill-chat .b1, .ill-chat .b2 { position: absolute; border-radius: 12px; padding: 0; }
+    .ill-chat .b1 { left: 0; top: 6px; width: 64px; height: 22px; background: rgba(255,255,255,0.14); }
+    .ill-chat .b2 { right: 0; bottom: 6px; width: 74px; height: 26px; background: rgba(230,0,0,0.35); display: flex; align-items: center; justify-content: center; gap: 5px; }
+    .ill-chat .b2 i { width: 6px; height: 6px; border-radius: 50%; background: #fff; opacity: 0.7; animation: typing 1.2s ease-in-out infinite; }
+    .ill-chat .b2 i:nth-child(2) { animation-delay: 0.2s; }
+    .ill-chat .b2 i:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing { 0%,60%,100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
+    /* xr headset */
+    .ill-xr { position: relative; width: 110px; height: 76px; display: flex; align-items: center; justify-content: center; }
+    .ill-xr .hs { width: 74px; height: 34px; border-radius: 16px; border: 2.5px solid rgba(255,255,255,0.6); position: relative; animation: bob 4s ease-in-out infinite; }
+    .ill-xr .hs::before, .ill-xr .hs::after { content: ""; position: absolute; top: 8px; width: 16px; height: 12px; border-radius: 5px; background: rgba(64,166,255,0.6); }
+    .ill-xr .hs::before { left: 10px; } .ill-xr .hs::after { right: 10px; }
+    .ill-xr .wave { position: absolute; inset: 8px 14px; border-radius: 20px; border: 1px solid rgba(64,166,255,0.4); animation: ping 2.6s ease-out infinite; }
+
+    /* ---------- safety keycaps ---------- */
+    .safety { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; text-align: left; }
+    @media (max-width: 720px) { .safety { grid-template-columns: 1fr; } }
+    .key { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); padding: 18px; }
+    .keycap { display: inline-block; padding: 8px 18px; border-radius: 10px; font-weight: 700; font-size: 13px; letter-spacing: 0.06em;
+      text-transform: uppercase; border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 4px 0 rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.15); }
+    .keycap.release { background: linear-gradient(180deg, #c40000, #7d0000); animation: keyGlow 3.4s ease-in-out infinite; }
+    .keycap.stand { background: linear-gradient(180deg, #0f7a3d, #07572a); }
+    .keycap.home { background: linear-gradient(180deg, #2b3743, #1a232c); }
+    @keyframes keyGlow { 0%,100% { box-shadow: 0 4px 0 rgba(0,0,0,0.45), 0 0 0 rgba(230,0,0,0); } 50% { box-shadow: 0 4px 0 rgba(0,0,0,0.45), 0 0 22px rgba(230,0,0,0.45); } }
+    .key p { margin-top: 12px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+    .key p b { color: var(--text); }
+
+    /* ---------- troubleshooting ---------- */
+    .faq { margin-top: 26px; text-align: left; display: grid; gap: 10px; }
+    .faq details { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 14px 18px; }
+    .faq summary { cursor: pointer; font-size: 14px; font-weight: 600; list-style: none; user-select: none; display: flex; align-items: center; gap: 10px; }
+    .faq summary::before { content: "＋"; color: var(--red); font-weight: 700; }
+    .faq details[open] summary::before { content: "－"; }
+    .faq details p { margin-top: 10px; font-size: 13px; line-height: 1.6; color: var(--muted); }
+    .faq details p b { color: var(--text); }
+
+    .note { margin-top: 44px; font-size: 12.5px; color: var(--muted); line-height: 1.6; }
     .note b { color: var(--text); font-weight: 600; }
-    .served { margin-top: 10px; font-size: 11px; opacity: 0.4; letter-spacing: 0.06em; }
+    .served { margin-top: 12px; font-size: 11px; opacity: 0.4; letter-spacing: 0.06em; }
+    .foot-links { margin-top: 16px; font-size: 12px; }
+    .foot-links a { color: var(--blue); text-decoration: none; margin: 0 10px; }
+    .foot-links a:hover { text-decoration: underline; }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: 0.001s !important; animation-delay: 0s !important; transition-duration: 0.001s !important; }
+      .revealable { opacity: 1; transform: none; }
     }
   </style>
 </head>
 <body>
+  <div class="progress" id="progress"></div>
   <div class="backdrop"><div class="grid"></div></div>
   <main class="shell">
     <header class="hero">
@@ -193,43 +233,172 @@
       </div>
       <p class="eyebrow">Vodafone · AI Robot Assistant</p>
       <h1>Unitree H1-2 Command Center</h1>
-      <p class="sub">Welcome, operator. Pick how this device reaches the robot — telemetry, camera and controls all run over the link you choose.</p>
+      <p class="type-line"><span id="typeText"></span><span class="caret"></span></p>
+      <div class="status-strip" aria-label="Live system status">
+        <span class="spill"><span class="dot checking" id="sWifi"></span><b>Robot · Wi-Fi</b></span>
+        <span class="spill"><span class="dot checking" id="sEth"></span><b>Robot · Ethernet</b></span>
+        <span class="spill"><span class="dot checking" id="sMirror"></span><b>Remote mirror</b></span>
+      </div>
     </header>
 
-    <div class="steps" aria-label="Onboarding steps">
-      <span class="step active"><b>1</b> Choose your link</span>
-      <span class="step-arrow">→</span>
-      <span class="step"><b>2</b> Open the dashboard</span>
-      <span class="step-arrow">→</span>
-      <span class="step"><b>3</b> Operate the robot</span>
-    </div>
+    <section id="entrances">
+      <h2 class="sec-title revealable">Choose your link</h2>
+      <p class="sec-sub revealable">Telemetry, cameras and controls all run over the entrance you pick. Robot control is deliberately possible from the lab network only.</p>
+      <div class="cards">
+        <a class="card revealable" id="wifiCard" data-net="wifi" href="http://10.2.100.142:8088/">
+          <div class="icon">📶</div>
+          <h2>Wi-Fi</h2>
+          <p class="addr">10.2.100.142:8088</p>
+          <p class="desc">Robot Wi-Fi network. Works from anywhere on the lab wireless — full dashboard, live camera and XR links.</p>
+          <span class="status"><span class="dot checking" id="wifiDot"></span><span id="wifiText">checking…</span></span>
+        </a>
+        <a class="card revealable" id="ethCard" data-net="ethernet" href="http://192.168.123.164:8088/">
+          <div class="icon">🔌</div>
+          <h2>Ethernet</h2>
+          <p class="addr">192.168.123.164:8088</p>
+          <p class="desc">Robot control-link (eth0). Requires a wired connection to the 192.168.123.x network — lowest latency, immune to Wi-Fi drops.</p>
+          <span class="status"><span class="dot checking" id="ethDot"></span><span id="ethText">checking…</span></span>
+        </a>
+        <a class="card revealable" id="offlineCard" data-net="offline" href="#" rel="noopener">
+          <div class="icon">🗂️</div>
+          <h2>Offline</h2>
+          <p class="addr" id="offlineAddr">resolving tunnel…</p>
+          <p class="desc">Read-only mirror served from the operator Mac over a secure tunnel. Works from anywhere — even with the robot switched off (docs, diagrams, recordings, assistant).</p>
+          <span class="status"><span class="dot checking" id="offlineDot"></span><span id="offlineText">checking…</span></span>
+        </a>
+      </div>
+    </section>
 
-    <div class="cards">
-      <a class="card" id="wifiCard" data-net="wifi" href="http://10.2.100.142:8088/">
-        <div class="icon">📶</div>
-        <h2>Wi-Fi</h2>
-        <p class="addr">10.2.100.142:8088</p>
-        <p class="desc">Robot Wi-Fi network. Works from anywhere on the lab wireless — full dashboard, live camera and XR links.</p>
-        <span class="status"><span class="dot checking" id="wifiDot"></span><span id="wifiText">checking…</span></span>
-      </a>
-      <a class="card" id="ethCard" data-net="ethernet" href="http://192.168.123.164:8088/">
-        <div class="icon">🔌</div>
-        <h2>Ethernet</h2>
-        <p class="addr">192.168.123.164:8088</p>
-        <p class="desc">Robot control-link (eth0). Requires a wired connection to the 192.168.123.x network — lowest latency, immune to Wi-Fi drops.</p>
-        <span class="status"><span class="dot checking" id="ethDot"></span><span id="ethText">checking…</span></span>
-      </a>
-      <a class="card" id="offlineCard" data-net="offline" href="#" rel="noopener">
-        <div class="icon">🗂️</div>
-        <h2>Offline</h2>
-        <p class="addr" id="offlineAddr">resolving tunnel…</p>
-        <p class="desc">Read-only mirror served from the operator Mac over a secure tunnel. Works from anywhere — even with the robot switched off (docs, diagrams, recordings, assistant).</p>
-        <span class="status"><span class="dot checking" id="offlineDot"></span><span id="offlineText">checking…</span></span>
-      </a>
-    </div>
+    <section id="learn">
+      <h2 class="sec-title revealable">Learn the console</h2>
+      <p class="sec-sub revealable">Ninety seconds of tutorials — everything the dashboard can do, with the exact clicks.</p>
+      <div class="tutorials">
+        <article class="tut revealable">
+          <div class="tut-stage"><div class="ill-arm" aria-hidden="true"><span class="torso"></span><span class="ghost"></span><span class="limb"><span class="hand"></span></span></div></div>
+          <div class="tut-body">
+            <h3>Move the arms</h3>
+            <p>Pose the digital twin, press one button, the robot follows with a PID-controlled motion.</p>
+            <details><summary>step by step</summary><ol>
+              <li>Open <b>High Level Controller</b>.</li>
+              <li><b>Drag</b> the blue/red wrist spheres — the red twin is your target pose.</li>
+              <li>Click <b>Move</b>. No saving needed; <b>Save Pose</b> is optional for reuse.</li>
+              <li>Watch the live twin close the gap — the closed-loop PID holds the pose dead still.</li>
+            </ol></details>
+          </div>
+        </article>
+        <article class="tut revealable">
+          <div class="tut-stage"><div class="ill-ring" aria-hidden="true"><span class="core"></span><span class="band"></span><span class="knob"></span></div></div>
+          <div class="tut-body">
+            <h3>Twist the torso</h3>
+            <p>The green waist ring rotates the torso — combined arm + torso poses in one Move.</p>
+            <details><summary>step by step</summary><ol>
+              <li>In <b>High Level Controller</b>, grab the <b>green ring</b> around the waist.</li>
+              <li>Turn it — the knob marks the front.</li>
+              <li>Click <b>Move</b>; arms and torso travel together.</li>
+            </ol></details>
+          </div>
+        </article>
+        <article class="tut revealable">
+          <div class="tut-stage"><div class="ill-cam" aria-hidden="true"><span class="frame"><span class="scan"></span></span><span class="bubble"></span></div></div>
+          <div class="tut-body">
+            <h3>See what the robot sees</h3>
+            <p>A floating camera bubble lives on every page — head camera plus the USB webcam, stacked.</p>
+            <details><summary>step by step</summary><ol>
+              <li>Click the <b>round red camera button</b> (bottom-right, any page).</li>
+              <li><b>Drag</b> the header to move it; <b>pull a corner</b> to resize.</li>
+              <li><b>▾</b> shrinks it back to the bubble. Both feeds reconnect on their own.</li>
+            </ol></details>
+          </div>
+        </article>
+        <article class="tut revealable">
+          <div class="tut-stage"><div class="ill-pad" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
+          <div class="tut-body">
+            <h3>Drive around</h3>
+            <p>Guarded locomotion presets — walk, strafe and turn from the floating drive bubble.</p>
+            <details><summary>step by step</summary><ol>
+              <li>Open <b>Loco Control</b> — the <b>Drive</b> bubble appears.</li>
+              <li>Arrows walk/strafe; curved arrows turn.</li>
+              <li><b>Stop Move</b> halts locomotion instantly.</li>
+            </ol></details>
+          </div>
+        </article>
+        <article class="tut revealable">
+          <div class="tut-stage"><div class="ill-chat" aria-hidden="true"><span class="b1"></span><span class="b2"><i></i><i></i><i></i></span></div></div>
+          <div class="tut-body">
+            <h3>Ask the assistant</h3>
+            <p>A read-only AI that answers from live telemetry — temperatures, health, orientation.</p>
+            <details><summary>step by step</summary><ol>
+              <li>On the <b>Dashboard</b>, type into the Command Center — or hold the <b>mic</b> to talk.</li>
+              <li>Try “which motor is hottest?” or “is the robot upright?”.</li>
+              <li>It can read everything, and move nothing — by design.</li>
+            </ol></details>
+          </div>
+        </article>
+        <article class="tut revealable">
+          <div class="tut-stage"><div class="ill-xr" aria-hidden="true"><span class="wave"></span><span class="hs"></span></div></div>
+          <div class="tut-body">
+            <h3>Teleoperate in XR</h3>
+            <p>Vision Pro teleoperation with selectable control styles — pad, head rotation or position matching.</p>
+            <details><summary>step by step</summary><ol>
+              <li>Open <b>Teleoperation</b> and pick a control method card.</li>
+              <li>The <b>VR View</b> opens for the headset (same Wi-Fi).</li>
+              <li>Torso Sync is coming soon — the locked fourth card.</li>
+            </ol></details>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="safety">
+      <h2 class="sec-title revealable">Safety, three buttons</h2>
+      <p class="sec-sub revealable">Top-right of the dashboard, always in reach. Know these before anything else.</p>
+      <div class="safety">
+        <div class="key revealable">
+          <span class="keycap release">Release</span>
+          <p><b>Everything goes limp.</b> Damps every motor instantly — the arms will sag, so make sure the robot is supported. This is your “let go now”.</p>
+        </div>
+        <div class="key revealable">
+          <span class="keycap stand">Stand Up</span>
+          <p><b>Recover after Release.</b> Re-engages the locked stand (the RC left+up combo, in software) so the robot holds itself again.</p>
+        </div>
+        <div class="key revealable">
+          <span class="keycap home">Home</span>
+          <p><b>Freeze the arms.</b> Holds them exactly where they are with the closed-loop PID — no motion, just stiffness. A calm pause button.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="help">
+      <h2 class="sec-title revealable">If something looks wrong</h2>
+      <div class="faq revealable">
+        <details>
+          <summary>Camera is dark right after a reboot</summary>
+          <p>It heals itself: the camera service now waits for the robot’s video source and re-applies its config on every start. Give it <b>one to two minutes</b> after power-on. If it is still dark afterwards, the floating bubble’s dot stays gray — then ask the operator to check the TeleImager service.</p>
+        </details>
+        <details>
+          <summary>The UI stutters or video drops on Wi-Fi</summary>
+          <p>The robot’s Wi-Fi adapter is the weakest link in the chain. Switch to the <b>Ethernet entrance</b> — wired is sub-millisecond and immune to the drops.</p>
+        </details>
+        <details>
+          <summary>Robot answers ping but the dashboard won’t load</summary>
+          <p>That is almost always the Wi-Fi link, not the robot. Connect the operator laptop by <b>cable</b> to the 192.168.123.x network and use the Ethernet entrance; the dashboard on the robot itself will be running fine.</p>
+        </details>
+        <details>
+          <summary>A Move doesn’t reach the exact pose</summary>
+          <p>Small residuals of a degree or two on outstretched arms are gravity droop — physics, not a bug. If a joint stops far from its target, the pose probably collides with the robot’s own body; the controller detects the contact and <b>backs off instead of pressing</b>.</p>
+        </details>
+        <details>
+          <summary>Where did the hands go?</summary>
+          <p>The <b>RH56BFX Hands card</b> on the dashboard has an On/Off toggle. Off grays the card and hides the hands on every digital twin. Flip it back on any time — the choice is remembered per browser.</p>
+        </details>
+      </div>
+    </section>
 
     <p class="note"><b>Robot switched off?</b> The Wi-Fi and Ethernet entrances will be dark — use <b>Offline</b> (read-only) to keep working,
       or bookmark this page: it is hosted independently of the robot. Robot control is deliberately only possible from the lab network.</p>
+    <p class="foot-links">
+      <a href="#entrances">Entrances</a> · <a href="#learn">Tutorials</a> · <a href="#safety">Safety</a> · <a href="#help">Troubleshooting</a>
+    </p>
     <p class="served" id="servedFrom"></p>
   </main>
 
@@ -373,6 +542,81 @@
     // On https (GitHub Pages / tunnel) resolveRemote() also fills the
     // Wi-Fi/Ethernet status via the tunnel relay.
     resolveRemote();
+  
+
+    // ---------- typewriter tagline ----------
+    (function typewriter() {
+      const lines = [
+        "35 motors · 500 Hz telemetry · one dashboard.",
+        "Drag the twin. Click Move. The robot follows.",
+        "See what the robot sees — from any page.",
+        "Read-only from anywhere. Control only in the lab.",
+      ];
+      const el = document.getElementById("typeText");
+      if (!el) return;
+      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { el.textContent = lines[0]; return; }
+      let line = 0, pos = 0, deleting = false;
+      (function tick() {
+        const current = lines[line];
+        pos += deleting ? -1 : 1;
+        el.textContent = current.slice(0, pos);
+        let delay = deleting ? 22 : 46;
+        if (!deleting && pos === current.length) { delay = 2600; deleting = true; }
+        else if (deleting && pos === 0) { deleting = false; line = (line + 1) % lines.length; delay = 350; }
+        setTimeout(tick, delay);
+      })();
+    })();
+
+    // ---------- scroll progress + reveal ----------
+    (function scrollFx() {
+      const bar = document.getElementById("progress");
+      const onScroll = () => {
+        const max = document.documentElement.scrollHeight - innerHeight;
+        bar.style.transform = `scaleX(${max > 0 ? (scrollY / max) : 0})`;
+      };
+      addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+      }, { threshold: 0.12 });
+      document.querySelectorAll(".revealable").forEach((el) => io.observe(el));
+    })();
+
+    // ---------- 3D tilt on entrance cards ----------
+    (function tilt() {
+      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+      let pending = null;
+      document.querySelectorAll(".card").forEach((card) => {
+        card.addEventListener("pointermove", (event) => {
+          if (!pending) requestAnimationFrame(() => {
+            const { c, x, y } = pending; pending = null;
+            const r = c.getBoundingClientRect();
+            const rx = ((y - r.top) / r.height - 0.5) * -7;
+            const ry = ((x - r.left) / r.width - 0.5) * 8;
+            c.style.transform = `rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) translateY(-3px)`;
+          });
+          pending = { c: card, x: event.clientX, y: event.clientY };
+        }, { passive: true });
+        card.addEventListener("pointerleave", () => { pending = null; card.style.transform = ""; });
+      });
+    })();
+
+    // ---------- mirror the entrance statuses into the hero strip ----------
+    (function heroStrip() {
+      const map = [["wifiDot", "sWifi"], ["ethDot", "sEth"], ["offlineDot", "sMirror"]];
+      const sync = () => {
+        for (const [src, dst] of map) {
+          const a = document.getElementById(src), b = document.getElementById(dst);
+          if (a && b) b.className = a.className;
+        }
+      };
+      const mo = new MutationObserver(sync);
+      for (const [src] of map) {
+        const el = document.getElementById(src);
+        if (el) mo.observe(el, { attributes: true, attributeFilter: ["class"] });
+      }
+      sync();
+    })();
   </script>
 </body>
 </html>

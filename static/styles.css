@@ -2795,6 +2795,7 @@ main .panel:nth-child(3) { animation-delay: 0.21s; }
 .summary-grid .mini-panel:nth-child(3) { animation-delay: 0.30s; }
 .summary-grid .mini-panel:nth-child(4) { animation-delay: 0.36s; }
 .summary-grid .mini-panel:nth-child(5) { animation-delay: 0.42s; }
+.summary-grid .mini-panel:nth-child(6) { animation-delay: 0.48s; }
 
 /* ---- hover micro-interactions ---- */
 .mini-panel,
@@ -3041,11 +3042,20 @@ button:not(:disabled):active { transform: scale(0.96); }
 }
 
 /* ---- hands on/off toggle + grayed-out state ---- */
-.hands-title {
+.hands-title,
+.smartplug-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+.smartplug-content {
+  justify-items: start;
+  align-content: start;
+}
+.smartplug-content small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .hands-toggle {
   font-size: 11px;

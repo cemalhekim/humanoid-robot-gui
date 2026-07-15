@@ -84,6 +84,9 @@ const els = {
   batteryFields: document.getElementById("batteryFields"),
   handFields: document.getElementById("handFields"),
   forceFields: document.getElementById("forceFields"),
+  smartplugState: document.getElementById("smartplugState"),
+  smartplugToggle: document.getElementById("smartplugToggle"),
+  smartplugMessage: document.getElementById("smartplugMessage"),
   motorRows: document.getElementById("motorRows"),
   rawJson: document.getElementById("rawJson"),
   cameraStream: document.getElementById("cameraStream"),
@@ -1240,6 +1243,57 @@ async function loadRecordingStatus() {
     if (els.recordingError) {
       els.recordingError.textContent = error instanceof Error ? error.message : "Status request failed.";
     }
+  }
+}
+
+function renderSmartplugStatus(status) {
+  if (!els.smartplugToggle || !els.smartplugState) return;
+  const enabled = Boolean(status?.enabled);
+  const plugState = String(status?.state || "unavailable");
+  const known = plugState === "on" || plugState === "off";
+  const on = plugState === "on";
+  els.smartplugState.textContent = enabled ? (known ? (on ? "On" : "Off") : plugState) : "Not set up";
+  els.smartplugState.className = `pill ${on ? "good" : "bad"}`;
+  els.smartplugToggle.disabled = !enabled || !known;
+  els.smartplugToggle.textContent = known ? (on ? "Turn Off" : "Turn On") : "Toggle";
+  els.smartplugToggle.classList.toggle("chill-button", enabled && known);
+  els.smartplugToggle.classList.toggle("ghost-button", !(enabled && known));
+  if (els.smartplugMessage) {
+    els.smartplugMessage.textContent = status?.error || status?.friendly_name || "--";
+  }
+}
+
+async function loadSmartplugStatus() {
+  if (!els.smartplugToggle) return;
+  try {
+    const response = await fetch("/api/smartplug/status");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    renderSmartplugStatus(data);
+  } catch (error) {
+    renderSmartplugStatus({
+      ok: false,
+      enabled: false,
+      state: "unavailable",
+      error: error instanceof Error ? error.message : "Status request failed.",
+    });
+  }
+}
+
+async function sendSmartplugToggle() {
+  if (!els.smartplugToggle) return;
+  els.smartplugToggle.disabled = true;
+  if (els.smartplugMessage) els.smartplugMessage.textContent = "Switching…";
+  try {
+    const response = await fetch("/api/smartplug/toggle", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    renderSmartplugStatus(data);
+  } catch (error) {
+    if (els.smartplugMessage) {
+      els.smartplugMessage.textContent = error instanceof Error ? error.message : "Toggle failed.";
+    }
+    loadSmartplugStatus();
   }
 }
 
@@ -2914,6 +2968,9 @@ updateReplayResponseLabel();
 updateReplayUi();
 window.setInterval(loadRecordingStatus, 2000);
 window.setInterval(loadRecordingFiles, 5000);
+els.smartplugToggle?.addEventListener("click", sendSmartplugToggle);
+loadSmartplugStatus();
+window.setInterval(loadSmartplugStatus, 5000);
 setupLocoControls();
 setupWristControls();
 connectEvents();

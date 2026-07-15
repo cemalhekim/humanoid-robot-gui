@@ -457,6 +457,36 @@ Stop recording:
 curl -sS -X POST http://10.2.100.142:8088/api/recording/stop
 ```
 
+## Smart Plug (Home Assistant)
+
+The dashboard's Robot Status grid has a **Smart Plug** card that switches the
+showcase Sonoff plug (`SomoffSwitch2408`) through the lab Home Assistant at
+`http://10.2.200.100`. The server proxies the calls so the HA token never
+reaches the browser:
+
+- `GET /api/smartplug/status` — current plug state (`on`/`off`/`unavailable`).
+- `POST /api/smartplug/toggle` — toggle the plug via
+  `POST /api/services/switch/toggle` on Home Assistant.
+
+Configuration (service environment):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `HA_TOKEN` | empty | Home Assistant long-lived access token (HA profile → Security → Long-lived access tokens). Without it the card shows "Not set up" and the toggle stays disabled. |
+| `HA_BASE_URL` | `http://10.2.200.100` | Home Assistant base URL. |
+| `HA_SWITCH_ENTITY` | `switch.somoffswitch2408` | Entity id of the plug. Verify with `curl -H "Authorization: Bearer <token>" http://10.2.200.100/api/states \| python3 -m json.tool \| grep -i somoff`. |
+| `HA_TIMEOUT_SECONDS` | `6` | Timeout for HA requests. |
+
+Set the token on the robot in the service unit (then
+`systemctl --user daemon-reload && systemctl --user restart
+robot-telemetry-web.service`):
+
+```ini
+# ~/.config/systemd/user/robot-telemetry-web.service.d/override.conf, or the
+# [Service] section of deployment/systemd/robot-telemetry-web.service
+Environment=HA_TOKEN=<long-lived access token>
+```
+
 ## MCP Endpoint
 
 `POST /mcp` exposes the chat assistant's tools to any MCP (Model Context

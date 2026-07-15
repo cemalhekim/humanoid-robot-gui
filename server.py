@@ -464,6 +464,18 @@ VOICE_TIMEOUT_SECONDS = float(os.environ.get("VOICE_TIMEOUT_SECONDS", "60"))
 MAX_AUDIO_BYTES = int(os.environ.get("MAX_AUDIO_BYTES", str(15_000_000)))
 MAX_TTS_TEXT_CHARS = int(os.environ.get("MAX_TTS_TEXT_CHARS", "2000"))
 
+# ---------------------------------------------------------------------------
+# Smart plug (Home Assistant): dashboard toggle for the showcase Sonoff switch
+# on the lab Home Assistant instance. Calls are proxied through this server so
+# the browser never sees the HA token. Requires a long-lived access token in
+# HA_TOKEN (set it in the robot-telemetry-web service environment); without a
+# token the endpoints answer normally but report the plug as not configured.
+# ---------------------------------------------------------------------------
+HA_BASE_URL = os.environ.get("HA_BASE_URL", "http://10.2.200.100").rstrip("/")
+HA_TOKEN = os.environ.get("HA_TOKEN", "")
+HA_SWITCH_ENTITY = os.environ.get("HA_SWITCH_ENTITY", "switch.somoffswitch2408")
+HA_TIMEOUT_SECONDS = float(os.environ.get("HA_TIMEOUT_SECONDS", "6"))
+
 # Optional HTTPS. Set both to a cert/key PEM to serve over TLS — required so the
 # browser mic (getUserMedia) works when the dashboard is opened over a LAN IP
 # (secure-context rule). Off by default (plain http) so nothing changes unless
@@ -999,6 +1011,75 @@ def synthesize_speech(text: str) -> tuple[int, dict[str, Any] | bytes, str]:
     except Exception as exc:  # pragma: no cover - defensive
         return 502, {"ok": False, "error": f"TTS request failed: {exc}"}, ""
     return 200, audio, content_type
+
+
+def _ha_request(path: str, payload: dict[str, Any] | None = None) -> tuple[int, Any]:
+    """Call the Home Assistant REST API (GET without payload, POST with one).
+
+    Returns (http_status, decoded_json). Never raises for network errors —
+    they are mapped to a JSON error payload, mirroring call_llm().
+    """
+    url = f"{HA_BASE_URL}{path}"
+    headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST" if payload is not None else "GET")
+    try:
+        with urllib.request.urlopen(request, timeout=HA_TIMEOUT_SECONDS) as response:
+            raw = response.read()
+        return 200, json.loads(raw.decode("utf-8")) if raw else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:300]
+        return 502, {"ok": False, "error": f"Home Assistant returned HTTP {exc.code}: {detail}"}
+    except urllib.error.URLError as exc:
+        return 503, {"ok": False, "error": f"Cannot reach Home Assistant at {HA_BASE_URL}: {exc.reason}"}
+    except socket.timeout:
+        return 504, {"ok": False, "error": f"Home Assistant timed out after {HA_TIMEOUT_SECONDS:g}s"}
+    except Exception as exc:  # pragma: no cover - defensive
+        return 502, {"ok": False, "error": f"Home Assistant request failed: {exc}"}
+
+
+def smartplug_snapshot(state_object: Any) -> dict[str, Any]:
+    """Shape a HA state object into the /api/smartplug payload the UI renders."""
+    state = "unavailable"
+    friendly_name = HA_SWITCH_ENTITY
+    if isinstance(state_object, dict):
+        state = str(state_object.get("state") or "unavailable")
+        attributes = state_object.get("attributes")
+        if isinstance(attributes, dict) and attributes.get("friendly_name"):
+            friendly_name = str(attributes["friendly_name"])
+    return {"ok": True, "enabled": True, "entity": HA_SWITCH_ENTITY, "state": state, "friendly_name": friendly_name}
+
+
+def smartplug_status() -> tuple[int, dict[str, Any]]:
+    """(status, payload) for GET /api/smartplug/status."""
+    if not HA_TOKEN:
+        return 200, {
+            "ok": True,
+            "enabled": False,
+            "entity": HA_SWITCH_ENTITY,
+            "state": "unavailable",
+            "error": "Smart plug is not configured (set HA_TOKEN).",
+        }
+    status, decoded = _ha_request(f"/api/states/{HA_SWITCH_ENTITY}")
+    if status != 200:
+        return status, decoded
+    return 200, smartplug_snapshot(decoded)
+
+
+def smartplug_toggle() -> tuple[int, dict[str, Any]]:
+    """(status, payload) for POST /api/smartplug/toggle."""
+    if not HA_TOKEN:
+        return 503, {"ok": False, "error": "Smart plug is not configured (set HA_TOKEN)."}
+    status, decoded = _ha_request("/api/services/switch/toggle", {"entity_id": HA_SWITCH_ENTITY})
+    if status != 200:
+        return status, decoded
+    # The service call answers with the list of states it changed; if our
+    # entity is not in it (e.g. HA answered but skipped it), re-query.
+    if isinstance(decoded, list):
+        for item in decoded:
+            if isinstance(item, dict) and item.get("entity_id") == HA_SWITCH_ENTITY:
+                return 200, smartplug_snapshot(item)
+    return smartplug_status()
 
 
 def recording_timestamp() -> str:
@@ -5465,6 +5546,9 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.wrist_snapshot())
         elif request_path == "/api/loco/status":
             self._send_json(self.store.loco_snapshot())
+        elif request_path == "/api/smartplug/status":
+            status, response = smartplug_status()
+            self._send_json_status(response, HTTPStatus(status))
         elif request_path == "/api/chat/status":
             self._send_json(
                 {
@@ -5512,6 +5596,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/sequence",
             "/api/recording/rename",
             "/api/recording/replay/robot",
+            "/api/smartplug/toggle",
             "/mcp",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
@@ -5600,6 +5685,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                 self._send_bytes(result, content_type)
             else:
                 self._send_json_status(result, HTTPStatus(status))
+            return
+
+        if request_path == "/api/smartplug/toggle":
+            status, response = smartplug_toggle()
+            self._send_json_status(response, HTTPStatus(status))
             return
 
         self.store.record_command_event(request_path, payload)

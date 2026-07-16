@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=cssart1">
+    <link rel="stylesheet" href="/styles.css?v=cssart2">
     <script type="importmap">
       {
         "imports": {
@@ -715,13 +715,13 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=cssart1"></script>
-    <script src="/diagram.js?v=cssart1"></script>
+    <script src="/app.js?v=cssart2"></script>
+    <script src="/diagram.js?v=cssart2"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);
       const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
       if (!lite) {
-        import("/viewer.js?v=cssart1");
+        import("/viewer.js?v=cssart2");
       }
     </script>
   </body>

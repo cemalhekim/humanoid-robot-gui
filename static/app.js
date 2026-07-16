@@ -91,7 +91,6 @@ const els = {
   rawJson: document.getElementById("rawJson"),
   cameraStream: document.getElementById("cameraStream"),
   cameraPlaceholder: document.getElementById("cameraPlaceholder"),
-  cameraDriveStop: document.querySelector("[data-camera-drive-stop]"),
   rosSummary: document.getElementById("rosSummary"),
   rosMap: document.getElementById("rosMap"),
   rosEdges: document.getElementById("rosEdges"),
@@ -1927,10 +1926,6 @@ function setupLocoControls() {
       event.preventDefault();
     });
   });
-  els.cameraDriveStop?.addEventListener("click", () => {
-    stopLocoHold(false);
-    sendLocoCommand("stop_move");
-  });
   window.addEventListener("blur", stopLocoHold);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopLocoHold();
@@ -3178,24 +3173,5 @@ connectEvents();
 
   window.addEventListener("hashchange", render);
   window.addEventListener("resize", () => { clampBox(box); applyBox(); });
-  render();
-})();
-
-// ---- floating drive bubble: walking controls on the Loco Control page ----
-(function setupFloatPad() {
-  const COLLAPSE_KEY = "h1_float_pad_collapsed";
-  const pad = document.getElementById("floatPad");
-  const header = document.getElementById("floatPadHeader");
-  if (!pad || !header) return;
-  const render = () => {
-    pad.classList.toggle("hidden", window.location.hash !== "#locoPage");
-    pad.classList.toggle("collapsed", localStorage.getItem(COLLAPSE_KEY) === "1");
-  };
-  header.addEventListener("click", () => {
-    const collapsed = !pad.classList.contains("collapsed");
-    localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0");
-    render();
-  });
-  window.addEventListener("hashchange", render);
   render();
 })();

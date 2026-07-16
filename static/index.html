@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=loco-console-v3">
+    <link rel="stylesheet" href="/styles.css?v=loco-console-v4">
     <script type="importmap">
       {
         "imports": {
@@ -509,9 +509,9 @@
                     <span class="loco-card-visual drive-visual" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
                   </header>
                   <div class="loco-presets">
-                    <button type="button" data-loco-preset="turn-left" title="Hold: rotate left in place at the yaw rate.">&#8634; Turn L</button>
+                    <button type="button" data-loco-preset="turn-right" title="Hold: rotate right in place at the yaw rate.">&#8635; Turn R</button>
                     <button type="button" data-loco-preset="forward" title="Hold: walk forward at the vx speed.">&#8593; Forward</button>
-                    <button type="button" data-loco-preset="turn-right" title="Hold: rotate right in place.">&#8635; Turn R</button>
+                    <button type="button" data-loco-preset="turn-left" title="Hold: rotate left in place.">&#8634; Turn L</button>
                     <button type="button" data-loco-preset="left" title="Hold: sidestep left at the vy speed.">&#8592; Left</button>
                     <button type="button" data-loco-preset="back" title="Hold: walk backward.">&#8595; Back</button>
                     <button type="button" data-loco-preset="right" title="Hold: sidestep right.">&#8594; Right</button>
@@ -654,23 +654,6 @@
       </div>
     </div>
 
-    <div id="floatPad" class="float-pad hidden" aria-label="Floating walking controls">
-      <button id="floatPadHeader" class="float-cam-header" type="button" title="Pull up / drop down the drive pad">
-        <span class="float-cam-dot" aria-hidden="true"></span>
-        Drive
-        <span class="float-cam-chevron" aria-hidden="true">▾</span>
-      </button>
-      <div class="float-pad-body">
-        <div class="camera-drive-grid">
-          <button type="button" class="turn left" data-loco-preset="turn-right" aria-label="Turn right"></button>
-          <button type="button" class="arrow up" data-loco-preset="forward" aria-label="Walk forward"></button>
-          <button type="button" class="turn right" data-loco-preset="turn-left" aria-label="Turn left"></button>
-          <button type="button" class="arrow left" data-loco-preset="left" aria-label="Step left"></button>
-          <button type="button" class="arrow down" data-loco-preset="back" aria-label="Walk backward"></button>
-          <button type="button" class="arrow right" data-loco-preset="right" aria-label="Step right"></button>
-        </div>
-      </div>
-    </div>
     <button id="floatCamIcon" class="float-cam-icon hidden" type="button" title="Open the robot camera view" aria-label="Open the robot camera view">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M4.5 7.5h3.1l1.5-2h5.8l1.5 2h3.1c.8 0 1.5.7 1.5 1.5v8.5c0 .8-.7 1.5-1.5 1.5h-15c-.8 0-1.5-.7-1.5-1.5V9c0-.8.7-1.5 1.5-1.5Z"></path>
@@ -692,7 +675,7 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=loco-console-v3"></script>
+    <script src="/app.js?v=loco-console-v4"></script>
     <script src="/diagram.js?v=locov1"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);

@@ -1,5 +1,5 @@
 {
-  "url": "https://elements-alien-sons-bob.trycloudflare.com",
-  "updated_at": "2026-07-13T13:17:38+00:00",
+  "url": "https://oct-handy-consistent-moore.trycloudflare.com",
+  "updated_at": "2026-07-16T11:54:26+00:00",
   "note": "Auto-updated by tools/update_remote_entrance.py on the operator Mac; quick-tunnel hostnames change when cloudflared restarts. url = read-only mirror (Offline card). No live-control tunnel is published, by design."
 }

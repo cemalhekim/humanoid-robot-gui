@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=cssart2">
+    <link rel="stylesheet" href="/styles.css?v=cssart3">
     <script type="importmap">
       {
         "imports": {
@@ -322,16 +322,16 @@
                 <span class="method-art" aria-hidden="true">
                   <span class="method-step">01</span>
                   <span class="art-scene art-pad">
-                    <span class="pad-ring">
-                      <span class="pad-core"></span>
-                      <span class="pad-chev chev-n"></span>
-                      <span class="pad-chev chev-e"></span>
-                      <span class="pad-chev chev-s"></span>
-                      <span class="pad-chev chev-w"></span>
+                    <span class="drive-panel">
+                      <span class="drive-btn"><i>&#8635;</i><b>Turn R</b></span>
+                      <span class="drive-btn"><i>&#8593;</i><b>Forward</b></span>
+                      <span class="drive-btn"><i>&#8634;</i><b>Turn L</b></span>
+                      <span class="drive-btn"><i>&#8592;</i><b>Left</b></span>
+                      <span class="drive-btn"><i>&#8595;</i><b>Back</b></span>
+                      <span class="drive-btn"><i>&#8594;</i><b>Right</b></span>
                     </span>
-                    <span class="pad-finger"></span>
-                    <span class="art-caption">Tap the pad &mdash; the robot moves</span>
                   </span>
+                  <span class="art-caption">Tap a button &mdash; the robot moves</span>
                 </span>
                 <span class="method-copy">
                   <strong>Floating VR Control Pad</strong>
@@ -354,8 +354,8 @@
                     </span>
                     <span class="head-chevrons chev-left"><i></i><i></i></span>
                     <span class="head-chevrons chev-right"><i></i><i></i></span>
-                    <span class="art-caption">Tilt your head &mdash; the robot walks</span>
                   </span>
+                  <span class="art-caption">Tilt your head &mdash; the robot walks</span>
                 </span>
                 <span class="method-copy">
                   <strong>Head Rotation Control</strong>
@@ -373,10 +373,11 @@
                   <span class="method-step">03</span>
                   <span class="art-scene art-mimic">
                     <span class="mimic-grid"></span>
+                    <span class="mimic-wall"></span>
                     <span class="mimic-dot dot-you"><span class="dot-label">You</span></span>
                     <span class="mimic-dot dot-bot"><span class="dot-label">Robot</span></span>
-                    <span class="art-caption">Step anywhere &mdash; the robot mirrors you</span>
                   </span>
+                  <span class="art-caption">You move &mdash; the robot mirrors next door</span>
                 </span>
                 <span class="method-copy">
                   <strong>Position Matching</strong>
@@ -398,8 +399,8 @@
                       <span class="torso-head"></span>
                       <span class="torso-body"></span>
                     </span>
-                    <span class="art-caption">Torso follows your gaze</span>
                   </span>
+                  <span class="art-caption">Torso follows your gaze</span>
                   <span class="method-lock" aria-hidden="true">🔒</span>
                 </span>
                 <span class="method-copy">
@@ -715,13 +716,13 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=cssart2"></script>
-    <script src="/diagram.js?v=cssart2"></script>
+    <script src="/app.js?v=cssart3"></script>
+    <script src="/diagram.js?v=cssart3"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);
       const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
       if (!lite) {
-        import("/viewer.js?v=cssart2");
+        import("/viewer.js?v=cssart3");
       }
     </script>
   </body>

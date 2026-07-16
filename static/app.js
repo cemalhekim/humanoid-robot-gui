@@ -1254,12 +1254,17 @@ function renderSmartplugStatus(status) {
   const plugState = String(status?.state || "unavailable");
   const known = plugState === "on" || plugState === "off";
   const on = plugState === "on";
-  els.smartplugState.textContent = enabled ? (known ? (on ? "On" : "Off") : plugState) : "Not set up";
-  els.smartplugState.className = `pill ${on ? "good" : "bad"}`;
+  els.smartplugState.textContent = enabled && known ? (on ? "ON" : "OFF") : "N/A";
   els.smartplugToggle.disabled = !enabled || !known;
-  els.smartplugToggle.textContent = known ? (on ? "Turn Off" : "Turn On") : "Toggle";
-  els.smartplugToggle.classList.toggle("chill-button", enabled && known);
-  els.smartplugToggle.classList.toggle("ghost-button", !(enabled && known));
+  els.smartplugToggle.classList.toggle("is-on", enabled && known && on);
+  els.smartplugToggle.classList.toggle("is-off", enabled && known && !on);
+  els.smartplugToggle.classList.toggle("is-unavailable", !enabled || !known);
+  els.smartplugToggle.setAttribute("aria-pressed", String(enabled && known && on));
+  els.smartplugToggle.setAttribute(
+    "aria-label",
+    enabled && known ? `Turn robot power ${on ? "off" : "on"}` : "Robot power unavailable",
+  );
+  els.smartplugToggle.title = status?.error || status?.friendly_name || (known ? `Robot power is ${plugState}` : "Robot power unavailable");
   if (els.smartplugMessage) {
     els.smartplugMessage.textContent = status?.error || status?.friendly_name || "--";
   }

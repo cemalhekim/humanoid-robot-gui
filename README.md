@@ -127,7 +127,8 @@ The dashboard shows:
 - A TeleImager camera panel.
 - Links to the Vision Pro / XR Vuer page.
 - H1 locomotion controls.
-- Right-wrist controls.
+- The dedicated Right Wrist page has been archived; its guarded backend API is
+  retained for compatibility with existing tools and integrations.
 - A telemetry recorder for sequential full-body motor samples, including legs,
   waist, arms, and RH56BFX hand samples.
 - A 6-DOF hand target panel in the Recorder pose editor: clicking a hand ball
@@ -155,8 +156,6 @@ Dashboard command surfaces:
   `POST /api/robot/straight`.
 - `Loco Control`: ready, stand, start, damp, zero torque, velocity, target
   position, and odometry requests.
-- `Right Wrist`: target position, relative step, gains, duration, command rate,
-  and oscillation controls.
 - `Camera`: TeleImager WebRTC preview and XR page entry points.
 
 ## Safety Model

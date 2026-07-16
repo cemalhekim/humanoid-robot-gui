@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=locov1">
+    <link rel="stylesheet" href="/styles.css?v=loco-console-v3">
     <script type="importmap">
       {
         "imports": {
@@ -53,7 +53,6 @@
           </a>
           <a class="nav-item" href="#motorPage"><span class="nav-icon">▤</span>Motor Data</a>
           <a class="nav-item" href="#locoPage"><span class="nav-icon">↕</span>Loco Control</a>
-          <a class="nav-item" href="#wristPage"><span class="nav-icon">◌</span>Right Wrist</a>
           <a class="nav-item" href="#diagramPage"><span class="nav-icon">◈</span>Diagrams</a>
         </nav>
         <div class="sidebar-signal">
@@ -77,8 +76,11 @@
           <div class="status-strip">
             <span class="robot-power" title="Robot power — the showcase smart plug via Home Assistant">
               <span class="robot-power-label">Robot</span>
-              <span id="smartplugState" class="pill bad">--</span>
-              <button id="smartplugToggle" class="ghost-button compact" type="button" disabled>Toggle</button>
+              <button id="smartplugToggle" class="robot-power-switch is-unavailable" type="button" aria-pressed="false" aria-label="Robot power unavailable" disabled>
+                <span id="smartplugState" class="robot-power-switch-state">N/A</span>
+                <span class="robot-power-switch-knob" aria-hidden="true"></span>
+              </button>
+              <span id="smartplugMessage" class="visually-hidden" aria-live="polite"></span>
             </span>
             <span id="networkType" class="metric signal-chip">Detecting network</span>
             <span id="rate" class="metric success">-- Hz</span>
@@ -423,35 +425,36 @@
           </section>
 
           <section id="locoPage" class="loco-page panel">
-            <div class="section-head">
+            <div class="section-head loco-console-head">
               <div>
+                <span class="loco-kicker"><span></span> Motion command center</span>
                 <h2>Loco Control</h2>
                 <p class="panel-subtitle">Guarded H1 locomotion API controls through Unitree LocoClient</p>
               </div>
               <div class="wrist-actions">
-                <span id="locoState" class="pill bad">Unavailable</span>
+                <span class="loco-live-indicator"><span class="loco-live-wave" aria-hidden="true"></span><span id="locoState" class="pill bad">Unavailable</span></span>
                 <button id="locoStop" class="emergency-button compact" type="button">Stop Move</button>
               </div>
             </div>
 
             <div class="loco-layout">
               <section class="loco-readout">
-                <article class="wrist-meter">
+                <article class="wrist-meter loco-readout-card" data-metric="mode">
                   <span>Robot Mode</span>
                   <strong id="locoModeMachine">--</strong>
                   <small>mode_machine from rt/lowstate</small>
                 </article>
-                <article class="wrist-meter">
+                <article class="wrist-meter loco-readout-card" data-metric="control">
                   <span>Control Mode</span>
                   <strong id="locoModePr">--</strong>
                   <small>mode_pr from rt/lowstate</small>
                 </article>
-                <article class="wrist-meter">
+                <article class="wrist-meter loco-readout-card" data-metric="owner">
                   <span>Motion Owner</span>
                   <strong id="locoMotionOwner">--</strong>
                   <small>motion_switcher CheckMode</small>
                 </article>
-                <article class="wrist-meter">
+                <article class="wrist-meter loco-readout-card" data-metric="status">
                   <span>Status</span>
                   <strong id="locoMessage">Waiting</strong>
                   <small id="locoLastCommand">No loco command sent</small>
@@ -459,13 +462,14 @@
               </section>
 
               <section class="loco-controls">
-                <article class="loco-card">
+                <article class="loco-card loco-card-power">
                   <header class="loco-card-head">
                     <span class="loco-card-index">01</span>
                     <div>
                       <h3>Posture &amp; Power</h3>
                       <p>From limp to walking: Zero Torque &rarr; Damp &rarr; Stand Up &rarr; Ready &rarr; Start Gait</p>
                     </div>
+                    <span class="loco-card-visual power-visual" aria-hidden="true"><i class="power-core"></i><i class="power-ring ring-one"></i><i class="power-ring ring-two"></i></span>
                   </header>
                   <div class="loco-btn-grid cols-3">
                     <button id="locoZeroTorque" class="loco-btn danger" type="button" title="Motors output zero torque — the robot goes fully limp. Support or hoist it first.">Zero Torque</button>
@@ -495,13 +499,14 @@
                   </div>
                 </article>
 
-                <article class="loco-card">
+                <article class="loco-card loco-card-drive">
                   <header class="loco-card-head">
                     <span class="loco-card-index">02</span>
                     <div>
                       <h3>Drive</h3>
                       <p>Hold a direction to walk &mdash; releasing sends Stop. Sliders set the speeds used.</p>
                     </div>
+                    <span class="loco-card-visual drive-visual" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
                   </header>
                   <div class="loco-presets">
                     <button type="button" data-loco-preset="turn-left" title="Hold: rotate left in place at the yaw rate.">&#8634; Turn L</button>
@@ -536,13 +541,14 @@
                   </div>
                 </article>
 
-                <article class="loco-card">
+                <article class="loco-card loco-card-gait">
                   <header class="loco-card-head">
                     <span class="loco-card-index">03</span>
                     <div>
                       <h3>Gait &amp; Balance</h3>
                       <p>Stepping behaviour while standing and which balance strategy is active</p>
                     </div>
+                    <span class="loco-card-visual gait-visual" aria-hidden="true"><i class="foot-left"></i><i class="foot-right"></i><b></b></span>
                   </header>
                   <div class="loco-btn-grid cols-2">
                     <button id="locoGaitOn" class="loco-btn" type="button" title="Continuous gait on: keeps stepping in place even at zero velocity.">Gait On</button>
@@ -554,13 +560,14 @@
                   </div>
                 </article>
 
-                <article class="loco-card">
+                <article class="loco-card loco-card-gestures">
                   <header class="loco-card-head">
                     <span class="loco-card-index">04</span>
                     <div>
                       <h3>Gestures</h3>
                       <p>Built-in arm gestures &mdash; the robot must be standing in balance first</p>
                     </div>
+                    <span class="loco-card-visual gesture-visual" aria-hidden="true"><i class="gesture-arm"></i><i class="gesture-hand"></i><b class="gesture-wave wave-one"></b><b class="gesture-wave wave-two"></b></span>
                   </header>
                   <div class="loco-btn-grid cols-2">
                     <button id="locoWaveHand" class="loco-btn" type="button" title="Wave the right hand.">Wave Hand</button>
@@ -570,13 +577,14 @@
                   </div>
                 </article>
 
-                <article class="loco-card">
+                <article class="loco-card loco-card-navigation">
                   <header class="loco-card-head">
                     <span class="loco-card-index">05</span>
                     <div>
                       <h3>Navigation &amp; Odometry</h3>
                       <p>Walk to a target pose using the onboard odometry estimate</p>
                     </div>
+                    <span class="loco-card-visual nav-visual" aria-hidden="true"><i></i><b></b><em></em></span>
                   </header>
                   <div class="loco-btn-grid cols-3">
                     <button id="locoEnableOdom" class="loco-btn" type="button" title="Enable odometry — start estimating the robot's position.">Odom On</button>
@@ -622,91 +630,6 @@
                   <div id="locoHistory" class="loco-history-list"></div>
                 </div>
               </aside>
-            </div>
-          </section>
-
-          <section id="wristPage" class="wrist-page panel">
-            <div class="section-head">
-              <div>
-                <h2>Right Wrist Control</h2>
-                <p class="panel-subtitle">Live telemetry with guarded arm_sdk commands for RightWristYaw</p>
-              </div>
-              <div class="wrist-actions">
-                <span id="wristState" class="pill bad">Unavailable</span>
-                <button id="wristStop" class="emergency-button compact" type="button">Stop Wrist</button>
-              </div>
-            </div>
-            <div class="wrist-layout">
-              <section class="wrist-readout">
-                <article class="wrist-meter">
-                  <span>Current q</span>
-                  <strong id="wristCurrentQ">--</strong>
-                  <small>RightWristYaw telemetry</small>
-                </article>
-                <article class="wrist-meter">
-                  <span>Velocity dq</span>
-                  <strong id="wristCurrentDq">--</strong>
-                  <small>Live lowstate value</small>
-                </article>
-                <article class="wrist-meter">
-                  <span>Target q</span>
-                  <strong id="wristTargetQReadout">0.000</strong>
-                  <small>Slider command target</small>
-                </article>
-                <article class="wrist-meter">
-                  <span>Status</span>
-                  <strong id="wristMessage">Waiting</strong>
-                  <small id="wristLastCommand">No command sent</small>
-                </article>
-              </section>
-
-              <section class="wrist-controls">
-                <div class="control-mode">
-                  <label><input id="wristArm" type="checkbox"> Arm command page</label>
-                  <label><input id="wristRisk" type="checkbox"> I understand this can move the robot</label>
-                  <label><input id="wristLive" type="checkbox"> Apply when sliders change</label>
-                  <label><input id="wristLowcmd" type="checkbox" checked> Use lowcmd takeover</label>
-                  <label><input id="wristAutoGains" type="checkbox" checked> Auto gains</label>
-                </div>
-
-                <div class="slider-row">
-                  <span>
-                    <span id="wristTargetLabel">Target q</span>
-                    <label class="inline-toggle"><input id="wristTargetRelative" type="checkbox"> Relative</label>
-                    <strong id="wristTargetValue">0.000</strong>
-                  </span>
-                  <input id="wristTarget" type="range" min="-1.2" max="1.2" value="0" step="0.005">
-                </div>
-                <label class="slider-row">
-                  <span>Relative step <strong id="wristDeltaValue">0.030</strong></span>
-                  <input id="wristDelta" type="range" min="-0.25" max="0.25" value="0.03" step="0.005">
-                </label>
-                <label class="slider-row">
-                  <span>kp <strong id="wristKpValue">4.00</strong></span>
-                  <input id="wristKp" type="range" min="0" max="30" value="4" step="0.25">
-                </label>
-                <label class="slider-row">
-                  <span>kd <strong id="wristKdValue">0.35</strong></span>
-                  <input id="wristKd" type="range" min="0" max="5" value="0.35" step="0.05">
-                </label>
-                <label class="slider-row">
-                  <span>Duration <strong id="wristDurationValue">0.35 s</strong></span>
-                  <input id="wristDuration" type="range" min="0.05" max="12" value="0.35" step="0.05">
-                </label>
-                <label class="slider-row">
-                  <span>Period <strong id="wristPeriodValue">2.00 s</strong></span>
-                  <input id="wristPeriod" type="range" min="0.4" max="8" value="2" step="0.1">
-                </label>
-                <label class="slider-row">
-                  <span>Rate <strong id="wristRateValue">80 Hz</strong></span>
-                  <input id="wristRate" type="range" min="20" max="200" value="80" step="10">
-                </label>
-
-                <div class="wrist-command-row">
-                  <button id="wristSendAbsolute" type="button">Send Target</button>
-                  <button id="wristOscillate" type="button">Start Back/Forth</button>
-                </div>
-              </section>
             </div>
           </section>
 
@@ -769,7 +692,7 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=locov1"></script>
+    <script src="/app.js?v=loco-console-v3"></script>
     <script src="/diagram.js?v=locov1"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);

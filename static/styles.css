@@ -1932,26 +1932,6 @@ pre {
   justify-content: flex-end;
 }
 
-.camera-link-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text);
-  font-size: 0.9rem;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.camera-link-button:hover {
-  border-color: rgba(234, 0, 0, 0.6);
-  background: rgba(234, 0, 0, 0.18);
-}
-
 .camera-dot {
   width: 10px;
   height: 10px;

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=cssart4">
+    <link rel="stylesheet" href="/styles.css?v=cssart5">
     <script type="importmap">
       {
         "imports": {
@@ -303,14 +303,6 @@
               <div>
                 <h2>Select your control method.</h2>
               </div>
-              <a
-                class="camera-link-button"
-                href="https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012"
-                target="_blank"
-                rel="noreferrer"
-              >
-                VR View
-              </a>
             </div>
             <div class="teleoperation-options" aria-label="Teleoperation control methods">
               <button
@@ -716,13 +708,13 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=cssart4"></script>
-    <script src="/diagram.js?v=cssart4"></script>
+    <script src="/app.js?v=cssart5"></script>
+    <script src="/diagram.js?v=cssart5"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);
       const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
       if (!lite) {
-        import("/viewer.js?v=cssart4");
+        import("/viewer.js?v=cssart5");
       }
     </script>
   </body>

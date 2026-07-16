@@ -2544,6 +2544,9 @@ pre {
   height: 15px;
   margin: -7px 0 0 -7px;
   border-radius: 50%;
+  /* park exactly on the wander path's start point so the hover animation
+     (and the robot's 0.5s-delayed copy of it) begins without a jump */
+  transform: translate(-16px, 8px);
 }
 
 .mimic-dot .dot-label {
@@ -2577,7 +2580,7 @@ pre {
 
 .method-mimic:hover .mimic-dot,
 .method-mimic:focus-visible .mimic-dot {
-  animation: mimicRoom 2.8s ease-in-out infinite;
+  animation: mimicRoom 2.8s ease-in-out infinite backwards;
 }
 
 /* the robot repeats your path next door, half a second later */

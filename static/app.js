@@ -186,6 +186,8 @@ const els = {
   locoShakeEnd: document.getElementById("locoShakeEnd"),
   locoEnableOdom: document.getElementById("locoEnableOdom"),
   locoDisableOdom: document.getElementById("locoDisableOdom"),
+  locoBalanceModeStatic: document.getElementById("locoBalanceModeStatic"),
+  locoBalanceModeGait: document.getElementById("locoBalanceModeGait"),
   locoVx: document.getElementById("locoVx"),
   locoVy: document.getElementById("locoVy"),
   locoVyaw: document.getElementById("locoVyaw"),
@@ -1664,6 +1666,8 @@ function setLocoButtons() {
     els.locoShakeEnd,
     els.locoEnableOdom,
     els.locoDisableOdom,
+    els.locoBalanceModeStatic,
+    els.locoBalanceModeGait,
     els.locoSendVelocity,
     els.locoMove,
     els.locoSetHeight,
@@ -1895,6 +1899,8 @@ function setupLocoControls() {
   els.locoShakeEnd?.addEventListener("click", () => sendLocoCommand("shake_hand_end"));
   els.locoEnableOdom?.addEventListener("click", () => sendLocoCommand("enable_odom"));
   els.locoDisableOdom?.addEventListener("click", () => sendLocoCommand("disable_odom"));
+  els.locoBalanceModeStatic?.addEventListener("click", () => sendLocoCommand("set_balance_mode", { balance_mode: 0 }));
+  els.locoBalanceModeGait?.addEventListener("click", () => sendLocoCommand("set_balance_mode", { balance_mode: 1 }));
   els.locoSendVelocity?.addEventListener("click", () => sendLocoCommand("velocity"));
   els.locoMove?.addEventListener("click", () => sendLocoCommand("move"));
   els.locoSetHeight?.addEventListener("click", () => sendLocoCommand("set_height"));

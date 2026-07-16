@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=cssart6">
+    <link rel="stylesheet" href="/styles.css?v=locov1">
     <script type="importmap">
       {
         "imports": {
@@ -459,67 +459,130 @@
               </section>
 
               <section class="loco-controls">
-                <div class="loco-action-grid">
-                  <button id="locoReady" type="button">Ready</button>
-                  <button id="locoStandUp" type="button">Stand Up</button>
-                  <button id="locoStart" type="button">Start</button>
-                  <button id="locoDamp" type="button">Damp</button>
-                  <button id="locoZeroTorque" type="button">Zero Torque</button>
-                  <button id="locoBalanceStand" type="button">Balance Stand</button>
-                  <button id="locoHighStand" type="button">High Stand</button>
-                  <button id="locoLowStand" type="button">Low Stand</button>
-                  <button id="locoGaitOn" type="button">Gait On</button>
-                  <button id="locoGaitOff" type="button">Gait Off</button>
-                  <button id="locoNextFootLeft" type="button">Next Foot L</button>
-                  <button id="locoNextFootRight" type="button">Next Foot R</button>
-                  <button id="locoWaveHand" type="button">Wave Hand</button>
-                  <button id="locoShakeHand" type="button">Shake Hand</button>
-                  <button id="locoShakeStart" type="button">Shake Start</button>
-                  <button id="locoShakeEnd" type="button">Shake End</button>
-                  <button id="locoEnableOdom" type="button">Odom On</button>
-                  <button id="locoDisableOdom" type="button">Odom Off</button>
-                </div>
-
-                <div class="loco-velocity-panel">
-                  <div class="loco-presets">
-                    <button type="button" data-loco-preset="forward">Forward</button>
-                    <button type="button" data-loco-preset="back">Back</button>
-                    <button type="button" data-loco-preset="left">Left</button>
-                    <button type="button" data-loco-preset="right">Right</button>
-                    <button type="button" data-loco-preset="turn-left">Turn Left</button>
-                    <button type="button" data-loco-preset="turn-right">Turn Right</button>
+                <article class="loco-card">
+                  <header class="loco-card-head">
+                    <span class="loco-card-index">01</span>
+                    <div>
+                      <h3>Posture &amp; Power</h3>
+                      <p>From limp to walking: Zero Torque &rarr; Damp &rarr; Stand Up &rarr; Ready &rarr; Start Gait</p>
+                    </div>
+                  </header>
+                  <div class="loco-btn-grid cols-3">
+                    <button id="locoZeroTorque" class="loco-btn danger" type="button" title="Motors output zero torque — the robot goes fully limp. Support or hoist it first.">Zero Torque</button>
+                    <button id="locoDamp" class="loco-btn danger" type="button" title="All joints switch to soft damping — the robot sags slowly. Support it first.">Damp</button>
+                    <button id="locoStandUp" class="loco-btn" type="button" title="Lock stand: joints lock rigidly into the stand pose (the RC left+up combo in software). Recovery after Damp.">Stand Up</button>
+                    <button id="locoReady" class="loco-btn primary" type="button" title="Balance stand: the balance controller actively holds the robot upright in place.">Ready</button>
+                    <button id="locoBalanceStand" class="loco-btn" type="button" title="Same balance-stand call as Ready — active balance without stepping.">Balance Stand</button>
+                    <button id="locoStart" class="loco-btn primary" type="button" title="Start the locomotion controller — enables walking. Drive commands only work after this.">Start Gait</button>
                   </div>
+                  <div class="loco-btn-grid cols-2">
+                    <button id="locoHighStand" class="loco-btn" type="button" title="Rise to the tall stand height.">High Stand</button>
+                    <button id="locoLowStand" class="loco-btn" type="button" title="Crouch to the low stand height.">Low Stand</button>
+                  </div>
+                  <div class="loco-param-row">
+                    <label class="slider-row">
+                      <span>Stand height <strong id="locoStandHeightValue">0.50</strong></span>
+                      <input id="locoStandHeight" type="range" min="0" max="1" value="0.5" step="0.01">
+                    </label>
+                    <button id="locoSetHeight" class="loco-btn apply" type="button" title="Apply the stand-height slider (0 = lowest crouch, 1 = tallest).">Set</button>
+                  </div>
+                  <div class="loco-param-row">
+                    <label class="slider-row">
+                      <span>Swing height <strong id="locoSwingHeightValue">0.05</strong></span>
+                      <input id="locoSwingHeight" type="range" min="0" max="0.3" value="0.05" step="0.005">
+                    </label>
+                    <button id="locoSetSwingHeight" class="loco-btn apply" type="button" title="Apply the swing-height slider — how high each foot lifts while stepping (meters).">Set</button>
+                  </div>
+                </article>
 
+                <article class="loco-card">
+                  <header class="loco-card-head">
+                    <span class="loco-card-index">02</span>
+                    <div>
+                      <h3>Drive</h3>
+                      <p>Hold a direction to walk &mdash; releasing sends Stop. Sliders set the speeds used.</p>
+                    </div>
+                  </header>
+                  <div class="loco-presets">
+                    <button type="button" data-loco-preset="turn-left" title="Hold: rotate left in place at the yaw rate.">&#8634; Turn L</button>
+                    <button type="button" data-loco-preset="forward" title="Hold: walk forward at the vx speed.">&#8593; Forward</button>
+                    <button type="button" data-loco-preset="turn-right" title="Hold: rotate right in place.">&#8635; Turn R</button>
+                    <button type="button" data-loco-preset="left" title="Hold: sidestep left at the vy speed.">&#8592; Left</button>
+                    <button type="button" data-loco-preset="back" title="Hold: walk backward.">&#8595; Back</button>
+                    <button type="button" data-loco-preset="right" title="Hold: sidestep right.">&#8594; Right</button>
+                  </div>
                   <label class="slider-row">
-                    <span>Forward vx <strong id="locoVxValue">0.50 m/s</strong></span>
+                    <span>Forward speed vx <strong id="locoVxValue">0.50 m/s</strong></span>
                     <input id="locoVx" type="range" min="-1" max="1" value="0.5" step="0.01">
                   </label>
                   <label class="slider-row">
-                    <span>Lateral vy <strong id="locoVyValue">0.50 m/s</strong></span>
+                    <span>Sideways speed vy <strong id="locoVyValue">0.50 m/s</strong></span>
                     <input id="locoVy" type="range" min="-0.5" max="0.5" value="0.5" step="0.01">
                   </label>
                   <label class="slider-row">
-                    <span>Yaw vyaw <strong id="locoVyawValue">0.50 rad/s</strong></span>
+                    <span>Turn rate vyaw <strong id="locoVyawValue">0.50 rad/s</strong></span>
                     <input id="locoVyaw" type="range" min="-1" max="1" value="0.5" step="0.01">
                   </label>
                   <label class="slider-row">
-                    <span>Duration <strong id="locoDurationValue">1.00 s</strong></span>
+                    <span>Velocity duration <strong id="locoDurationValue">1.00 s</strong></span>
                     <input id="locoDuration" type="range" min="0.1" max="10" value="1" step="0.1">
                   </label>
-                  <label class="slider-row">
-                    <span>Stand height <strong id="locoStandHeightValue">0.50</strong></span>
-                    <input id="locoStandHeight" type="range" min="0" max="1" value="0.5" step="0.01">
+                  <label class="loco-toggle" title="On: Move keeps walking until Stop Move. Off: a Move command decays on its own.">
+                    <input id="locoContinuousMove" type="checkbox" checked> Continuous move
                   </label>
-                  <label class="slider-row">
-                    <span>Swing height <strong id="locoSwingHeightValue">0.05</strong></span>
-                    <input id="locoSwingHeight" type="range" min="0" max="0.3" value="0.05" step="0.005">
-                  </label>
-
-                  <div class="control-mode compact-mode">
-                    <label><input id="locoContinuousMove" type="checkbox" checked> Continuous move</label>
-                    <label><input id="locoTargetRelative" type="checkbox" checked> Relative target</label>
+                  <div class="loco-btn-grid cols-2">
+                    <button id="locoSendVelocity" class="loco-btn primary" type="button" title="Walk at (vx, vy, vyaw) for exactly the set duration, then stop automatically.">Send Velocity</button>
+                    <button id="locoMove" class="loco-btn primary" type="button" title="Move at (vx, vy, vyaw). With Continuous move on, keeps walking until Stop Move.">Move</button>
                   </div>
+                </article>
 
+                <article class="loco-card">
+                  <header class="loco-card-head">
+                    <span class="loco-card-index">03</span>
+                    <div>
+                      <h3>Gait &amp; Balance</h3>
+                      <p>Stepping behaviour while standing and which balance strategy is active</p>
+                    </div>
+                  </header>
+                  <div class="loco-btn-grid cols-2">
+                    <button id="locoGaitOn" class="loco-btn" type="button" title="Continuous gait on: keeps stepping in place even at zero velocity.">Gait On</button>
+                    <button id="locoGaitOff" class="loco-btn" type="button" title="Continuous gait off: feet stop stepping when velocity is zero.">Gait Off</button>
+                    <button id="locoNextFootLeft" class="loco-btn" type="button" title="The left foot takes the next step.">Next Foot L</button>
+                    <button id="locoNextFootRight" class="loco-btn" type="button" title="The right foot takes the next step.">Next Foot R</button>
+                    <button id="locoBalanceModeStatic" class="loco-btn" type="button" title="SetBalanceMode 0 — static balance: the robot stands still between commands.">Balance: Static</button>
+                    <button id="locoBalanceModeGait" class="loco-btn" type="button" title="SetBalanceMode 1 — continuous-gait balance: the robot balances while stepping.">Balance: Gait</button>
+                  </div>
+                </article>
+
+                <article class="loco-card">
+                  <header class="loco-card-head">
+                    <span class="loco-card-index">04</span>
+                    <div>
+                      <h3>Gestures</h3>
+                      <p>Built-in arm gestures &mdash; the robot must be standing in balance first</p>
+                    </div>
+                  </header>
+                  <div class="loco-btn-grid cols-2">
+                    <button id="locoWaveHand" class="loco-btn" type="button" title="Wave the right hand.">Wave Hand</button>
+                    <button id="locoShakeHand" class="loco-btn" type="button" title="Full handshake: extend, shake, retract.">Shake Hand</button>
+                    <button id="locoShakeStart" class="loco-btn" type="button" title="Handshake stage 1: extend the hand and hold it out.">Shake: Extend</button>
+                    <button id="locoShakeEnd" class="loco-btn" type="button" title="Handshake stage 2: retract the hand.">Shake: Retract</button>
+                  </div>
+                </article>
+
+                <article class="loco-card">
+                  <header class="loco-card-head">
+                    <span class="loco-card-index">05</span>
+                    <div>
+                      <h3>Navigation &amp; Odometry</h3>
+                      <p>Walk to a target pose using the onboard odometry estimate</p>
+                    </div>
+                  </header>
+                  <div class="loco-btn-grid cols-3">
+                    <button id="locoEnableOdom" class="loco-btn" type="button" title="Enable odometry — start estimating the robot's position.">Odom On</button>
+                    <button id="locoDisableOdom" class="loco-btn" type="button" title="Disable odometry estimation.">Odom Off</button>
+                    <button id="locoGetOdom" class="loco-btn" type="button" title="Read the current odometry pose — the result lands in Command History.">Get Odom</button>
+                  </div>
                   <label class="slider-row">
                     <span>Target x <strong id="locoTargetXValue">0.00 m</strong></span>
                     <input id="locoTargetX" type="range" min="-2" max="2" value="0" step="0.01">
@@ -532,29 +595,32 @@
                     <span>Target yaw <strong id="locoTargetYawValue">0.00 rad</strong></span>
                     <input id="locoTargetYaw" type="range" min="-3.14" max="3.14" value="0" step="0.01">
                   </label>
-
-                  <div class="wrist-command-row">
-                    <button id="locoSendVelocity" type="button">Send Velocity</button>
-                    <button id="locoMove" type="button">Move</button>
-                    <button id="locoSetHeight" type="button">Set Height</button>
-                    <button id="locoSetSwingHeight" type="button">Set Swing</button>
-                    <button id="locoSetTargetPosition" type="button">Target Position</button>
-                    <button id="locoGetOdom" type="button">Get Odom</button>
+                  <label class="loco-toggle" title="On: the target is relative to where the robot stands now. Off: absolute odometry coordinates.">
+                    <input id="locoTargetRelative" type="checkbox" checked> Relative target
+                  </label>
+                  <div class="loco-btn-grid cols-1">
+                    <button id="locoSetTargetPosition" class="loco-btn primary" type="button" title="Walk to the target pose (x, y, yaw).">Go To Target</button>
                   </div>
-                </div>
+                </article>
               </section>
 
               <aside class="loco-history">
-                <h3>Command History</h3>
-                <div class="loco-query-grid">
-                  <button id="locoGetFsmId" type="button">FSM ID</button>
-                  <button id="locoGetFsmMode" type="button">FSM Mode</button>
-                  <button id="locoGetBalanceMode" type="button">Balance</button>
-                  <button id="locoGetSwingHeight" type="button">Swing</button>
-                  <button id="locoGetStandHeight" type="button">Stand</button>
-                  <button id="locoGetPhase" type="button">Phase</button>
+                <div class="loco-aside-block">
+                  <h3>Live Queries</h3>
+                  <p class="loco-aside-hint">Read controller state &mdash; results land in the history below.</p>
+                  <div class="loco-query-grid">
+                    <button id="locoGetFsmId" type="button" title="Current finite-state-machine ID of the controller.">FSM ID</button>
+                    <button id="locoGetFsmMode" type="button" title="Current FSM mode.">FSM Mode</button>
+                    <button id="locoGetBalanceMode" type="button" title="Which balance mode is active (0 static, 1 gait).">Balance</button>
+                    <button id="locoGetSwingHeight" type="button" title="Current foot swing height.">Swing</button>
+                    <button id="locoGetStandHeight" type="button" title="Current stand height.">Stand</button>
+                    <button id="locoGetPhase" type="button" title="Current gait phase of each leg.">Phase</button>
+                  </div>
                 </div>
-                <div id="locoHistory" class="loco-history-list"></div>
+                <div class="loco-aside-block loco-history-block">
+                  <h3>Command History</h3>
+                  <div id="locoHistory" class="loco-history-list"></div>
+                </div>
               </aside>
             </div>
           </section>
@@ -703,13 +769,13 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=cssart6"></script>
-    <script src="/diagram.js?v=cssart6"></script>
+    <script src="/app.js?v=locov1"></script>
+    <script src="/diagram.js?v=locov1"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);
       const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
       if (!lite) {
-        import("/viewer.js?v=cssart6");
+        import("/viewer.js?v=locov1");
       }
     </script>
   </body>

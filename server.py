@@ -334,6 +334,7 @@ LOCO_LIMITS = {
     "target_x": [-2.0, 2.0],
     "target_y": [-2.0, 2.0],
     "target_yaw": [-3.14, 3.14],
+    "balance_mode": [0, 1],
 }
 LOCO_ACTIONS = [
     "ready",
@@ -347,6 +348,7 @@ LOCO_ACTIONS = [
     "low_stand",
     "set_height",
     "set_swing_height",
+    "set_balance_mode",
     "velocity",
     "move",
     "continuous_gait_on",
@@ -4919,6 +4921,7 @@ finally:
             "low_stand",
             "set_height",
             "set_swing_height",
+            "set_balance_mode",
             "velocity",
             "move",
             "continuous_gait_on",
@@ -4953,6 +4956,7 @@ finally:
             target_x = self._coerce_float(payload, "target_x", 0.0, -2.0, 2.0)
             target_y = self._coerce_float(payload, "target_y", 0.0, -2.0, 2.0)
             target_yaw = self._coerce_float(payload, "target_yaw", 0.0, -3.14, 3.14)
+            balance_mode = int(self._coerce_float(payload, "balance_mode", 0.0, 0.0, 1.0))
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
         continuous = bool(payload.get("continuous_move"))
@@ -4978,6 +4982,7 @@ finally:
             "target_x": round(target_x, 4),
             "target_y": round(target_y, 4),
             "target_yaw": round(target_yaw, 4),
+            "balance_mode": balance_mode,
             "continuous_move": continuous,
             "target_relative": target_relative,
             "time": time.time(),
@@ -5017,6 +5022,8 @@ finally:
                 call_code = loco_client.SetStandHeight(stand_height)
             elif action == "set_swing_height":
                 call_code = loco_client.SetSwingHeight(swing_height)
+            elif action == "set_balance_mode":
+                call_code = loco_client.SetBalanceMode(balance_mode)
             elif action == "velocity":
                 call_code = loco_client.SetVelocity(vx, vy, vyaw, duration)
             elif action == "move":

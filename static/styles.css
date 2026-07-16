@@ -1235,41 +1235,158 @@ h3 {
 
 .loco-controls {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   align-content: start;
+  align-items: start;
 }
 
-.loco-action-grid,
-.loco-presets {
+/* ---- loco section cards ---- */
+.loco-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 40%),
+    rgba(0, 0, 0, 0.26);
+}
+
+.loco-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.loco-card-index {
+  flex: none;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: var(--accent-2);
+  padding-top: 2px;
+}
+
+.loco-card-head h3 {
+  font-size: 15px;
+  color: #fff;
+}
+
+.loco-card-head p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.loco-btn-grid {
   display: grid;
   gap: 8px;
 }
 
-.loco-action-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+.loco-btn-grid.cols-1 { grid-template-columns: minmax(0, 1fr); }
+.loco-btn-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.loco-btn-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Base loco button: dark, quiet. Variants mark intent. */
+.loco-btn,
+.loco-query-grid button {
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: linear-gradient(180deg, rgba(52, 52, 52, 0.9), rgba(22, 22, 22, 0.94));
+  color: rgba(255, 255, 255, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 6px 16px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  min-height: 38px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 850;
+  transition: border-color 130ms ease, background 130ms ease, transform 130ms ease;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
-.loco-presets {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  margin-bottom: 8px;
+.loco-btn:hover:not(:disabled),
+.loco-query-grid button:hover:not(:disabled) {
+  border-color: rgba(255, 90, 90, 0.75);
+  transform: translateY(-1px);
 }
 
-.loco-query-grid {
+.loco-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Primary: the commands you reach for most — red. */
+.loco-btn.primary {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: linear-gradient(135deg, rgba(230, 0, 0, 0.88), rgba(96, 0, 0, 0.9));
+  color: #fff;
+}
+
+/* Danger: the robot goes limp — unmistakably marked. */
+.loco-btn.danger {
+  border-color: rgba(255, 120, 60, 0.55);
+  background: linear-gradient(180deg, rgba(80, 22, 8, 0.92), rgba(38, 8, 2, 0.95));
+  color: #ffb28f;
+}
+
+.loco-btn.danger:hover:not(:disabled) {
+  border-color: rgba(255, 150, 90, 0.95);
+  background: linear-gradient(180deg, rgba(120, 32, 10, 0.95), rgba(58, 12, 3, 0.97));
+}
+
+.loco-btn.apply {
+  min-width: 62px;
+  min-height: auto;
+}
+
+.loco-param-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
 }
 
-.loco-action-grid button,
-.loco-presets button,
-.loco-query-grid button,
-.wrist-command-row button {
+.loco-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.loco-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+/* Drive pad: 3x2, red — these physically move the robot. */
+.loco-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.loco-presets button {
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: linear-gradient(135deg, rgba(230, 0, 0, 0.84), rgba(88, 0, 0, 0.86));
   color: #fff;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
   cursor: pointer;
-  min-height: 38px;
+  min-height: 44px;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 850;
@@ -1287,18 +1404,31 @@ h3 {
   transform: translateY(1px);
 }
 
-.loco-action-grid button:disabled,
+.loco-query-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.wrist-command-row button {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(135deg, rgba(230, 0, 0, 0.84), rgba(88, 0, 0, 0.86));
+  color: #fff;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
+  cursor: pointer;
+  min-height: 38px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.loco-btn:disabled,
 .loco-presets button:disabled,
 .loco-query-grid button:disabled,
 .wrist-command-row button:disabled,
 .loco-controls button:disabled {
   cursor: not-allowed;
   opacity: 0.46;
-}
-
-.loco-velocity-panel {
-  display: grid;
-  gap: 8px;
 }
 
 .compact-mode {
@@ -1313,6 +1443,29 @@ h3 {
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.22);
+  align-content: start;
+}
+
+.loco-aside-block {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.loco-aside-block h3 {
+  font-size: 14px;
+  color: #fff;
+}
+
+.loco-aside-hint {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.loco-history-block {
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .loco-history-list {
@@ -2975,10 +3128,6 @@ pre {
   .loco-presets {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-
-  .loco-action-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 920px) {
@@ -3044,7 +3193,7 @@ pre {
   .loco-readout,
   .control-mode,
   .wrist-command-row,
-  .loco-action-grid,
+  .loco-controls,
   .loco-presets {
     grid-template-columns: 1fr;
   }

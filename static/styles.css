@@ -3357,20 +3357,30 @@ button:not(:disabled):active { transform: scale(0.96); }
 }
 
 /* ---- hands on/off toggle + grayed-out state ---- */
-.hands-title,
-.smartplug-title {
+.hands-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
-.smartplug-content {
-  justify-items: start;
-  align-content: start;
+
+/* ---- robot power (smart plug) toggle in the topbar ---- */
+.robot-power {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
 }
-.smartplug-content small {
-  color: var(--muted);
-  overflow-wrap: anywhere;
+
+.robot-power-label {
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--text);
 }
 .hands-toggle {
   font-size: 11px;

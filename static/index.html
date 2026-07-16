@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=cssart5">
+    <link rel="stylesheet" href="/styles.css?v=cssart6">
     <script type="importmap">
       {
         "imports": {
@@ -75,6 +75,11 @@
             <p id="subtitle">Waiting for rt/lowstate</p>
           </div>
           <div class="status-strip">
+            <span class="robot-power" title="Robot power — the showcase smart plug via Home Assistant">
+              <span class="robot-power-label">Robot</span>
+              <span id="smartplugState" class="pill bad">--</span>
+              <button id="smartplugToggle" class="ghost-button compact" type="button" disabled>Toggle</button>
+            </span>
             <span id="networkType" class="metric signal-chip">Detecting network</span>
             <span id="rate" class="metric success">-- Hz</span>
             <span id="connection" class="pill bad">Disconnected</span>
@@ -148,16 +153,6 @@
               <article class="mini-panel">
                 <h3>Forces</h3>
                 <div id="forceFields" class="status-content"></div>
-              </article>
-              <article class="mini-panel">
-                <h3 class="smartplug-title">Smart Plug
-                  <span id="smartplugState" class="pill bad">--</span>
-                </h3>
-                <div class="status-content smartplug-content">
-                  <button id="smartplugToggle" class="ghost-button compact" type="button" disabled
-                    title="Toggle the showcase smart plug via Home Assistant">Toggle</button>
-                  <small id="smartplugMessage">Checking plug…</small>
-                </div>
               </article>
             </section>
           </section>
@@ -708,13 +703,13 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=cssart5"></script>
-    <script src="/diagram.js?v=cssart5"></script>
+    <script src="/app.js?v=cssart6"></script>
+    <script src="/diagram.js?v=cssart6"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);
       const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
       if (!lite) {
-        import("/viewer.js?v=cssart5");
+        import("/viewer.js?v=cssart6");
       }
     </script>
   </body>

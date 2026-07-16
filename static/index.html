@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=b2b1f89">
+    <link rel="stylesheet" href="/styles.css?v=cssart1">
     <script type="importmap">
       {
         "imports": {
@@ -319,7 +319,20 @@
                 data-teleoperation-mode="pad"
                 data-teleoperation-method
               >
-                <span class="method-art" aria-hidden="true"></span>
+                <span class="method-art" aria-hidden="true">
+                  <span class="method-step">01</span>
+                  <span class="art-scene art-pad">
+                    <span class="pad-ring">
+                      <span class="pad-core"></span>
+                      <span class="pad-chev chev-n"></span>
+                      <span class="pad-chev chev-e"></span>
+                      <span class="pad-chev chev-s"></span>
+                      <span class="pad-chev chev-w"></span>
+                    </span>
+                    <span class="pad-finger"></span>
+                    <span class="art-caption">Tap the pad &mdash; the robot moves</span>
+                  </span>
+                </span>
                 <span class="method-copy">
                   <strong>Floating VR Control Pad</strong>
                   <small>Current movement strategy</small>
@@ -332,7 +345,18 @@
                 data-teleoperation-mode="head_tilt"
                 data-teleoperation-method
               >
-                <span class="method-art" aria-hidden="true"></span>
+                <span class="method-art" aria-hidden="true">
+                  <span class="method-step">02</span>
+                  <span class="art-scene art-headscene">
+                    <span class="head-figure">
+                      <span class="head-shape"><span class="head-visor"></span></span>
+                      <span class="head-neck"></span>
+                    </span>
+                    <span class="head-chevrons chev-left"><i></i><i></i></span>
+                    <span class="head-chevrons chev-right"><i></i><i></i></span>
+                    <span class="art-caption">Tilt your head &mdash; the robot walks</span>
+                  </span>
+                </span>
                 <span class="method-copy">
                   <strong>Head Rotation Control</strong>
                   <small>Tilt and rotate for locomotion</small>
@@ -345,7 +369,15 @@
                 data-teleoperation-mode="position_match"
                 data-teleoperation-method
               >
-                <span class="method-art" aria-hidden="true"></span>
+                <span class="method-art" aria-hidden="true">
+                  <span class="method-step">03</span>
+                  <span class="art-scene art-mimic">
+                    <span class="mimic-grid"></span>
+                    <span class="mimic-dot dot-you"><span class="dot-label">You</span></span>
+                    <span class="mimic-dot dot-bot"><span class="dot-label">Robot</span></span>
+                    <span class="art-caption">Step anywhere &mdash; the robot mirrors you</span>
+                  </span>
+                </span>
                 <span class="method-copy">
                   <strong>Position Matching</strong>
                   <small>Match Vision Pro displacement</small>
@@ -359,7 +391,17 @@
                 aria-disabled="true"
                 title="Torso Sync is locked — coming soon"
               >
-                <span class="method-art" aria-hidden="true"><span class="method-lock" aria-hidden="true">🔒</span></span>
+                <span class="method-art" aria-hidden="true">
+                  <span class="method-step">04</span>
+                  <span class="art-scene art-torso">
+                    <span class="torso-figure">
+                      <span class="torso-head"></span>
+                      <span class="torso-body"></span>
+                    </span>
+                    <span class="art-caption">Torso follows your gaze</span>
+                  </span>
+                  <span class="method-lock" aria-hidden="true">🔒</span>
+                </span>
                 <span class="method-copy">
                   <strong>Torso Sync (View Sync)</strong>
                   <small>Locked — coming soon</small>
@@ -673,13 +715,13 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=b2b1f89"></script>
-    <script src="/diagram.js?v=b2b1f89"></script>
+    <script src="/app.js?v=cssart1"></script>
+    <script src="/diagram.js?v=cssart1"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);
       const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
       if (!lite) {
-        import("/viewer.js?v=b2b1f89");
+        import("/viewer.js?v=cssart1");
       }
     </script>
   </body>

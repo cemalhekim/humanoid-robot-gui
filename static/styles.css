@@ -2260,28 +2260,269 @@ pre {
   display: block;
   min-height: 0;
   position: relative;
-  /* The sprite is 3 portrait slices of 512x1024 (1:2). The tile keeps the
-     slice's exact aspect ratio, so the full image is always visible top to
-     bottom — never cropped, never smashed. */
-  aspect-ratio: 1 / 2;
+  aspect-ratio: 5 / 4;
   width: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(230, 0, 0, 0.16), transparent 55%),
+    linear-gradient(180deg, rgba(24, 24, 24, 0.9), rgba(8, 8, 8, 0.95));
+}
+
+.method-step {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 2;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.method-step::after {
+  content: "";
+  display: block;
+  margin-top: 5px;
+  width: 22px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.art-scene {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.art-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* -- scene 1: floating control pad, chevrons pulse in sequence, finger taps -- */
+.pad-ring {
+  position: relative;
+  width: 46%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 0 26px rgba(230, 0, 0, 0.28),
+    inset 0 0 22px rgba(0, 0, 0, 0.6);
+  animation: padFloat 4.2s ease-in-out infinite;
+}
+
+.pad-core {
+  position: absolute;
+  inset: 34%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #ff5050, var(--accent) 70%);
+  box-shadow: 0 0 18px rgba(230, 0, 0, 0.8);
+  animation: padCorePulse 2.1s ease-in-out infinite;
+}
+
+.pad-chev {
+  position: absolute;
+  width: 16%;
+  aspect-ratio: 1;
+  border-top: 3px solid rgba(255, 255, 255, 0.85);
+  border-right: 3px solid rgba(255, 255, 255, 0.85);
+  opacity: 0.25;
+  animation: padChevPulse 3.2s ease-in-out infinite;
+}
+
+.pad-chev.chev-n { top: 6%; left: 42%; transform: rotate(-45deg); animation-delay: 0s; }
+.pad-chev.chev-e { top: 42%; right: 6%; transform: rotate(45deg); animation-delay: 0.8s; }
+.pad-chev.chev-s { bottom: 6%; left: 42%; transform: rotate(135deg); animation-delay: 1.6s; }
+.pad-chev.chev-w { top: 42%; left: 6%; transform: rotate(-135deg); animation-delay: 2.4s; }
+
+.pad-finger {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.9);
+  animation: padFinger 3.2s ease-in-out infinite;
+}
+
+@keyframes padFloat {
+  0%, 100% { transform: translateY(-4px); }
+  50% { transform: translateY(5px); }
+}
+
+@keyframes padCorePulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(230, 0, 0, 0.55); }
+  50% { box-shadow: 0 0 26px rgba(230, 0, 0, 0.95); }
+}
+
+@keyframes padChevPulse {
+  0%, 18%, 100% { opacity: 0.25; }
+  9% { opacity: 1; filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8)); }
+}
+
+@keyframes padFinger {
+  0%, 100% { transform: translate(0, -52px) scale(1); opacity: 0.9; }
+  9% { transform: translate(0, -52px) scale(0.7); opacity: 1; }
+  25% { transform: translate(52px, 0) scale(1); }
+  34% { transform: translate(52px, 0) scale(0.7); opacity: 1; }
+  50% { transform: translate(0, 52px) scale(1); }
+  59% { transform: translate(0, 52px) scale(0.7); opacity: 1; }
+  75% { transform: translate(-52px, 0) scale(1); }
+  84% { transform: translate(-52px, 0) scale(0.7); opacity: 1; }
+}
+
+/* -- scene 2: head with visor rocks side to side, chevrons answer the tilt -- */
+.head-figure {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: headTilt 4.8s ease-in-out infinite;
+  transform-origin: 50% 90%;
+}
+
+.head-shape {
+  position: relative;
+  width: 74px;
+  height: 84px;
+  border-radius: 46% 46% 42% 42%;
+  background: linear-gradient(180deg, #3a3a3a, #191919);
+  box-shadow:
+    inset 0 2px 2px rgba(255, 255, 255, 0.18),
+    0 14px 30px rgba(0, 0, 0, 0.6);
+}
+
+.head-visor {
+  position: absolute;
+  top: 24%;
+  left: -6%;
+  width: 112%;
+  height: 30%;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(230, 0, 0, 0.9), rgba(255, 90, 90, 0.85), rgba(230, 0, 0, 0.9));
+  box-shadow: 0 0 20px rgba(230, 0, 0, 0.65);
+  animation: visorSheen 4.8s ease-in-out infinite;
+}
+
+.head-neck {
+  width: 22px;
+  height: 14px;
+  border-radius: 0 0 8px 8px;
+  background: #202020;
+}
+
+.head-chevrons {
+  position: absolute;
+  top: 44%;
+  display: flex;
+  gap: 6px;
+}
+
+.head-chevrons i {
+  width: 14px;
+  height: 14px;
+  border-top: 3px solid #fff;
+  border-right: 3px solid #fff;
+  opacity: 0.2;
+}
+
+.head-chevrons.chev-right { right: 12%; }
+.head-chevrons.chev-right i { transform: rotate(45deg); animation: chevGlowRight 4.8s ease-in-out infinite; }
+.head-chevrons.chev-right i:nth-child(2) { animation-delay: 0.12s; }
+.head-chevrons.chev-left { left: 12%; flex-direction: row-reverse; }
+.head-chevrons.chev-left i { transform: rotate(-135deg); animation: chevGlowLeft 4.8s ease-in-out infinite; }
+.head-chevrons.chev-left i:nth-child(2) { animation-delay: 0.12s; }
+
+@keyframes headTilt {
+  0%, 100% { transform: rotate(0deg); }
+  20%, 32% { transform: rotate(13deg); }
+  52% { transform: rotate(0deg); }
+  70%, 82% { transform: rotate(-13deg); }
+}
+
+@keyframes visorSheen {
+  0%, 100% { filter: brightness(1); }
+  26%, 76% { filter: brightness(1.45); }
+}
+
+@keyframes chevGlowRight {
+  0%, 14%, 44%, 100% { opacity: 0.2; }
+  22%, 34% { opacity: 1; filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.9)); }
+}
+
+@keyframes chevGlowLeft {
+  0%, 62%, 92%, 100% { opacity: 0.2; }
+  72%, 84% { opacity: 1; filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.9)); }
+}
+
+/* -- scene 3: two dots trace the same path over a floor grid, robot trails you -- */
+.mimic-grid {
+  position: absolute;
+  inset: 0;
   background-image:
-    linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.58)),
-    url("/assets/teleoperation-methods.png");
-  background-repeat: no-repeat;
-  background-size: 300% 100%;
+    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 34px 34px;
+  transform: perspective(340px) rotateX(48deg) scale(1.6);
+  transform-origin: 50% 78%;
+  mask-image: radial-gradient(ellipse at 50% 60%, #000 40%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 60%, #000 40%, transparent 78%);
 }
 
-.method-pad .method-art {
-  background-position: 0 50%;
+.mimic-dot {
+  position: absolute;
+  top: 52%;
+  left: 50%;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  animation: mimicWander 6.4s ease-in-out infinite;
 }
 
-.method-head .method-art {
-  background-position: 50% 50%;
+.mimic-dot .dot-label {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.method-mimic .method-art {
-  background-position: 100% 50%;
+.dot-you {
+  background: #fff;
+  box-shadow: 0 0 16px rgba(255, 255, 255, 0.85);
+  z-index: 1;
+}
+
+.dot-you .dot-label { color: rgba(255, 255, 255, 0.85); }
+
+.dot-bot {
+  background: var(--accent);
+  box-shadow: 0 0 16px rgba(230, 0, 0, 0.9);
+  animation-delay: 0.45s;
+}
+
+.dot-bot .dot-label { color: rgba(255, 100, 100, 0.95); }
+
+@keyframes mimicWander {
+  0%, 100% { transform: translate(-64px, 10px); }
+  22% { transform: translate(-6px, -26px); }
+  48% { transform: translate(56px, 2px); }
+  74% { transform: translate(-2px, 30px); }
 }
 
 .method-copy {
@@ -2308,7 +2549,9 @@ pre {
   text-transform: uppercase;
 }
 
-.method-pad {
+.method-pad,
+.method-head,
+.method-mimic {
   cursor: pointer;
   transition:
     border-color 160ms ease,
@@ -2317,7 +2560,11 @@ pre {
 }
 
 .method-pad:hover,
-.method-pad:focus-visible {
+.method-pad:focus-visible,
+.method-head:hover,
+.method-head:focus-visible,
+.method-mimic:hover,
+.method-mimic:focus-visible {
   border-color: rgba(255, 80, 80, 0.95);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.12),
@@ -2330,13 +2577,39 @@ pre {
 .method-pad:hover::after,
 .method-pad:focus-visible::after,
 .method-pad:active::after,
-.method-pad.click-glow::after {
+.method-pad.click-glow::after,
+.method-head:hover::after,
+.method-head:focus-visible::after,
+.method-head:active::after,
+.method-head.click-glow::after,
+.method-mimic:hover::after,
+.method-mimic:focus-visible::after,
+.method-mimic:active::after,
+.method-mimic.click-glow::after {
   opacity: 1;
 }
 
 .method-pad:active,
-.method-pad.click-glow {
+.method-pad.click-glow,
+.method-head:active,
+.method-head.click-glow,
+.method-mimic:active,
+.method-mimic.click-glow {
   transform: translateY(-1px) scale(0.995);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pad-ring,
+  .pad-core,
+  .pad-chev,
+  .pad-finger,
+  .head-figure,
+  .head-visor,
+  .head-chevrons i,
+  .mimic-dot,
+  .torso-body {
+    animation: none;
+  }
 }
 
 .disabled-method {
@@ -3082,9 +3355,39 @@ button:not(:disabled):active { transform: scale(0.96); }
 
 /* ---- 4th control method: Torso Sync (View Sync) — locked ---- */
 .method-torso .method-art {
-  /* Reuse the third sprite slice, heavily dimmed until the mode unlocks. */
-  background-position: 100% 50%;
-  filter: grayscale(0.85) brightness(0.55);
+  filter: grayscale(0.7) brightness(0.6);
+}
+
+.torso-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.torso-head {
+  width: 34px;
+  height: 34px;
+  border-radius: 46%;
+  background: linear-gradient(180deg, #3a3a3a, #1c1c1c);
+  box-shadow: inset 0 2px 2px rgba(255, 255, 255, 0.16);
+}
+
+.torso-body {
+  width: 84px;
+  height: 74px;
+  border-radius: 16px 16px 26px 26px;
+  background: linear-gradient(180deg, #333, #161616);
+  box-shadow:
+    inset 0 2px 2px rgba(255, 255, 255, 0.14),
+    0 14px 30px rgba(0, 0, 0, 0.6);
+  animation: torsoTwist 5.4s ease-in-out infinite;
+}
+
+@keyframes torsoTwist {
+  0%, 100% { transform: perspective(300px) rotateY(0deg); }
+  25%, 38% { transform: perspective(300px) rotateY(28deg); }
+  62%, 78% { transform: perspective(300px) rotateY(-28deg); }
 }
 .teleoperation-option.locked-method,
 .teleoperation-option.locked-method:disabled {

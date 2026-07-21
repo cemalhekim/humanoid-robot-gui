@@ -31,6 +31,8 @@ import urllib.request
 from urllib.parse import unquote, urlsplit
 from typing import Any
 
+import tracking
+
 try:
     import cv2  # type: ignore
 except Exception:  # pragma: no cover
@@ -419,6 +421,14 @@ LLM_INCLUDE_ROS_GRAPH = os.environ.get("LLM_INCLUDE_ROS_GRAPH", "1") not in ("0"
 LLM_TOOLS_ENABLED = os.environ.get("LLM_TOOLS_ENABLED", "1") not in ("0", "false", "False", "")
 LLM_TOOL_CHILL_ENABLED = os.environ.get("LLM_TOOL_CHILL_ENABLED", "1") not in ("0", "false", "False", "")
 LLM_TOOL_MOVE_ENABLED = os.environ.get("LLM_TOOL_MOVE_ENABLED", "1") not in ("0", "false", "False", "")
+# Person-tracking / arm-pointing feature (spec: docs/superpowers/specs/2026-07-21-person-pointing-design.md).
+# Ships dark: all endpoints/UI gate on TRACKING_ENABLED, chat/MCP tool on LLM_TOOL_TRACK_ENABLED.
+TRACKING_ENABLED = os.environ.get("TRACKING_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+TRACKING_DETECT_URL = os.environ.get("TRACKING_DETECT_URL", "http://10.2.125.3:8188/detect").strip()
+TRACKING_CAMERA = os.environ.get("TRACKING_CAMERA", "head").strip().lower()
+TRACKING_RATE_HZ = max(1.0, min(15.0, float(os.environ.get("TRACKING_RATE_HZ", "8") or 8)))
+TRACKING_MAX_SESSION_S = max(30.0, float(os.environ.get("TRACKING_MAX_SESSION_S", "600") or 600))
+LLM_TOOL_TRACK_ENABLED = os.environ.get("LLM_TOOL_TRACK_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
 LLM_MAX_TOOL_ROUNDS = int(os.environ.get("LLM_MAX_TOOL_ROUNDS", "4"))
 LLM_MAX_TOOL_CALLS_PER_ROUND = int(os.environ.get("LLM_MAX_TOOL_CALLS_PER_ROUND", "5"))
 LLM_TOOL_OUTPUT_CHARS = int(os.environ.get("LLM_TOOL_OUTPUT_CHARS", "6000"))
@@ -2250,6 +2260,19 @@ class TelemetryStore:
         self.wrist_thread: threading.Thread | None = None
         self.replay_cancel: threading.Event | None = None
         self.replay_thread: threading.Thread | None = None
+        # Person-tracking session (guarded, mutually exclusive with replay).
+        self.track_cancel: threading.Event | None = None
+        self.track_thread: threading.Thread | None = None
+        self.track_status: dict[str, Any] = {
+            "enabled": TRACKING_ENABLED,
+            "active": False,
+            "phase": "idle",
+            "target": None,
+            "detection_age_s": None,
+            "failures": 0,
+            "message": "Tracking has not been started.",
+            "updated_at": None,
+        }
         # Read by execute_lowcmd_pose to cancel any in-flight torso twist before
         # starting a new one. A running twist registers under replay_cancel (above),
         # so this stays None in practice, but the attribute must exist or the waist
@@ -4172,6 +4195,131 @@ class TelemetryStore:
             })
         return mcp_error(request_id, -32601, f"Method not supported: {method}")
 
+    # ------------------------------------------------------------------
+    # Person tracking / arm pointing (spec 2026-07-21-person-pointing-design).
+    # Pure decision logic lives in tracking.py; this owns frames, HTTP, DDS.
+    # ------------------------------------------------------------------
+    def track_snapshot(self) -> dict[str, Any]:
+        with self.command_lock:
+            snap = dict(self.track_status)
+        snap["enabled"] = TRACKING_ENABLED
+        return snap
+
+    def _set_track_status(self, **fields: Any) -> None:
+        with self.command_lock:
+            self.track_status.update(fields, updated_at=time.time())
+
+    def request_track_stop(self) -> tuple[int, dict[str, Any]]:
+        with self.command_lock:
+            cancel = self.track_cancel
+        if cancel is not None:
+            cancel.set()
+        self._set_track_status(active=False, phase="idle", message="Tracking stopped by operator.")
+        return 200, {"ok": True, "tracking": self.track_snapshot()}
+
+    def request_track_start(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        if not has_risk_ack(payload):
+            return 403, {"ok": False, "error": "Set armed=true and i_understand_risk=true to start tracking."}
+        if not TRACKING_ENABLED:
+            return 409, {"ok": False, "error": "Tracking is disabled (TRACKING_ENABLED=0)."}
+        with self.command_lock:
+            if self.track_thread is not None and self.track_thread.is_alive():
+                return 409, {"ok": False, "error": "A tracking session is already running."}
+            if self.replay_thread is not None and self.replay_thread.is_alive():
+                return 409, {"ok": False, "error": "An arm replay is running; stop it first."}
+            if self.wrist_publisher is None:
+                return 503, {"ok": False, "error": "DDS arm_sdk publisher is not available."}
+        suspend = self._suspend_xr_motion_publishers()
+        if not suspend.get("ok"):
+            return 503, {"ok": False, "error": f"Could not suspend XR publishers: {suspend}"}
+        cancel = threading.Event()
+        thread = threading.Thread(target=self._run_tracking, args=(cancel,), name="person-tracking", daemon=True)
+        with self.command_lock:
+            self.track_cancel = cancel
+            self.track_thread = thread
+        self._set_track_status(active=True, phase="starting", failures=0, message="Tracking session starting.")
+        self.record_command_event("track_start", {"source": payload.get("source", "http")})
+        thread.start()
+        return 200, {"ok": True, "tracking": self.track_snapshot()}
+
+    def _run_tracking(self, cancel: threading.Event) -> None:
+        mapper = tracking.PointingMapper()
+        limiter = tracking.RateLimiter(max_step_rad_s=0.35)
+        smoother = tracking.Smoother(alpha=0.35)
+        state = tracking.TrackState(stale_after_s=1.5, hold_s=2.0, max_failures=10)
+        period = 1.0 / TRACKING_RATE_HZ
+        started = time.time()
+        current: dict[int, float] = dict(tracking.NEUTRAL_TEMPLATE)
+        # Only the four right-arm joints tracking.py commands are published;
+        # gains come from the shared arm_sdk gain table.
+        gains = {j: ARM_SDK_GAIN_BY_INDEX[j] for j in current if j in ARM_SDK_GAIN_BY_INDEX}
+        try:
+            while not cancel.is_set():
+                tick = time.time()
+                if tick - started > TRACKING_MAX_SESSION_S:
+                    self._set_track_status(message="Session ceiling reached; stopping.")
+                    break
+                if TRACKING_CAMERA == "head":
+                    frame = self.get_camera_frame()
+                else:
+                    with self.camera_lock:
+                        frame = self.webcam_frame
+                persons: list[dict[str, Any]] | None = None
+                if frame:
+                    try:
+                        req = urllib.request.Request(
+                            TRACKING_DETECT_URL, data=frame,
+                            headers={"Content-Type": "image/jpeg"}, method="POST",
+                        )
+                        with urllib.request.urlopen(req, timeout=0.5) as resp:
+                            persons = json.loads(resp.read()).get("persons", [])
+                    except Exception:
+                        persons = None
+                now = time.time()
+                if persons is None:
+                    state.on_failure(now)
+                else:
+                    state.on_detection(persons, now)
+
+                if state.phase == "aborted":
+                    self._set_track_status(message="Detection service failing repeatedly; aborting.")
+                    break
+                if state.phase == "tracking" and state.target is not None:
+                    # Aim at the upper third of the box (~chest height).
+                    aim_cy = state.target["y1"] + (state.target["y2"] - state.target["y1"]) / 3.0
+                    goal = mapper.targets(state.target["cx"], aim_cy)
+                elif state.phase == "hold":
+                    goal = dict(current)
+                else:  # stale
+                    goal = dict(tracking.NEUTRAL_TEMPLATE)
+
+                goal = smoother.update(goal)
+                current = limiter.step(current, goal, dt=period)
+
+                with self.command_lock:
+                    msg = self.lowstate_msg
+                    publisher = self.wrist_publisher
+                # Mirror run_replay's guard: never publish without a live
+                # lowstate + arm_sdk publisher. Precise DDS-age gating is a
+                # Task 7 on-robot bring-up item (no lowstate timestamp field
+                # is exposed here yet).
+                if msg is not None and publisher is not None:
+                    cmd = self._build_arm_sdk_trajectory_cmd(msg, dict(current), gains, {}, weight=1.0)
+                    publisher.Write(cmd)
+
+                age = None if state.last_seen is None else round(now - state.last_seen, 2)
+                self._set_track_status(
+                    phase=state.phase, failures=state.failures, detection_age_s=age,
+                    target=state.target, message=f"Tracking loop running ({state.phase}).",
+                )
+                cancel.wait(max(0.0, period - (time.time() - tick)))
+        finally:
+            self._set_track_status(active=False, phase="idle", message="Tracking session ended.")
+            with self.command_lock:
+                if self.track_cancel is cancel:
+                    self.track_thread = None
+                    self.track_cancel = None
+
     def record_command_event(self, name: str, payload: dict[str, Any]) -> None:
         self.recorder.write_event(name, payload)
 
@@ -5519,6 +5667,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.snapshot())
         elif request_path == "/api/camera":
             self._send_json(self.store.camera_snapshot())
+        elif request_path == "/api/track/status":
+            self._send_json({"ok": True, "tracking": self.store.track_snapshot()})
         elif request_path == "/api/ros-graph":
             self._send_json(self.store.ros_graph_snapshot())
         elif request_path == "/api/recording/status":
@@ -5678,6 +5828,16 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/recording/replay/robot":
             status, response = self.store.request_robot_replay(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/track/start":
+            status, response = self.store.request_track_start(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/track/stop":
+            status, response = self.store.request_track_stop()
             self._send_json_status(response, HTTPStatus(status))
             return
 

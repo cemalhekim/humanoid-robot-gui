@@ -624,6 +624,24 @@ def normalize_position_name(name: str) -> str:
     return name.strip().lower().replace("_", "-").replace(" ", "-")
 
 
+def track_tool_spec() -> dict[str, Any]:
+    """Build the person-tracking start/stop tool spec."""
+    return _chat_tool(
+        "track_person",
+        "GUARDED ACTION: start or stop the person-tracking mode where the robot "
+        "continuously points its right arm at the person seen in the head camera. "
+        "Only call when the operator's latest message explicitly asks to start or "
+        "stop tracking/pointing (Turkish: 'beni takip et' / 'takibi durdur').",
+        {
+            "action": {"type": "string", "enum": ["start", "stop"],
+                       "description": "start or stop the tracking session."},
+            "confirm": {"type": "boolean",
+                        "description": "Must be true; confirms the operator explicitly asked."},
+        },
+        ["action", "confirm"],
+    )
+
+
 def move_tool_spec(positions: list[str]) -> dict[str, Any]:
     """Build the move tool spec with the currently saved positions as an enum."""
     return _chat_tool(
@@ -3975,6 +3993,8 @@ class TelemetryStore:
             positions = sorted(self.named_positions())
             if positions:
                 specs.append(move_tool_spec(positions))
+        if LLM_TOOL_TRACK_ENABLED and TRACKING_ENABLED:
+            specs.append(track_tool_spec())
         return specs
 
     def _chat_tool_loop(self, messages: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
@@ -4070,6 +4090,8 @@ class TelemetryStore:
                 return self._tool_chill(arguments)
             if name == "move":
                 return self._tool_move(arguments)
+            if name == "track_person":
+                return self._tool_track(arguments)
             return {"ok": False, "error": f"Unknown tool: {name or '(empty)'}"}
         except Exception as exc:  # pragma: no cover - defensive: tool bugs must not kill chat
             return {"ok": False, "error": f"Tool failed: {exc}"}
@@ -4106,6 +4128,25 @@ class TelemetryStore:
             return {"ok": False, "error": "Refused: confirm must be true (operator must have explicitly asked)."}
         status, result = self.chill_motors()
         self.record_command_event("chat_chill", {"source": "chat", "status": status, "result": result})
+        return {"ok": status < 400 and bool(result.get("ok")), "status": status, "result": result}
+
+    def _tool_track(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if not LLM_TOOL_TRACK_ENABLED:
+            return {"ok": False, "error": "The track_person tool is disabled (LLM_TOOL_TRACK_ENABLED=0)."}
+        if arguments.get("confirm") is not True:
+            return {"ok": False, "error": "Refused: confirm must be true (operator must have explicitly asked)."}
+        action = arguments.get("action")
+        if action == "stop":
+            status, result = self.request_track_stop()
+        elif action == "start":
+            # Chat-initiated start carries the risk ack implicitly: the tool is
+            # double-gated by LLM_TOOL_TRACK_ENABLED + confirm, mirroring _tool_move.
+            status, result = self.request_track_start(
+                {"armed": True, "i_understand_risk": True, "source": "chat"}
+            )
+        else:
+            return {"ok": False, "error": "action must be 'start' or 'stop'."}
+        self.record_command_event("chat_track", {"source": "chat", "action": action, "status": status})
         return {"ok": status < 400 and bool(result.get("ok")), "status": status, "result": result}
 
     def _tool_move(self, arguments: dict[str, Any]) -> dict[str, Any]:

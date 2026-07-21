@@ -1,0 +1,13 @@
+[Unit]
+Description=YOLOv8n person-detection HTTP service (port 8188)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/vodafone/person-tracking
+ExecStart=/home/vodafone/person-tracking/venv/bin/python /home/vodafone/person-tracking/detect_service.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

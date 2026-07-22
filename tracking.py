@@ -47,11 +47,26 @@ NEUTRAL_TEMPLATE: dict[int, float] = {
     R_WRIST_YAW: 0.0,
 }
 
+# Horizontal aiming: with the upper arm pitched forward, the shoulder-yaw
+# axis runs ALONG the arm (it spins the arm in place, no lateral sweep —
+# field-observed 2026-07-22), while the roll axis stands vertical and does
+# the actual left/right swing. Aim therefore interpolates whole poses:
+# person at the image's right edge adds RIGHT_EDGE_DELTA to the template
+# (derived from the operator's right-hand IK target X 0.523 Y -0.527
+# Z 1.454 — a ~48deg outward swing with a straighter elbow); the left
+# side mirrors the sweep and the clamp caps how far the right arm can
+# cross the chest.
+RIGHT_EDGE_DELTA: dict[int, float] = {
+    R_SHOULDER_ROLL: -0.85,
+    R_SHOULDER_YAW: -0.30,
+    R_ELBOW: -0.35,
+}
+
 # Conservative aiming envelope, intentionally tighter than server.py
 # JOINT_LIMITS. server.py re-clamps against JOINT_LIMITS anyway.
 TRACK_LIMITS: dict[int, tuple[float, float]] = {
     R_SHOULDER_PITCH: (-2.0, -0.8),
-    R_SHOULDER_ROLL: (-0.6, 0.3),
+    R_SHOULDER_ROLL: (-1.2, 0.3),
     R_SHOULDER_YAW: (-1.0, 1.0),
     R_ELBOW: (0.1, 1.6),
     R_WRIST_ROLL: (-0.3, 0.3),
@@ -97,16 +112,19 @@ class PointingMapper:
         else:
             self._last_cx, self._last_cy = cx, cy
 
-        # Both signs are flipped vs the naive map, verified live 2026-07-22:
-        # the arm mirrored the person horizontally until yaw was negated, and
-        # H1-2 shoulder pitch raises the arm with NEGATIVE values, so a higher
-        # person (smaller cy) must drive pitch more negative.
-        yaw = self.yaw_offset - (cx - 0.5) * self.fov_yaw_rad
-        pitch = self.pitch_offset - (0.5 - cy) * self.fov_pitch_rad
-
-        out = dict(POINTING_TEMPLATE)
-        out[R_SHOULDER_YAW] = yaw
-        out[R_SHOULDER_PITCH] = pitch
+        # Horizontal: blend the calibrated center pose toward the right-edge
+        # anchor pose. s=+1 at the image's right edge (person on the robot's
+        # right, non-mirrored camera), s=-1 mirrors the sweep to the left,
+        # where TRACK_LIMITS caps the cross-chest reach of the right arm.
+        s = (cx - 0.5) * 2.0
+        out = {
+            joint: value + s * RIGHT_EDGE_DELTA.get(joint, 0.0)
+            for joint, value in POINTING_TEMPLATE.items()
+        }
+        # Vertical: shoulder pitch raises the arm with NEGATIVE values
+        # (verified live 2026-07-22), so a higher person (smaller cy) must
+        # drive pitch more negative.
+        out[R_SHOULDER_PITCH] = self.pitch_offset - (0.5 - cy) * self.fov_pitch_rad
         return {
             joint: _clamp(value, *TRACK_LIMITS[joint])
             for joint, value in out.items()

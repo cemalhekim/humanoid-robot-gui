@@ -24,6 +24,21 @@ class MapperTests(unittest.TestCase):
         self.assertNotEqual(left, right)
         self.assertGreater(left, right)
 
+    def test_horizontal_sweep_uses_shoulder_roll(self):
+        # With the arm pitched forward the yaw axis runs along the arm and
+        # produces no lateral sweep (field-observed 2026-07-22) — the roll
+        # joint must swing outward (more negative) as the person moves to the
+        # image's right, reaching the operator's right-edge anchor at cx=1.
+        center = self.mapper.targets(0.5, 0.5)[tracking.R_SHOULDER_ROLL]
+        right = self.mapper.targets(1.0, 0.5)[tracking.R_SHOULDER_ROLL]
+        self.assertLess(right, center)
+        self.assertAlmostEqual(right, -0.90, places=2)
+
+    def test_right_edge_straightens_elbow(self):
+        center = self.mapper.targets(0.5, 0.5)[tracking.R_ELBOW]
+        right = self.mapper.targets(1.0, 0.5)[tracking.R_ELBOW]
+        self.assertLess(right, center)
+
     def test_person_higher_in_image_raises_arm(self):
         # H1-2 shoulder pitch: NEGATIVE raises the arm forward/up (operator's
         # authored pointing pose has LeftShoulderPitch -1.315). Higher person

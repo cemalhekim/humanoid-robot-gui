@@ -63,6 +63,7 @@ class TrackingGatingTests(unittest.TestCase):
 
     def test_start_without_dds_returns_503(self):
         store = self.make_store()
+        store.set_sentry_mode({"on": True})
         old = server.TRACKING_ENABLED
         server.TRACKING_ENABLED = True
         try:
@@ -72,6 +73,37 @@ class TrackingGatingTests(unittest.TestCase):
         finally:
             server.TRACKING_ENABLED = old
         self.assertEqual(status, 503)  # no wrist_publisher offline
+
+    def test_start_refused_while_sentry_mode_off(self):
+        # Sentry Mode is the operator's master switch (2026-07-22): with it
+        # off, tracking must never start — from any caller.
+        store = self.make_store()
+        old = server.TRACKING_ENABLED
+        server.TRACKING_ENABLED = True
+        try:
+            status, response = store.request_track_start(
+                {"armed": True, "i_understand_risk": True}
+            )
+        finally:
+            server.TRACKING_ENABLED = old
+        self.assertEqual(status, 409)
+        self.assertIn("Sentry", response["error"])
+
+    def test_sentry_mode_off_stops_session_and_shows_in_snapshot(self):
+        store = self.make_store()
+        store.set_sentry_mode({"on": True})
+        self.assertTrue(store.track_snapshot()["sentry_mode"])
+        status, response = store.set_sentry_mode({"on": False})
+        self.assertEqual(status, 200)
+        snap = store.track_snapshot()
+        self.assertFalse(snap["sentry_mode"])
+        self.assertFalse(snap["active"])
+        self.assertEqual(snap["phase"], "idle")
+
+    def test_sentry_mode_requires_boolean(self):
+        store = self.make_store()
+        status, response = store.set_sentry_mode({"on": "yes"})
+        self.assertEqual(status, 400)
 
     def test_stop_is_idempotent(self):
         store = self.make_store()
@@ -112,6 +144,12 @@ class TrackingRouteTests(unittest.TestCase):
         status, response = post(store, "/api/track/stop", {})
         self.assertEqual(status, 200)
         self.assertTrue(response["ok"])
+
+    def test_post_sentry_mode_is_dispatched_with_payload(self):
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        status, response = post(store, "/api/sentry/mode", {"on": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(response["sentry_mode"])
 
 
 class TrackToolTests(unittest.TestCase):

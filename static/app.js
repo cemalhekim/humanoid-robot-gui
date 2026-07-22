@@ -3212,15 +3212,23 @@ connectEvents();
     toggle.classList.toggle("on", isOn());
     toggle.setAttribute("aria-pressed", isOn() ? "true" : "false");
   };
+  // Sentry is the MASTER switch for person-following: the server refuses
+  // track starts while it is off and kills any running session on off.
+  const pushMode = (on) => fetch("/api/sentry/mode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ on }),
+  }).catch(() => {});
   toggle.addEventListener("click", () => {
     const turningOff = isOn();
     try { localStorage.setItem(KEY, turningOff ? "0" : "1"); } catch {}
     renderToggle();
-    // Sentry off must also end any running arm-tracking session — the
-    // operator expects one switch to stop all person-following behaviour.
-    if (turningOff) fetch("/api/track/stop", { method: "POST" }).catch(() => {});
+    pushMode(!turningOff);
   });
   renderToggle();
+  // Re-arm the server gate to match the persisted switch on every page load,
+  // so a dashboard reload or server restart can't leave them out of sync.
+  pushMode(isOn());
 
   const renderBoxesToggle = () => {
     if (!boxesToggle) return;

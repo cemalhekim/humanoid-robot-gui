@@ -2270,6 +2270,11 @@ class TelemetryStore:
         self.sentry_stream_latest: dict[str, Any] | None = None
         self.sentry_stream_seq = 0
         self.sentry_stream_thread: threading.Thread | None = None
+        # Master switch for person-following (operator decision 2026-07-22):
+        # arm tracking can only START while Sentry Mode is on, and turning
+        # Sentry off stops any running session. Defaults OFF on every boot —
+        # following must always be re-armed deliberately.
+        self.sentry_mode_on = False
         self.webcam_condition = threading.Condition(self.webcam_lock)
         self.webcam_frame: bytes | None = None
         self.webcam_timestamp: float | None = None
@@ -4342,8 +4347,22 @@ class TelemetryStore:
     def track_snapshot(self) -> dict[str, Any]:
         with self.command_lock:
             snap = dict(self.track_status)
+            snap["sentry_mode"] = self.sentry_mode_on
         snap["enabled"] = TRACKING_ENABLED
         return snap
+
+    def set_sentry_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """Flip the master follow switch. Off always also stops any running
+        tracking session — sentry off must mean no following, ever."""
+        on = payload.get("on")
+        if not isinstance(on, bool):
+            return 400, {"ok": False, "error": 'Body must be {"on": true|false}.'}
+        with self.command_lock:
+            self.sentry_mode_on = on
+        if not on:
+            self.request_track_stop()
+        self.record_command_event("sentry_mode", {"on": on})
+        return 200, {"ok": True, "sentry_mode": on, "tracking": self.track_snapshot()}
 
     def _set_track_status(self, **fields: Any) -> None:
         with self.command_lock:
@@ -4362,6 +4381,10 @@ class TelemetryStore:
             return 403, {"ok": False, "error": "Set armed=true and i_understand_risk=true to start tracking."}
         if not TRACKING_ENABLED:
             return 409, {"ok": False, "error": "Tracking is disabled (TRACKING_ENABLED=0)."}
+        with self.command_lock:
+            sentry_on = self.sentry_mode_on
+        if not sentry_on:
+            return 409, {"ok": False, "error": "Sentry mode is off — it is the master switch; turn it on before starting tracking."}
         with self.command_lock:
             if self.track_thread is not None and self.track_thread.is_alive():
                 return 409, {"ok": False, "error": "A tracking session is already running."}
@@ -5908,6 +5931,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/smartplug/toggle",
             "/api/track/start",
             "/api/track/stop",
+            "/api/sentry/mode",
             "/mcp",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
@@ -5937,6 +5961,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/rename",
             "/api/recording/replay/robot",
             "/api/track/start",
+            "/api/sentry/mode",
         ):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -5993,6 +6018,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/track/stop":
             status, response = self.store.request_track_stop()
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/sentry/mode":
+            status, response = self.store.set_sentry_mode(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

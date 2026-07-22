@@ -3292,12 +3292,19 @@ connectEvents();
     btn.type = "button";
     btn.className = "target-lock-btn";
     btn.textContent = "🔒";
-    btn.addEventListener("click", (event) => {
+    // pointerdown, not click: the button repositions every poll tick, so a
+    // click's down+up pair can land on different spots and never fire.
+    btn.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
+      event.preventDefault();
       lockedId = lockedId === track.id ? null : track.id;
       renderButtons();
       renderCounter();
     });
+    // While the pointer hovers, freeze the button in place so it cannot
+    // slide out from under the cursor between ticks.
+    btn.addEventListener("pointerenter", () => { track.hover = true; });
+    btn.addEventListener("pointerleave", () => { track.hover = false; });
     layer.appendChild(btn);
     track.btn = btn;
     return btn;
@@ -3314,10 +3321,12 @@ connectEvents();
       const btn = buttonFor(track);
       if (!t) { btn.classList.add("hidden"); return; }
       btn.classList.remove("hidden");
-      const headX = t.ox + ((track.x1 + track.x2) / 2) * t.dw;
-      const headY = t.oy + track.y1 * t.dh;
-      btn.style.left = `${headX}px`;
-      btn.style.top = `${Math.max(0, headY - 6)}px`;
+      if (!track.hover) {
+        const headX = t.ox + ((track.x1 + track.x2) / 2) * t.dw;
+        const headY = t.oy + track.y1 * t.dh;
+        btn.style.left = `${headX}px`;
+        btn.style.top = `${Math.max(0, headY - 6)}px`;
+      }
       const locked = lockedId === track.id;
       btn.classList.toggle("locked", locked);
       btn.title = locked ? "Kilidi kaldır" : "Bu kişiye kitlen";

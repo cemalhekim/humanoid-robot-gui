@@ -28,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import urllib.error
 import urllib.request
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, parse_qs
 from typing import Any
 
 import tracking
@@ -4240,6 +4240,29 @@ class TelemetryStore:
     # Person tracking / arm pointing (spec 2026-07-21-person-pointing-design).
     # Pure decision logic lives in tracking.py; this owns frames, HTTP, DDS.
     # ------------------------------------------------------------------
+    def sentry_detect(self, feed: str = "head") -> dict[str, Any]:
+        """Sentry Mode (detection only): forward one cached frame to the YOLO
+        service and return its person boxes. Never touches motion paths."""
+        if feed == "head":
+            frame = self.get_camera_frame()
+        elif feed == "webcam":
+            with self.webcam_lock:
+                frame = self.webcam_frame
+        else:
+            return {"ok": False, "error": "Unknown feed."}
+        if not frame:
+            return {"ok": False, "error": f"No {feed} frame."}
+        try:
+            req = urllib.request.Request(
+                TRACKING_DETECT_URL, data=frame,
+                headers={"Content-Type": "image/jpeg"}, method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=0.5) as resp:
+                persons = json.loads(resp.read()).get("persons", [])
+        except Exception:
+            return {"ok": False, "error": "Detection service unreachable."}
+        return {"ok": True, "feed": feed, "persons": persons, "ts": time.time()}
+
     def track_snapshot(self) -> dict[str, Any]:
         with self.command_lock:
             snap = dict(self.track_status)
@@ -5710,6 +5733,10 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.camera_snapshot())
         elif request_path == "/api/track/status":
             self._send_json({"ok": True, "tracking": self.store.track_snapshot()})
+        elif request_path == "/api/sentry/detect":
+            query = parse_qs(urlsplit(self.path).query)
+            feed = (query.get("feed") or ["head"])[0]
+            self._send_json(self.store.sentry_detect(feed))
         elif request_path == "/api/ros-graph":
             self._send_json(self.store.ros_graph_snapshot())
         elif request_path == "/api/recording/status":

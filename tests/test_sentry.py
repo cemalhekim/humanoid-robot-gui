@@ -105,11 +105,36 @@ class ShrinkJpegTests(unittest.TestCase):
         self.assertEqual(server.shrink_jpeg_for_detection(encoded.tobytes()), encoded.tobytes())
 
 
+class SentryStreamTests(unittest.TestCase):
+    def make_store(self):
+        return server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+    def test_worker_runs_only_while_subscribed(self):
+        import time as _time
+        store = self.make_store()
+        store.sentry_stream_subscribe()
+        _time.sleep(0.3)
+        result, seq = store.wait_sentry_result(-1, timeout=1.0)
+        self.assertIsNotNone(result)          # worker produced results
+        self.assertGreater(seq, 0)
+        thread = store.sentry_stream_thread
+        store.sentry_stream_unsubscribe()
+        thread.join(timeout=2.0)
+        self.assertFalse(thread.is_alive())   # last client gone -> worker exits
+
+    def test_wait_times_out_without_new_result(self):
+        store = self.make_store()
+        result, seq = store.wait_sentry_result(0, timeout=0.05)
+        self.assertIsNone(result)
+        self.assertEqual(seq, 0)
+
+
 class SentryRouteTests(unittest.TestCase):
     def test_route_dispatched(self):
         with open("server.py") as fh:
             src = fh.read()
         self.assertIn('"/api/sentry/detect"', src)
+        self.assertIn('"/api/sentry/stream"', src)
 
 
 class SentryFrontendContractTests(unittest.TestCase):
@@ -121,7 +146,7 @@ class SentryFrontendContractTests(unittest.TestCase):
             self.assertIn(needle, html)
         with open("static/app.js") as fh:
             js = fh.read()
-        self.assertIn("/api/sentry/detect", js)
+        self.assertIn("/api/sentry/stream", js)
         self.assertIn("h1_sentry_mode", js)
 
     def test_lock_button_wiring_present(self):

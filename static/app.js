@@ -3192,13 +3192,12 @@ connectEvents();
   const isBoxesOn = () => localStorage.getItem(BOXES_KEY) === "1";
 
   const MATCH_DIST = 0.18;    // fallback center-distance gate (id-less detections)
-  const SMOOTH_ALPHA = 0.6;      // exponential smoothing for box coords (responsive)
+  const SMOOTH_ALPHA = 0.75;     // light data smoothing; the rAF spring does the rest
   const TRACK_TTL_MS = 1000;     // a box no person confirms within 1 s is removed
   const PENDING_LOCK_MS = 12000; // how long an off-screen lock waits to re-attach
-  const POLL_MS = 100;           // ~10 Hz; in-flight guard caps it at the real roundtrip
+  const POLL_MS = 250;           // gate check only — detections arrive via SSE push
 
-  let inFlight = false;
-  let tracks = [];            // {id, serviceId, x1, y1, x2, y2, conf, lastSeen, btn}
+  let tracks = [];            // {id, serviceId, x1, y1, x2, y2, hx, hy, conf, lastSeen, btn}
   let nextTrackId = 1;
   let lockedId = null;
   // When the locked person walks out of frame, remember their service id for
@@ -3296,6 +3295,12 @@ connectEvents();
       ["x1", "y1", "x2", "y2"].forEach((key) => {
         track[key] += SMOOTH_ALPHA * (person[key] - track[key]);
       });
+      if (person.head) {
+        track.hx = track.hx === undefined ? person.head.x
+          : track.hx + SMOOTH_ALPHA * (person.head.x - track.hx);
+        track.hy = track.hy === undefined ? person.head.y
+          : track.hy + SMOOTH_ALPHA * (person.head.y - track.hy);
+      }
       track.conf = person.conf;
       track.lastSeen = now;
       maybeReattachLock(track);
@@ -3321,6 +3326,8 @@ connectEvents();
       } else {
         const fresh = {
           x1: person.x1, y1: person.y1, x2: person.x2, y2: person.y2,
+          hx: person.head ? person.head.x : undefined,
+          hy: person.head ? person.head.y : undefined,
           conf: person.conf, id: nextTrackId++, serviceId: sid, lastSeen: now, btn: null,
         };
         tracks.push(fresh);
@@ -3376,10 +3383,11 @@ connectEvents();
       if (!t) { btn.classList.add("hidden"); return; }
       btn.classList.remove("hidden");
       if (!track.hover) {
-        const headX = t.ox + ((track.x1 + track.x2) / 2) * t.dw;
-        const headY = t.oy + track.y1 * t.dh;
-        btn.style.left = `${headX}px`;
-        btn.style.top = `${Math.max(0, headY - 6)}px`;
+        // Real head keypoint when the pose model provides it; box top otherwise.
+        const nx = track.hx !== undefined ? track.hx : (track.x1 + track.x2) / 2;
+        const ny = track.hy !== undefined ? track.hy : track.y1;
+        track.tx = t.ox + nx * t.dw;
+        track.ty = Math.max(0, t.oy + ny * t.dh - 6);
       }
       const locked = lockedId === track.id;
       btn.classList.toggle("locked", locked);
@@ -3437,42 +3445,55 @@ connectEvents();
     }
   };
 
-  const poll = async () => {
-    if (inFlight) return;
-    if (img.classList.contains("hidden") || !img.getAttribute("src")) {
-      clearAllTracks();
-      return;
-    }
-    inFlight = true;
-    try {
-      const resp = await fetch("/api/sentry/detect?feed=webcam", { cache: "no-store" });
-      const data = await resp.json();
-      const now = Date.now();
-      if (data.ok) {
-        lastError = null;
-        const persons = data.persons || [];
-        associate(persons, now);
-        count = persons.length;
-      } else {
-        lastError = data.error || "Detection failed.";
-        count = null;
-        associate([], now); // age out tracks while errors persist
-      }
-      renderButtons();
-    } catch {
-      lastError = "Sentry request failed.";
+  // Push architecture: the robot server runs one detect loop (~15 Hz) only
+  // while this EventSource is open, and pushes results here as they land —
+  // no request/response phase lag. Closing the stream stops all detection.
+  let es = null;
+  const handleResult = (data) => {
+    const now = Date.now();
+    if (data.ok) {
+      lastError = null;
+      const persons = data.persons || [];
+      associate(persons, now);
+      count = persons.length;
+    } else {
+      lastError = data.error || "Detection failed.";
       count = null;
-      associate([], Date.now()); // age out tracks while requests fail
-      renderButtons();
-    } finally {
-      inFlight = false;
-      renderCounter();
+      associate([], now); // age out tracks while errors persist
     }
+    renderButtons();
+    renderCounter();
+  };
+  const openStream = () => {
+    if (es) return;
+    es = new EventSource("/api/sentry/stream");
+    es.onmessage = (event) => {
+      try { handleResult(JSON.parse(event.data)); } catch {}
+    };
+    es.onerror = () => { lastError = "Sentry stream reconnecting…"; renderCounter(); };
+  };
+  const closeStream = () => {
+    if (es) { es.close(); es = null; }
   };
 
   window.setInterval(() => {
-    const active = isOn() && !panel.classList.contains("hidden");
-    if (!active) { clearAllTracks(); return; }
-    poll();
+    const active = isOn() && !panel.classList.contains("hidden")
+      && !img.classList.contains("hidden") && !!img.getAttribute("src");
+    if (!active) { closeStream(); clearAllTracks(); return; }
+    openStream();
   }, POLL_MS);
+
+  // 60 fps spring interpolation: SSE updates set each button's target pixel
+  // position; this loop glides the rendered position toward it every frame.
+  const animate = () => {
+    tracks.forEach((track) => {
+      if (!track.btn || track.tx === undefined || track.hover) return;
+      track.rx = track.rx === undefined ? track.tx : track.rx + (track.tx - track.rx) * 0.28;
+      track.ry = track.ry === undefined ? track.ty : track.ry + (track.ty - track.ry) * 0.28;
+      track.btn.style.left = `${track.rx}px`;
+      track.btn.style.top = `${track.ry}px`;
+    });
+    window.requestAnimationFrame(animate);
+  };
+  window.requestAnimationFrame(animate);
 })();

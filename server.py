@@ -427,6 +427,9 @@ TRACKING_ENABLED = os.environ.get("TRACKING_ENABLED", "0").strip().lower() in {"
 TRACKING_DETECT_URL = os.environ.get("TRACKING_DETECT_URL", "http://10.2.125.3:8188/detect").strip()
 TRACKING_CAMERA = os.environ.get("TRACKING_CAMERA", "head").strip().lower()
 TRACKING_RATE_HZ = max(1.0, min(15.0, float(os.environ.get("TRACKING_RATE_HZ", "8") or 8)))
+# Target rate of the sentry push-stream detect loop (the real rate is capped
+# by the AI-host roundtrip; the loop never overlaps requests).
+SENTRY_STREAM_HZ = max(1.0, min(30.0, float(os.environ.get("SENTRY_STREAM_HZ", "15") or 15)))
 TRACKING_MAX_SESSION_S = max(30.0, float(os.environ.get("TRACKING_MAX_SESSION_S", "600") or 600))
 LLM_TOOL_TRACK_ENABLED = os.environ.get("LLM_TOOL_TRACK_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
 LLM_MAX_TOOL_ROUNDS = int(os.environ.get("LLM_MAX_TOOL_ROUNDS", "4"))
@@ -2260,6 +2263,13 @@ class TelemetryStore:
         # Secondary USB webcam (plugged into the robot PC), streamed below the
         # head camera in the floating view.
         self.webcam_lock = threading.Lock()
+        # Sentry push-stream state (worker + SSE subscriber bookkeeping).
+        self.sentry_stream_lock = threading.Lock()
+        self.sentry_stream_condition = threading.Condition(self.sentry_stream_lock)
+        self.sentry_stream_clients = 0
+        self.sentry_stream_latest: dict[str, Any] | None = None
+        self.sentry_stream_seq = 0
+        self.sentry_stream_thread: threading.Thread | None = None
         self.webcam_condition = threading.Condition(self.webcam_lock)
         self.webcam_frame: bytes | None = None
         self.webcam_timestamp: float | None = None
@@ -4290,6 +4300,45 @@ class TelemetryStore:
             return {"ok": False, "error": "Detection service unreachable."}
         return {"ok": True, "feed": feed, "persons": persons, "ts": time.time()}
 
+    # ---- Sentry push stream: one background detect loop, shared by all SSE
+    # ---- subscribers; it runs only while at least one client is connected,
+    # ---- so closing the UI still stops all detection traffic.
+
+    def sentry_stream_subscribe(self) -> None:
+        with self.sentry_stream_lock:
+            self.sentry_stream_clients += 1
+            if self.sentry_stream_thread is None or not self.sentry_stream_thread.is_alive():
+                self.sentry_stream_thread = threading.Thread(
+                    target=self._sentry_stream_worker, name="sentry-stream", daemon=True)
+                self.sentry_stream_thread.start()
+
+    def sentry_stream_unsubscribe(self) -> None:
+        with self.sentry_stream_lock:
+            self.sentry_stream_clients = max(0, self.sentry_stream_clients - 1)
+            self.sentry_stream_condition.notify_all()
+
+    def wait_sentry_result(self, last_seq: int, timeout: float = 1.0) -> tuple[dict[str, Any] | None, int]:
+        with self.sentry_stream_lock:
+            if self.sentry_stream_seq == last_seq:
+                self.sentry_stream_condition.wait(timeout)
+            if self.sentry_stream_seq == last_seq:
+                return None, last_seq
+            return self.sentry_stream_latest, self.sentry_stream_seq
+
+    def _sentry_stream_worker(self) -> None:
+        period = 1.0 / SENTRY_STREAM_HZ
+        while True:
+            with self.sentry_stream_lock:
+                if self.sentry_stream_clients <= 0:
+                    return
+            tick = time.time()
+            result = self.sentry_detect("webcam")
+            with self.sentry_stream_lock:
+                self.sentry_stream_latest = result
+                self.sentry_stream_seq += 1
+                self.sentry_stream_condition.notify_all()
+            time.sleep(max(0.0, period - (time.time() - tick)))
+
     def track_snapshot(self) -> dict[str, Any]:
         with self.command_lock:
             snap = dict(self.track_status)
@@ -5819,6 +5868,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_camera_stream()
         elif request_path == "/webcam.mjpg":
             self._send_webcam_stream()
+        elif request_path == "/api/sentry/stream":
+            self._send_sentry_stream()
         elif request_path == "/events":
             self._send_events()
         elif request_path == "/mcp":
@@ -6138,6 +6189,31 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 break
             time.sleep(0.2)
+
+    def _send_sentry_stream(self) -> None:
+        self.store.sentry_stream_subscribe()
+        try:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            last_seq = -1
+            while True:
+                result, last_seq = self.store.wait_sentry_result(last_seq, timeout=1.0)
+                try:
+                    if result is None:
+                        # Keepalive comment: lets us notice dead sockets and
+                        # release the worker even when detection is stalled.
+                        self.wfile.write(b": ping\n\n")
+                    else:
+                        payload = json.dumps(result, separators=(",", ":"))
+                        self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    break
+        finally:
+            self.store.sentry_stream_unsubscribe()
 
     def _send_webcam_stream(self) -> None:
         self._send_mjpeg(self.store.wait_for_webcam_frame)

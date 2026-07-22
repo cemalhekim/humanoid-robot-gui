@@ -3186,12 +3186,13 @@ connectEvents();
   const layer = document.getElementById("floatWebcamTargets");
   if (!toggle || !panel || !img || !layer) return;
 
-  const MATCH_DIST = 0.18;    // normalized center distance for association
+  const MATCH_DIST = 0.18;    // fallback center-distance gate (id-less detections)
   const SMOOTH_ALPHA = 0.45;  // exponential smoothing for box coords
-  const TRACK_TTL_MS = 2000;  // drop tracks unseen this long
+  const TRACK_TTL_MS = 5000;  // ride out occlusions; identity comes from service ids
+  const POLL_MS = 125;        // ~8 Hz; in-flight guard caps it at the real roundtrip
 
   let inFlight = false;
-  let tracks = [];            // {id, x1, y1, x2, y2, lastSeen, btn}
+  let tracks = [];            // {id, serviceId, x1, y1, x2, y2, lastSeen, btn}
   let nextTrackId = 1;
   let lockedId = null;
   let count = null;           // persons in last good detection, or null
@@ -3236,27 +3237,46 @@ connectEvents();
 
   const center = (box) => ({ cx: (box.x1 + box.x2) / 2, cy: (box.y1 + box.y2) / 2 });
 
+  // Identity primarily comes from the detection service's ByteTrack ids
+  // (Kalman motion prediction — survives fast movement and brief occlusions).
+  // The center-distance fallback only covers the first frames of a track,
+  // before the service has confirmed it and its id is still null.
   const associate = (persons, now) => {
+    const byServiceId = new Map();
+    tracks.forEach((track) => {
+      if (track.serviceId !== null) byServiceId.set(track.serviceId, track);
+    });
     const unmatched = tracks.slice();
+    const claim = (track, person) => {
+      const idx = unmatched.indexOf(track);
+      if (idx !== -1) unmatched.splice(idx, 1);
+      ["x1", "y1", "x2", "y2"].forEach((key) => {
+        track[key] += SMOOTH_ALPHA * (person[key] - track[key]);
+      });
+      track.lastSeen = now;
+    };
     persons.forEach((person) => {
+      const sid = person.id === undefined || person.id === null ? null : person.id;
+      if (sid !== null && byServiceId.has(sid)) {
+        claim(byServiceId.get(sid), person);
+        return;
+      }
       const pc = center(person);
       let best = null;
       let bestDist = MATCH_DIST;
       unmatched.forEach((track) => {
+        if (sid !== null && track.serviceId !== null && track.serviceId !== sid) return;
         const tc = center(track);
         const dist = Math.hypot(pc.cx - tc.cx, pc.cy - tc.cy);
         if (dist < bestDist) { best = track; bestDist = dist; }
       });
       if (best) {
-        unmatched.splice(unmatched.indexOf(best), 1);
-        ["x1", "y1", "x2", "y2"].forEach((key) => {
-          best[key] += SMOOTH_ALPHA * (person[key] - best[key]);
-        });
-        best.lastSeen = now;
+        if (sid !== null) { best.serviceId = sid; byServiceId.set(sid, best); }
+        claim(best, person);
       } else {
         tracks.push({
           x1: person.x1, y1: person.y1, x2: person.x2, y2: person.y2,
-          id: nextTrackId++, lastSeen: now, btn: null,
+          id: nextTrackId++, serviceId: sid, lastSeen: now, btn: null,
         });
       }
     });
@@ -3359,5 +3379,5 @@ connectEvents();
     const active = isOn() && !panel.classList.contains("hidden");
     if (!active) { clearAllTracks(); return; }
     poll();
-  }, 250);
+  }, POLL_MS);
 })();

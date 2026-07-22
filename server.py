@@ -4252,9 +4252,12 @@ class TelemetryStore:
             return {"ok": False, "error": "Unknown feed."}
         if not frame:
             return {"ok": False, "error": f"No {feed} frame."}
+        # The feed name selects a per-feed ByteTrack state on the detection
+        # service, so person ids are persistent within each camera stream.
+        url = TRACKING_DETECT_URL + ("&" if "?" in TRACKING_DETECT_URL else "?") + "feed=" + feed
         try:
             req = urllib.request.Request(
-                TRACKING_DETECT_URL, data=frame,
+                url, data=frame,
                 headers={"Content-Type": "image/jpeg"}, method="POST",
             )
             with urllib.request.urlopen(req, timeout=0.5) as resp:

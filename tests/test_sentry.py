@@ -27,6 +27,20 @@ class SentryDetectTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("Unknown feed", result["error"])
 
+    def test_upstream_url_carries_feed_for_per_feed_tracking(self):
+        store = self.make_store()
+        store.set_webcam_frame(b"jpeg-bytes")
+        seen = {}
+
+        def capture(req, timeout=None):
+            seen["url"] = req.full_url
+            return fake_response({"persons": []})
+
+        with mock.patch.object(server.urllib.request, "urlopen", side_effect=capture):
+            result = store.sentry_detect("webcam")
+        self.assertTrue(result["ok"])
+        self.assertIn("feed=webcam", seen["url"])
+
     def test_head_persons_passed_through(self):
         store = self.make_store()
         store.set_camera_frame(b"jpeg-bytes")

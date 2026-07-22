@@ -3182,9 +3182,9 @@ connectEvents();
   const toggle = document.getElementById("sentryToggle");
   const panel = document.getElementById("floatCam");
   const counter = document.getElementById("floatCamSentry");
+  // Sentry boxes run on the webcam feed only; the head camera stays clean
+  // (its overlay canvas is reserved for the Phase 2 target-lock visuals).
   const feeds = [
-    { name: "head", img: document.getElementById("floatCamStream"),
-      canvas: document.getElementById("floatCamOverlay"), inFlight: false, count: null, error: null },
     { name: "webcam", img: document.getElementById("floatWebcamStream"),
       canvas: document.getElementById("floatWebcamOverlay"), inFlight: false, count: null, error: null },
   ].filter((feed) => feed.img && feed.canvas);
@@ -3268,7 +3268,7 @@ connectEvents();
     if (counted.length) {
       const total = counted.reduce((sum, feed) => sum + feed.count, 0);
       counter.textContent = `Sentry: ${total}`;
-      counter.title = errors.length ? errors.join(" / ") : "People detected across the visible feeds";
+      counter.title = errors.length ? errors.join(" / ") : "People detected on the webcam feed";
     } else {
       counter.textContent = "Sentry: —";
       counter.title = errors.join(" / ");

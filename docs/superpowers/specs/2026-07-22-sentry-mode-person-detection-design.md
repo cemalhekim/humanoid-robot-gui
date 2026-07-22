@@ -20,9 +20,11 @@ Person interaction is built in three phases; this spec covers only Phase 1.
 
 While Sentry Mode is enabled and the floating (drop-down) camera is open, the
 operator sees live bounding boxes around every person the YOLO service detects
-in **both** feeds shown there — the head camera (top) and the USB webcam
-(bottom). Hiding the floating camera or disabling the toggle removes the boxes
-and stops all detection traffic.
+in the **USB webcam feed (bottom)**. The head camera (top) stays clean — its
+overlay canvas is reserved for the Phase 2 target-lock visuals. (The server
+endpoint still supports both feeds; only the UI polling is webcam-only, per
+operator decision 2026-07-22.) Hiding the floating camera or disabling the
+toggle removes the boxes and stops all detection traffic.
 
 CV inference runs on the AI host (`10.2.125.3:8188`, the YOLO person-detection
 service from the person-tracking work) — the robot-side server only forwards

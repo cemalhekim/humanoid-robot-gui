@@ -67,5 +67,18 @@ class SentryRouteTests(unittest.TestCase):
         self.assertIn('"/api/sentry/detect"', src)
 
 
+class SentryFrontendContractTests(unittest.TestCase):
+    def test_ui_wiring_present(self):
+        with open("static/index.html") as fh:
+            html = fh.read()
+        for needle in ("sentryToggle", "floatCamOverlay",
+                       "floatWebcamOverlay", "floatCamSentry"):
+            self.assertIn(needle, html)
+        with open("static/app.js") as fh:
+            js = fh.read()
+        self.assertIn("/api/sentry/detect", js)
+        self.assertIn("h1_sentry_mode", js)
+
+
 if __name__ == "__main__":
     unittest.main()

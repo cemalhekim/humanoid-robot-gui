@@ -4224,3 +4224,34 @@ button:not(:disabled):active { transform: scale(0.96); }
 .float-cam-body { display: flex; flex-direction: column; }
 .float-cam-body > img { flex: 1 1 0; min-height: 0; width: 100%; object-fit: cover; }
 .float-cam-body > img.hidden { display: none; }
+
+/* ---- Sentry Mode: passive person-detection overlay ---- */
+.sentry-toggle {
+  border: 1px solid rgba(230, 0, 0, 0.55);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.sentry-toggle.on {
+  background: #e60000;
+  border-color: #e60000;
+  color: #fff;
+  box-shadow: 0 0 14px rgba(230, 0, 0, 0.45);
+}
+.float-cam-body { position: relative; }
+.float-cam-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.float-cam-overlay.hidden { display: none; }
+.float-cam-sentry { color: #ff8080; font-size: 11px; letter-spacing: 0.06em; }
+.float-cam-sentry.hidden { display: none; }

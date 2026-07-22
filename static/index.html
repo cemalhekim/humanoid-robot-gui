@@ -82,6 +82,7 @@
               </button>
               <span id="smartplugMessage" class="visually-hidden" aria-live="polite"></span>
             </span>
+            <button id="sentryToggle" class="sentry-toggle" type="button" aria-pressed="false" title="Sentry Mode — draw person-detection boxes on the floating camera (no robot motion)">Sentry Mode</button>
             <span id="networkType" class="metric signal-chip">Detecting network</span>
             <span id="rate" class="metric success">-- Hz</span>
             <span id="connection" class="pill bad">Disconnected</span>
@@ -664,18 +665,21 @@
       <div id="floatCamHeader" class="float-cam-header" title="Drag to move — click ▾ to shrink back to the icon">
         <span class="float-cam-dot" aria-hidden="true"></span>
         Robot View
+        <span id="floatCamSentry" class="float-cam-sentry hidden"></span>
         <button id="floatCamMinimize" class="float-cam-minimize" type="button" title="Shrink to icon" aria-label="Shrink to icon">▾</button>
       </div>
       <div class="float-cam-body">
         <img id="floatCamStream" alt="" />
         <img id="floatWebcamStream" class="hidden" alt="" />
+        <canvas id="floatCamOverlay" class="float-cam-overlay hidden" aria-hidden="true"></canvas>
+        <canvas id="floatWebcamOverlay" class="float-cam-overlay hidden" aria-hidden="true"></canvas>
       </div>
       <span class="fc-resize tl" data-corner="tl" aria-hidden="true"></span>
       <span class="fc-resize tr" data-corner="tr" aria-hidden="true"></span>
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=loco-console-v4"></script>
+    <script src="/app.js?v=sentry-v1"></script>
     <script src="/diagram.js?v=locov1"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);

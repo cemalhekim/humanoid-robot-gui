@@ -3175,3 +3175,116 @@ connectEvents();
   window.addEventListener("resize", () => { clampBox(box); applyBox(); });
   render();
 })();
+
+// ---- Sentry Mode: passive person-detection boxes on the floating camera ----
+(function setupSentry() {
+  const KEY = "h1_sentry_mode";
+  const toggle = document.getElementById("sentryToggle");
+  const panel = document.getElementById("floatCam");
+  const counter = document.getElementById("floatCamSentry");
+  const feeds = [
+    { name: "head", img: document.getElementById("floatCamStream"),
+      canvas: document.getElementById("floatCamOverlay"), inFlight: false, count: null },
+    { name: "webcam", img: document.getElementById("floatWebcamStream"),
+      canvas: document.getElementById("floatWebcamOverlay"), inFlight: false, count: null },
+  ].filter((feed) => feed.img && feed.canvas);
+  if (!toggle || !panel || !feeds.length) return;
+
+  const isOn = () => localStorage.getItem(KEY) === "1";
+  const renderToggle = () => {
+    toggle.classList.toggle("on", isOn());
+    toggle.setAttribute("aria-pressed", isOn() ? "true" : "false");
+  };
+  toggle.addEventListener("click", () => {
+    try { localStorage.setItem(KEY, isOn() ? "0" : "1"); } catch {}
+    renderToggle();
+  });
+  renderToggle();
+
+  const clearFeed = (feed) => {
+    const ctx = feed.canvas.getContext("2d");
+    ctx.clearRect(0, 0, feed.canvas.width, feed.canvas.height);
+    feed.canvas.classList.add("hidden");
+    feed.count = null;
+  };
+  const clearAll = () => {
+    feeds.forEach(clearFeed);
+    if (counter) { counter.classList.add("hidden"); counter.textContent = ""; counter.title = ""; }
+  };
+
+  // The stream images render with object-fit: cover — map normalized
+  // detection coords through the centered-crop transform.
+  const coverTransform = (img) => {
+    const ew = img.clientWidth, eh = img.clientHeight;
+    const nw = img.naturalWidth, nh = img.naturalHeight;
+    if (!ew || !eh || !nw || !nh) return null;
+    const scale = Math.max(ew / nw, eh / nh);
+    const dw = nw * scale, dh = nh * scale;
+    return { ox: (ew - dw) / 2, oy: (eh - dh) / 2, dw, dh };
+  };
+
+  const drawFeed = (feed, persons) => {
+    const { img, canvas } = feed;
+    canvas.style.left = `${img.offsetLeft}px`;
+    canvas.style.top = `${img.offsetTop}px`;
+    canvas.width = img.clientWidth;
+    canvas.height = img.clientHeight;
+    canvas.classList.remove("hidden");
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const t = coverTransform(img);
+    feed.count = persons.length;
+    if (!t) return;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#e60000";
+    ctx.font = "600 11px system-ui, sans-serif";
+    persons.forEach((p) => {
+      const x = t.ox + p.x1 * t.dw;
+      const y = t.oy + p.y1 * t.dh;
+      const w = (p.x2 - p.x1) * t.dw;
+      const h = (p.y2 - p.y1) * t.dh;
+      ctx.strokeRect(x, y, w, h);
+      const label = `${Math.round((p.conf || 0) * 100)}%`;
+      const labelWidth = ctx.measureText(label).width + 8;
+      ctx.fillStyle = "#e60000";
+      ctx.fillRect(x, Math.max(0, y - 15), labelWidth, 15);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(label, x + 4, Math.max(11, y - 4));
+    });
+  };
+
+  const renderCounter = (error) => {
+    if (!counter) return;
+    counter.classList.remove("hidden");
+    if (error) { counter.textContent = "Sentry: —"; counter.title = error; return; }
+    const total = feeds.reduce((sum, feed) => sum + (feed.count || 0), 0);
+    counter.textContent = `Sentry: ${total}`;
+    counter.title = "People detected across the visible feeds";
+  };
+
+  const pollFeed = async (feed) => {
+    if (feed.inFlight) return;
+    if (feed.img.classList.contains("hidden") || !feed.img.getAttribute("src")) {
+      clearFeed(feed);
+      return;
+    }
+    feed.inFlight = true;
+    try {
+      const resp = await fetch(`/api/sentry/detect?feed=${feed.name}`, { cache: "no-store" });
+      const data = await resp.json();
+      if (data.ok) { drawFeed(feed, data.persons || []); renderCounter(null); }
+      else { clearFeed(feed); renderCounter(data.error || "Detection failed."); }
+    } catch {
+      clearFeed(feed);
+      renderCounter("Sentry request failed.");
+    } finally {
+      feed.inFlight = false;
+    }
+  };
+
+  window.setInterval(() => {
+    const active = isOn() && !panel.classList.contains("hidden");
+    if (!active) { clearAll(); return; }
+    feeds.forEach(pollFeed);
+  }, 250);
+})();

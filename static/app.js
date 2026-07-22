@@ -3184,9 +3184,9 @@ connectEvents();
   const counter = document.getElementById("floatCamSentry");
   const feeds = [
     { name: "head", img: document.getElementById("floatCamStream"),
-      canvas: document.getElementById("floatCamOverlay"), inFlight: false, count: null },
+      canvas: document.getElementById("floatCamOverlay"), inFlight: false, count: null, error: null },
     { name: "webcam", img: document.getElementById("floatWebcamStream"),
-      canvas: document.getElementById("floatWebcamOverlay"), inFlight: false, count: null },
+      canvas: document.getElementById("floatWebcamOverlay"), inFlight: false, count: null, error: null },
   ].filter((feed) => feed.img && feed.canvas);
   if (!toggle || !panel || !feeds.length) return;
 
@@ -3206,6 +3206,7 @@ connectEvents();
     ctx.clearRect(0, 0, feed.canvas.width, feed.canvas.height);
     feed.canvas.classList.add("hidden");
     feed.count = null;
+    feed.error = null;
   };
   const clearAll = () => {
     feeds.forEach(clearFeed);
@@ -3233,8 +3234,8 @@ connectEvents();
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const t = coverTransform(img);
+    if (!t) { feed.count = null; return; }
     feed.count = persons.length;
-    if (!t) return;
     ctx.lineWidth = 2;
     ctx.strokeStyle = "#e60000";
     ctx.font = "600 11px system-ui, sans-serif";
@@ -3253,13 +3254,25 @@ connectEvents();
     });
   };
 
-  const renderCounter = (error) => {
+  const renderCounter = () => {
     if (!counter) return;
+    const counted = feeds.filter((feed) => feed.count !== null);
+    const errors = feeds.map((feed) => feed.error).filter(Boolean);
+    if (!counted.length && !errors.length) {
+      counter.classList.add("hidden");
+      counter.textContent = "";
+      counter.title = "";
+      return;
+    }
     counter.classList.remove("hidden");
-    if (error) { counter.textContent = "Sentry: —"; counter.title = error; return; }
-    const total = feeds.reduce((sum, feed) => sum + (feed.count || 0), 0);
-    counter.textContent = `Sentry: ${total}`;
-    counter.title = "People detected across the visible feeds";
+    if (counted.length) {
+      const total = counted.reduce((sum, feed) => sum + feed.count, 0);
+      counter.textContent = `Sentry: ${total}`;
+      counter.title = errors.length ? errors.join(" / ") : "People detected across the visible feeds";
+    } else {
+      counter.textContent = "Sentry: —";
+      counter.title = errors.join(" / ");
+    }
   };
 
   const pollFeed = async (feed) => {
@@ -3272,11 +3285,13 @@ connectEvents();
     try {
       const resp = await fetch(`/api/sentry/detect?feed=${feed.name}`, { cache: "no-store" });
       const data = await resp.json();
-      if (data.ok) { drawFeed(feed, data.persons || []); renderCounter(null); }
-      else { clearFeed(feed); renderCounter(data.error || "Detection failed."); }
+      if (data.ok) { feed.error = null; drawFeed(feed, data.persons || []); }
+      else { clearFeed(feed); feed.error = data.error || "Detection failed."; }
+      renderCounter();
     } catch {
       clearFeed(feed);
-      renderCounter("Sentry request failed.");
+      feed.error = "Sentry request failed.";
+      renderCounter();
     } finally {
       feed.inFlight = false;
     }

@@ -130,8 +130,10 @@ class SentryFrontendContractTests(unittest.TestCase):
         self.assertIn("floatWebcamTargets", html)
         with open("static/app.js") as fh:
             js = fh.read()
-        for needle in ("target-lock-btn", "floatWebcamTargets", "LOCKED"):
+        for needle in ("target-lock-btn", "floatWebcamTargets", "LOCKED",
+                       "sentryBoxesToggle", "h1_sentry_boxes"):
             self.assertIn(needle, js)
+        self.assertIn("sentryBoxesToggle", html)
         with open("static/styles.css") as fh:
             css = fh.read()
         self.assertIn("target-pulse", css)

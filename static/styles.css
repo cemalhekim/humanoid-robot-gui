@@ -4283,6 +4283,19 @@ button:not(:disabled):active { transform: scale(0.96); }
   animation: target-pulse 1.6s ease-in-out infinite;
   transition: left 0.08s linear, top 0.08s linear;
 }
+.float-cam-boxes {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.float-cam-boxes:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+.float-cam-boxes.on { color: #ff6666; }
+.float-cam-boxes + .float-cam-minimize { margin-left: 4px; }
 .target-lock-btn::before {
   /* Invisible halo: extends the hit target well past the visible circle. */
   content: "";

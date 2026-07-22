@@ -3184,7 +3184,12 @@ connectEvents();
   const counter = document.getElementById("floatCamSentry");
   const img = document.getElementById("floatWebcamStream");
   const layer = document.getElementById("floatWebcamTargets");
+  const boxCanvas = document.getElementById("floatWebcamOverlay");
+  const boxesToggle = document.getElementById("sentryBoxesToggle");
   if (!toggle || !panel || !img || !layer) return;
+
+  const BOXES_KEY = "h1_sentry_boxes";
+  const isBoxesOn = () => localStorage.getItem(BOXES_KEY) === "1";
 
   const MATCH_DIST = 0.18;    // fallback center-distance gate (id-less detections)
   const SMOOTH_ALPHA = 0.6;   // exponential smoothing for box coords (responsive)
@@ -3209,6 +3214,23 @@ connectEvents();
   });
   renderToggle();
 
+  const renderBoxesToggle = () => {
+    if (!boxesToggle) return;
+    boxesToggle.classList.toggle("on", isBoxesOn());
+    boxesToggle.setAttribute("aria-pressed", isBoxesOn() ? "true" : "false");
+  };
+  if (boxesToggle) {
+    // Stop the header's drag handler from claiming the press.
+    boxesToggle.addEventListener("pointerdown", (event) => event.stopPropagation());
+    boxesToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      try { localStorage.setItem(BOXES_KEY, isBoxesOn() ? "0" : "1"); } catch {}
+      renderBoxesToggle();
+      renderButtons();
+    });
+    renderBoxesToggle();
+  }
+
   // The stream image renders with object-fit: cover — map normalized
   // detection coords through the centered-crop transform.
   const coverTransform = () => {
@@ -3225,11 +3247,19 @@ connectEvents();
     if (lockedId === track.id) lockedId = null;
   };
 
+  const clearBoxes = () => {
+    if (!boxCanvas) return;
+    const ctx = boxCanvas.getContext("2d");
+    ctx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
+    boxCanvas.classList.add("hidden");
+  };
+
   const clearAllTracks = () => {
     tracks.forEach(removeTrack);
     tracks = [];
     lockedId = null;
     layer.classList.add("hidden");
+    clearBoxes();
     count = null;
     lastError = null;
     if (counter) { counter.classList.add("hidden"); counter.textContent = ""; counter.title = ""; }
@@ -3253,6 +3283,7 @@ connectEvents();
       ["x1", "y1", "x2", "y2"].forEach((key) => {
         track[key] += SMOOTH_ALPHA * (person[key] - track[key]);
       });
+      track.conf = person.conf;
       track.lastSeen = now;
     };
     persons.forEach((person) => {
@@ -3276,7 +3307,7 @@ connectEvents();
       } else {
         tracks.push({
           x1: person.x1, y1: person.y1, x2: person.x2, y2: person.y2,
-          id: nextTrackId++, serviceId: sid, lastSeen: now, btn: null,
+          conf: person.conf, id: nextTrackId++, serviceId: sid, lastSeen: now, btn: null,
         });
       }
     });
@@ -3330,6 +3361,36 @@ connectEvents();
       const locked = lockedId === track.id;
       btn.classList.toggle("locked", locked);
       btn.title = locked ? "Kilidi kaldır" : "Bu kişiye kitlen";
+    });
+    renderBoxes(t);
+  };
+
+  const renderBoxes = (t) => {
+    if (!boxCanvas) return;
+    if (!isBoxesOn() || !t || !tracks.length) { clearBoxes(); return; }
+    boxCanvas.style.left = `${img.offsetLeft}px`;
+    boxCanvas.style.top = `${img.offsetTop}px`;
+    boxCanvas.width = img.clientWidth;
+    boxCanvas.height = img.clientHeight;
+    boxCanvas.classList.remove("hidden");
+    const ctx = boxCanvas.getContext("2d");
+    ctx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
+    ctx.lineWidth = 2;
+    ctx.font = "600 11px system-ui, sans-serif";
+    tracks.forEach((track) => {
+      const x = t.ox + track.x1 * t.dw;
+      const y = t.oy + track.y1 * t.dh;
+      const w = (track.x2 - track.x1) * t.dw;
+      const h = (track.y2 - track.y1) * t.dh;
+      const locked = lockedId === track.id;
+      ctx.strokeStyle = locked ? "#12b252" : "#e60000";
+      ctx.strokeRect(x, y, w, h);
+      const label = `${Math.round((track.conf || 0) * 100)}%`;
+      const labelWidth = ctx.measureText(label).width + 8;
+      ctx.fillStyle = locked ? "#12b252" : "#e60000";
+      ctx.fillRect(x, Math.max(0, y - 15), labelWidth, 15);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(label, x + 4, Math.max(11, y - 4));
     });
   };
 

@@ -13,35 +13,50 @@ R_SHOULDER_PITCH = 20
 R_SHOULDER_ROLL = 21
 R_SHOULDER_YAW = 22
 R_ELBOW = 23
+R_WRIST_ROLL = 24
+R_WRIST_PITCH = 25
+R_WRIST_YAW = 26
 
-# Fixed "pointing" arm shape: arm raised well forward, elbow bent so shoulder
-# yaw swings the forearm laterally. Mirrored from the operator's authored
-# left-arm pointing pose (recordings/20260722-143533, L pitch -1.315,
-# roll -0.169, yaw 0.138, elbow 1.447; left->right mirror negates roll/yaw).
+# Fixed "pointing" arm shape: the arm's pose when the person is dead-center
+# in the camera. Operator-calibrated: mirrored from the authored left-arm
+# pose recordings/20260722-153832 (L pitch -1.523, roll 0.045, yaw -0.114,
+# elbow 1.347, wrist roll 0.01 / pitch -0.343 / yaw 0.39). Left->right
+# mirror negates roll and yaw joints, keeps pitch and elbow.
 # H1-2 sign convention: NEGATIVE shoulder pitch raises the arm forward.
-# Shoulder pitch/yaw are the two aimed joints; roll and elbow stay fixed.
+# Shoulder pitch/yaw are the two aimed joints; the rest stay fixed.
 POINTING_TEMPLATE: dict[int, float] = {
-    R_SHOULDER_PITCH: -1.3,
-    R_SHOULDER_ROLL: 0.17,
-    R_SHOULDER_YAW: -0.14,
-    R_ELBOW: 1.45,
+    R_SHOULDER_PITCH: -1.52,
+    R_SHOULDER_ROLL: -0.05,
+    R_SHOULDER_YAW: 0.11,
+    R_ELBOW: 1.35,
+    R_WRIST_ROLL: -0.01,
+    R_WRIST_PITCH: -0.34,
+    R_WRIST_YAW: -0.39,
 }
 
 # Where the arm parks when tracking is stale/stopped (relaxed at the side).
+# Same key set as POINTING_TEMPLATE so gains/rate-limiting cover every
+# commanded joint in both phases.
 NEUTRAL_TEMPLATE: dict[int, float] = {
     R_SHOULDER_PITCH: 0.0,
     R_SHOULDER_ROLL: -0.05,
     R_SHOULDER_YAW: 0.0,
     R_ELBOW: 0.3,
+    R_WRIST_ROLL: 0.0,
+    R_WRIST_PITCH: 0.0,
+    R_WRIST_YAW: 0.0,
 }
 
 # Conservative aiming envelope, intentionally tighter than server.py
 # JOINT_LIMITS. server.py re-clamps against JOINT_LIMITS anyway.
 TRACK_LIMITS: dict[int, tuple[float, float]] = {
-    R_SHOULDER_PITCH: (-1.8, -0.6),
+    R_SHOULDER_PITCH: (-2.0, -0.8),
     R_SHOULDER_ROLL: (-0.6, 0.3),
     R_SHOULDER_YAW: (-1.0, 1.0),
     R_ELBOW: (0.1, 1.6),
+    R_WRIST_ROLL: (-0.3, 0.3),
+    R_WRIST_PITCH: (-0.45, 0.45),
+    R_WRIST_YAW: (-1.0, 1.0),
 }
 
 
@@ -60,8 +75,8 @@ class PointingMapper:
         self,
         fov_yaw_rad: float = 1.25,
         fov_pitch_rad: float = 0.9,
-        yaw_offset: float = -0.14,
-        pitch_offset: float = -1.3,
+        yaw_offset: float = 0.11,
+        pitch_offset: float = -1.52,
         dead_band: float = 0.03,
     ) -> None:
         self.fov_yaw_rad = fov_yaw_rad

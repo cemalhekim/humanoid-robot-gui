@@ -32,6 +32,13 @@ class MapperTests(unittest.TestCase):
         low = self.mapper.targets(0.5, 0.8)[tracking.R_SHOULDER_PITCH]
         self.assertLess(high, low)
 
+    def test_center_gives_exact_calibrated_pose(self):
+        # Operator calibration 2026-07-22 (recordings/20260722-153832): person
+        # dead-center in the camera must produce exactly the authored pose.
+        targets = self.mapper.targets(0.5, 0.5)
+        for joint, value in tracking.POINTING_TEMPLATE.items():
+            self.assertAlmostEqual(targets[joint], value, places=5, msg=f"joint {joint}")
+
     def test_template_extends_arm_forward(self):
         # The pointing template must hold the arm raised well forward
         # (mirrored from the operator's saved pose), not near the side.

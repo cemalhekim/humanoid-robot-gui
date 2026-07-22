@@ -4255,3 +4255,44 @@ button:not(:disabled):active { transform: scale(0.96); }
 .float-cam-overlay.hidden { display: none; }
 .float-cam-sentry { color: #ff8080; font-size: 11px; letter-spacing: 0.06em; }
 .float-cam-sentry.hidden { display: none; }
+
+/* ---- Sentry Mode Phase 2: head-tracked lock buttons ---- */
+.float-cam-targets {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  pointer-events: none;
+  overflow: hidden;
+}
+.float-cam-targets.hidden { display: none; }
+.target-lock-btn {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(230, 0, 0, 0.78);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: target-pulse 1.6s ease-in-out infinite;
+  transition: left 0.12s linear, top 0.12s linear;
+}
+.target-lock-btn.hidden { display: none; }
+.target-lock-btn.locked {
+  background: rgba(18, 178, 82, 0.9);
+  animation: target-pulse-locked 1.6s ease-in-out infinite;
+}
+@keyframes target-pulse {
+  0%, 100% { box-shadow: 0 0 6px 2px rgba(230, 0, 0, 0.55); }
+  50% { box-shadow: 0 0 18px 7px rgba(230, 0, 0, 0.85); }
+}
+@keyframes target-pulse-locked {
+  0%, 100% { box-shadow: 0 0 6px 2px rgba(18, 178, 82, 0.6); }
+  50% { box-shadow: 0 0 18px 7px rgba(18, 178, 82, 0.9); }
+}

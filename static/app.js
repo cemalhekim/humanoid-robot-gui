@@ -3176,19 +3176,26 @@ connectEvents();
   render();
 })();
 
-// ---- Sentry Mode: passive person-detection boxes on the floating camera ----
+// ---- Sentry Mode: head-tracked glowing lock buttons on the webcam feed ----
 (function setupSentry() {
   const KEY = "h1_sentry_mode";
   const toggle = document.getElementById("sentryToggle");
   const panel = document.getElementById("floatCam");
   const counter = document.getElementById("floatCamSentry");
-  // Sentry boxes run on the webcam feed only; the head camera stays clean
-  // (its overlay canvas is reserved for the Phase 2 target-lock visuals).
-  const feeds = [
-    { name: "webcam", img: document.getElementById("floatWebcamStream"),
-      canvas: document.getElementById("floatWebcamOverlay"), inFlight: false, count: null, error: null },
-  ].filter((feed) => feed.img && feed.canvas);
-  if (!toggle || !panel || !feeds.length) return;
+  const img = document.getElementById("floatWebcamStream");
+  const layer = document.getElementById("floatWebcamTargets");
+  if (!toggle || !panel || !img || !layer) return;
+
+  const MATCH_DIST = 0.18;    // normalized center distance for association
+  const SMOOTH_ALPHA = 0.45;  // exponential smoothing for box coords
+  const TRACK_TTL_MS = 2000;  // drop tracks unseen this long
+
+  let inFlight = false;
+  let tracks = [];            // {id, x1, y1, x2, y2, lastSeen, btn}
+  let nextTrackId = 1;
+  let lockedId = null;
+  let count = null;           // persons in last good detection, or null
+  let lastError = null;
 
   const isOn = () => localStorage.getItem(KEY) === "1";
   const renderToggle = () => {
@@ -3201,21 +3208,9 @@ connectEvents();
   });
   renderToggle();
 
-  const clearFeed = (feed) => {
-    const ctx = feed.canvas.getContext("2d");
-    ctx.clearRect(0, 0, feed.canvas.width, feed.canvas.height);
-    feed.canvas.classList.add("hidden");
-    feed.count = null;
-    feed.error = null;
-  };
-  const clearAll = () => {
-    feeds.forEach(clearFeed);
-    if (counter) { counter.classList.add("hidden"); counter.textContent = ""; counter.title = ""; }
-  };
-
-  // The stream images render with object-fit: cover — map normalized
+  // The stream image renders with object-fit: cover — map normalized
   // detection coords through the centered-crop transform.
-  const coverTransform = (img) => {
+  const coverTransform = () => {
     const ew = img.clientWidth, eh = img.clientHeight;
     const nw = img.naturalWidth, nh = img.naturalHeight;
     if (!ew || !eh || !nw || !nh) return null;
@@ -3224,82 +3219,143 @@ connectEvents();
     return { ox: (ew - dw) / 2, oy: (eh - dh) / 2, dw, dh };
   };
 
-  const drawFeed = (feed, persons) => {
-    const { img, canvas } = feed;
-    canvas.style.left = `${img.offsetLeft}px`;
-    canvas.style.top = `${img.offsetTop}px`;
-    canvas.width = img.clientWidth;
-    canvas.height = img.clientHeight;
-    canvas.classList.remove("hidden");
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const t = coverTransform(img);
-    if (!t) { feed.count = null; return; }
-    feed.count = persons.length;
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#e60000";
-    ctx.font = "600 11px system-ui, sans-serif";
-    persons.forEach((p) => {
-      const x = t.ox + p.x1 * t.dw;
-      const y = t.oy + p.y1 * t.dh;
-      const w = (p.x2 - p.x1) * t.dw;
-      const h = (p.y2 - p.y1) * t.dh;
-      ctx.strokeRect(x, y, w, h);
-      const label = `${Math.round((p.conf || 0) * 100)}%`;
-      const labelWidth = ctx.measureText(label).width + 8;
-      ctx.fillStyle = "#e60000";
-      ctx.fillRect(x, Math.max(0, y - 15), labelWidth, 15);
-      ctx.fillStyle = "#fff";
-      ctx.fillText(label, x + 4, Math.max(11, y - 4));
+  const removeTrack = (track) => {
+    if (track.btn) track.btn.remove();
+    if (lockedId === track.id) lockedId = null;
+  };
+
+  const clearAllTracks = () => {
+    tracks.forEach(removeTrack);
+    tracks = [];
+    lockedId = null;
+    layer.classList.add("hidden");
+    count = null;
+    lastError = null;
+    if (counter) { counter.classList.add("hidden"); counter.textContent = ""; counter.title = ""; }
+  };
+
+  const center = (box) => ({ cx: (box.x1 + box.x2) / 2, cy: (box.y1 + box.y2) / 2 });
+
+  const associate = (persons, now) => {
+    const unmatched = tracks.slice();
+    persons.forEach((person) => {
+      const pc = center(person);
+      let best = null;
+      let bestDist = MATCH_DIST;
+      unmatched.forEach((track) => {
+        const tc = center(track);
+        const dist = Math.hypot(pc.cx - tc.cx, pc.cy - tc.cy);
+        if (dist < bestDist) { best = track; bestDist = dist; }
+      });
+      if (best) {
+        unmatched.splice(unmatched.indexOf(best), 1);
+        ["x1", "y1", "x2", "y2"].forEach((key) => {
+          best[key] += SMOOTH_ALPHA * (person[key] - best[key]);
+        });
+        best.lastSeen = now;
+      } else {
+        tracks.push({
+          x1: person.x1, y1: person.y1, x2: person.x2, y2: person.y2,
+          id: nextTrackId++, lastSeen: now, btn: null,
+        });
+      }
+    });
+    tracks = tracks.filter((track) => {
+      if (now - track.lastSeen > TRACK_TTL_MS) { removeTrack(track); return false; }
+      return true;
+    });
+  };
+
+  const buttonFor = (track) => {
+    if (track.btn) return track.btn;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "target-lock-btn";
+    btn.textContent = "🔒";
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      lockedId = lockedId === track.id ? null : track.id;
+      renderButtons();
+      renderCounter();
+    });
+    layer.appendChild(btn);
+    track.btn = btn;
+    return btn;
+  };
+
+  const renderButtons = () => {
+    const t = coverTransform();
+    layer.style.left = `${img.offsetLeft}px`;
+    layer.style.top = `${img.offsetTop}px`;
+    layer.style.width = `${img.clientWidth}px`;
+    layer.style.height = `${img.clientHeight}px`;
+    layer.classList.remove("hidden");
+    tracks.forEach((track) => {
+      const btn = buttonFor(track);
+      if (!t) { btn.classList.add("hidden"); return; }
+      btn.classList.remove("hidden");
+      const headX = t.ox + ((track.x1 + track.x2) / 2) * t.dw;
+      const headY = t.oy + track.y1 * t.dh;
+      btn.style.left = `${headX}px`;
+      btn.style.top = `${Math.max(0, headY - 6)}px`;
+      const locked = lockedId === track.id;
+      btn.classList.toggle("locked", locked);
+      btn.title = locked ? "Kilidi kaldır" : "Bu kişiye kitlen";
     });
   };
 
   const renderCounter = () => {
     if (!counter) return;
-    const counted = feeds.filter((feed) => feed.count !== null);
-    const errors = feeds.map((feed) => feed.error).filter(Boolean);
-    if (!counted.length && !errors.length) {
+    if (count === null && !lastError) {
       counter.classList.add("hidden");
       counter.textContent = "";
       counter.title = "";
       return;
     }
     counter.classList.remove("hidden");
-    if (counted.length) {
-      const total = counted.reduce((sum, feed) => sum + feed.count, 0);
-      counter.textContent = `Sentry: ${total}`;
-      counter.title = errors.length ? errors.join(" / ") : "People detected on the webcam feed";
+    if (count !== null) {
+      counter.textContent = `Sentry: ${count}${lockedId !== null ? " • LOCKED" : ""}`;
+      counter.title = lastError || "People detected on the webcam feed";
     } else {
       counter.textContent = "Sentry: —";
-      counter.title = errors.join(" / ");
+      counter.title = lastError;
     }
   };
 
-  const pollFeed = async (feed) => {
-    if (feed.inFlight) return;
-    if (feed.img.classList.contains("hidden") || !feed.img.getAttribute("src")) {
-      clearFeed(feed);
+  const poll = async () => {
+    if (inFlight) return;
+    if (img.classList.contains("hidden") || !img.getAttribute("src")) {
+      clearAllTracks();
       return;
     }
-    feed.inFlight = true;
+    inFlight = true;
     try {
-      const resp = await fetch(`/api/sentry/detect?feed=${feed.name}`, { cache: "no-store" });
+      const resp = await fetch("/api/sentry/detect?feed=webcam", { cache: "no-store" });
       const data = await resp.json();
-      if (data.ok) { feed.error = null; drawFeed(feed, data.persons || []); }
-      else { clearFeed(feed); feed.error = data.error || "Detection failed."; }
-      renderCounter();
+      const now = Date.now();
+      if (data.ok) {
+        lastError = null;
+        const persons = data.persons || [];
+        associate(persons, now);
+        count = persons.length;
+      } else {
+        lastError = data.error || "Detection failed.";
+        count = null;
+        associate([], now); // age out tracks while errors persist
+      }
+      renderButtons();
     } catch {
-      clearFeed(feed);
-      feed.error = "Sentry request failed.";
-      renderCounter();
+      lastError = "Sentry request failed.";
+      count = null;
     } finally {
-      feed.inFlight = false;
+      inFlight = false;
+      renderCounter();
     }
   };
 
   window.setInterval(() => {
     const active = isOn() && !panel.classList.contains("hidden");
-    if (!active) { clearAll(); return; }
-    feeds.forEach(pollFeed);
+    if (!active) { clearAllTracks(); return; }
+    poll();
   }, 250);
 })();

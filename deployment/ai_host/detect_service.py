@@ -102,5 +102,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    feed_model("default")  # warm the common path before serving
+    for known_feed in ("default", "webcam", "head"):
+        feed_model(known_feed)  # warm known feeds so first requests are fast
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

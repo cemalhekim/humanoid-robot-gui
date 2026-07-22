@@ -31,6 +31,11 @@ MODEL_NAME = os.environ.get("DETECT_MODEL", "yolo11m.pt")
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 CONF = float(os.environ.get("DETECT_CONF", "0.35"))
 IMGSZ = int(os.environ.get("DETECT_IMGSZ", "640"))
+_LOCAL_TRACKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tracker.yaml")
+TRACKER = os.environ.get(
+    "DETECT_TRACKER",
+    _LOCAL_TRACKER if os.path.exists(_LOCAL_TRACKER) else "bytetrack.yaml",
+)
 
 _feeds: dict = {}
 _feeds_guard = threading.Lock()
@@ -60,7 +65,8 @@ class Handler(BaseHTTPRequestHandler):
         if urlsplit(self.path).path == "/health":
             with _feeds_guard:
                 feeds = sorted(_feeds)
-            self._send(200, {"ok": True, "feeds": feeds, "model": MODEL_NAME, "device": str(DEVICE)})
+            self._send(200, {"ok": True, "feeds": feeds, "model": MODEL_NAME,
+                             "device": str(DEVICE), "tracker": os.path.basename(TRACKER)})
         else:
             self._send(404, {"error": "not found"})
 
@@ -82,7 +88,7 @@ class Handler(BaseHTTPRequestHandler):
         with lock:
             results = model.track(
                 img, classes=[0], conf=CONF, imgsz=IMGSZ, persist=True,
-                tracker="bytetrack.yaml", verbose=False, device=DEVICE,
+                tracker=TRACKER, verbose=False, device=DEVICE,
             )
         ms = (time.time() - t0) * 1000
         persons = []

@@ -1,0 +1,23 @@
+# BoT-SORT tuned for the robot showcase: fixed cameras, people walking in and
+# out of frame, lock identity must survive edge exits and re-entries.
+#
+# vs the stock botsort.yaml:
+# - with_reid: true + model: auto — appearance re-identification using the
+#   detector's own features (native ReID, ~zero extra latency on GPU), so a
+#   person who leaves the frame and comes back gets the SAME track id.
+# - track_buffer: 90 — lost tracks survive ~10-12 s at our ~8 Hz frame rate
+#   (stock 30 ≈ 3-4 s), matching the UI's re-lock window.
+# - gmc_method: none — cameras are static; global motion compensation would
+#   only burn CPU time per frame.
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 90
+match_thresh: 0.8
+fuse_score: True
+gmc_method: none
+proximity_thresh: 0.5
+appearance_thresh: 0.8
+with_reid: True
+model: auto

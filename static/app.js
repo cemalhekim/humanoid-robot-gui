@@ -3192,14 +3192,19 @@ connectEvents();
   const isBoxesOn = () => localStorage.getItem(BOXES_KEY) === "1";
 
   const MATCH_DIST = 0.18;    // fallback center-distance gate (id-less detections)
-  const SMOOTH_ALPHA = 0.6;   // exponential smoothing for box coords (responsive)
-  const TRACK_TTL_MS = 5000;  // ride out occlusions; identity comes from service ids
-  const POLL_MS = 100;        // ~10 Hz; in-flight guard caps it at the real roundtrip
+  const SMOOTH_ALPHA = 0.6;      // exponential smoothing for box coords (responsive)
+  const TRACK_TTL_MS = 1000;     // a box no person confirms within 1 s is removed
+  const PENDING_LOCK_MS = 12000; // how long an off-screen lock waits to re-attach
+  const POLL_MS = 100;           // ~10 Hz; in-flight guard caps it at the real roundtrip
 
   let inFlight = false;
-  let tracks = [];            // {id, serviceId, x1, y1, x2, y2, lastSeen, btn}
+  let tracks = [];            // {id, serviceId, x1, y1, x2, y2, conf, lastSeen, btn}
   let nextTrackId = 1;
   let lockedId = null;
+  // When the locked person walks out of frame, remember their service id for
+  // a while: if BoT-SORT re-identifies them on re-entry, the lock re-attaches
+  // and continues where it left off instead of demanding a new click.
+  let pendingLock = null;     // {serviceId, until}
   let count = null;           // persons in last good detection, or null
   let lastError = null;
 
@@ -3258,6 +3263,7 @@ connectEvents();
     tracks.forEach(removeTrack);
     tracks = [];
     lockedId = null;
+    pendingLock = null;
     layer.classList.add("hidden");
     clearBoxes();
     count = null;
@@ -3277,6 +3283,13 @@ connectEvents();
       if (track.serviceId !== null) byServiceId.set(track.serviceId, track);
     });
     const unmatched = tracks.slice();
+    const maybeReattachLock = (track) => {
+      if (!pendingLock || lockedId !== null || track.serviceId === null) return;
+      if (track.serviceId === pendingLock.serviceId && now <= pendingLock.until) {
+        lockedId = track.id;
+        pendingLock = null;
+      }
+    };
     const claim = (track, person) => {
       const idx = unmatched.indexOf(track);
       if (idx !== -1) unmatched.splice(idx, 1);
@@ -3285,6 +3298,7 @@ connectEvents();
       });
       track.conf = person.conf;
       track.lastSeen = now;
+      maybeReattachLock(track);
     };
     persons.forEach((person) => {
       const sid = person.id === undefined || person.id === null ? null : person.id;
@@ -3305,16 +3319,25 @@ connectEvents();
         if (sid !== null) { best.serviceId = sid; byServiceId.set(sid, best); }
         claim(best, person);
       } else {
-        tracks.push({
+        const fresh = {
           x1: person.x1, y1: person.y1, x2: person.x2, y2: person.y2,
           conf: person.conf, id: nextTrackId++, serviceId: sid, lastSeen: now, btn: null,
-        });
+        };
+        tracks.push(fresh);
+        maybeReattachLock(fresh);
       }
     });
     tracks = tracks.filter((track) => {
-      if (now - track.lastSeen > TRACK_TTL_MS) { removeTrack(track); return false; }
+      if (now - track.lastSeen > TRACK_TTL_MS) {
+        if (lockedId === track.id && track.serviceId !== null) {
+          pendingLock = { serviceId: track.serviceId, until: now + PENDING_LOCK_MS };
+        }
+        removeTrack(track);
+        return false;
+      }
       return true;
     });
+    if (pendingLock && now > pendingLock.until) pendingLock = null;
   };
 
   const buttonFor = (track) => {
@@ -3322,7 +3345,7 @@ connectEvents();
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "target-lock-btn";
-    btn.textContent = "🔒";
+    btn.textContent = "🔓";
     // pointerdown, not click: the button repositions every poll tick, so a
     // click's down+up pair can land on different spots and never fire.
     btn.addEventListener("pointerdown", (event) => {
@@ -3360,6 +3383,7 @@ connectEvents();
       }
       const locked = lockedId === track.id;
       btn.classList.toggle("locked", locked);
+      btn.textContent = locked ? "🔒" : "🔓";
       btn.title = locked ? "Kilidi kaldır" : "Bu kişiye kitlen";
     });
     renderBoxes(t);
@@ -3404,7 +3428,8 @@ connectEvents();
     }
     counter.classList.remove("hidden");
     if (count !== null) {
-      counter.textContent = `Sentry: ${count}${lockedId !== null ? " • LOCKED" : ""}`;
+      const lockState = lockedId !== null ? " • LOCKED" : (pendingLock ? " • RE-LOCK…" : "");
+      counter.textContent = `Sentry: ${count}${lockState}`;
       counter.title = lastError || "People detected on the webcam feed";
     } else {
       counter.textContent = "Sentry: —";

@@ -3347,6 +3347,8 @@ connectEvents();
     } catch {
       lastError = "Sentry request failed.";
       count = null;
+      associate([], Date.now()); // age out tracks while requests fail
+      renderButtons();
     } finally {
       inFlight = false;
       renderCounter();

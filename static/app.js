@@ -3213,8 +3213,12 @@ connectEvents();
     toggle.setAttribute("aria-pressed", isOn() ? "true" : "false");
   };
   toggle.addEventListener("click", () => {
-    try { localStorage.setItem(KEY, isOn() ? "0" : "1"); } catch {}
+    const turningOff = isOn();
+    try { localStorage.setItem(KEY, turningOff ? "0" : "1"); } catch {}
     renderToggle();
+    // Sentry off must also end any running arm-tracking session — the
+    // operator expects one switch to stop all person-following behaviour.
+    if (turningOff) fetch("/api/track/stop", { method: "POST" }).catch(() => {});
   });
   renderToggle();
 

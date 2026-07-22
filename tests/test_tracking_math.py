@@ -39,6 +39,15 @@ class MapperTests(unittest.TestCase):
         right = self.mapper.targets(1.0, 0.5)[tracking.R_ELBOW]
         self.assertLess(right, center)
 
+    def test_wrist_keeps_aiming_at_person(self):
+        # Operator request 2026-07-22: the hand end of the arm must keep
+        # turning toward the person on top of the coarse shoulder sweep.
+        center = self.mapper.targets(0.5, 0.5)
+        right = self.mapper.targets(0.9, 0.5)
+        high = self.mapper.targets(0.5, 0.2)
+        self.assertLess(right[tracking.R_WRIST_YAW], center[tracking.R_WRIST_YAW])
+        self.assertLess(high[tracking.R_WRIST_PITCH], center[tracking.R_WRIST_PITCH])
+
     def test_person_higher_in_image_raises_arm(self):
         # H1-2 shoulder pitch: NEGATIVE raises the arm forward/up (operator's
         # authored pointing pose has LeftShoulderPitch -1.315). Higher person

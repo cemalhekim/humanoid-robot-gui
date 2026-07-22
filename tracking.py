@@ -95,12 +95,19 @@ class PointingMapper:
         # Operator wants the arm to answer small target motion; the band only
         # swallows sub-pixel detector jitter, the Smoother handles the rest.
         dead_band: float = 0.005,
+        # Wrist fine-aim: the hand keeps turning toward the person on top of
+        # the coarse shoulder sweep, so the "hand end" of the arm stays aimed
+        # even where the shoulder clamps (cross-chest left side).
+        wrist_yaw_gain: float = -0.5,
+        wrist_pitch_gain: float = 0.5,
     ) -> None:
         self.fov_yaw_rad = fov_yaw_rad
         self.fov_pitch_rad = fov_pitch_rad
         self.yaw_offset = yaw_offset
         self.pitch_offset = pitch_offset
         self.dead_band = dead_band
+        self.wrist_yaw_gain = wrist_yaw_gain
+        self.wrist_pitch_gain = wrist_pitch_gain
         self._last_cx: float | None = None
         self._last_cy: float | None = None
 
@@ -127,6 +134,12 @@ class PointingMapper:
         # (verified live 2026-07-22), so a higher person (smaller cy) must
         # drive pitch more negative.
         out[R_SHOULDER_PITCH] = self.pitch_offset - (0.5 - cy) * self.fov_pitch_rad
+        # Wrist fine-aim on top of the coarse pose: the hand itself keeps
+        # turning toward the person (both axes), following the same sign
+        # conventions as the shoulder (negative pitch = up, negative yaw
+        # delta toward the image's right).
+        out[R_WRIST_YAW] += s * self.wrist_yaw_gain
+        out[R_WRIST_PITCH] -= (0.5 - cy) * self.wrist_pitch_gain
         return {
             joint: _clamp(value, *TRACK_LIMITS[joint])
             for joint, value in out.items()

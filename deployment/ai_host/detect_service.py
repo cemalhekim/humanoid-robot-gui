@@ -27,7 +27,7 @@ import torch
 from ultralytics import YOLO
 
 PORT = 8188
-MODEL_NAME = os.environ.get("DETECT_MODEL", "yolo11m.pt")
+MODEL_NAME = os.environ.get("DETECT_MODEL", "yolo11m-pose.engine")
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 CONF = float(os.environ.get("DETECT_CONF", "0.35"))
 IMGSZ = int(os.environ.get("DETECT_IMGSZ", "640"))
@@ -91,15 +91,40 @@ class Handler(BaseHTTPRequestHandler):
                 tracker=TRACKER, verbose=False, device=DEVICE,
             )
         ms = (time.time() - t0) * 1000
+        # COCO keypoint indices used below: 0 nose, 3/4 ears, 5/6 shoulders,
+        # 11/12 hips. Everything is normalized 0..1 like the boxes.
+        kpts = getattr(results[0], "keypoints", None)
+        kp_xy = kpts.xy.tolist() if kpts is not None and kpts.xy is not None else []
+        kp_conf = kpts.conf.tolist() if kpts is not None and kpts.conf is not None else []
         persons = []
-        for box in results[0].boxes:
+        for i, box in enumerate(results[0].boxes):
             x1, y1, x2, y2 = box.xyxy[0].tolist()
-            persons.append({
+            person = {
                 "id": int(box.id[0]) if box.id is not None else None,
                 "x1": x1 / w, "y1": y1 / h, "x2": x2 / w, "y2": y2 / h,
                 "cx": (x1 + x2) / 2 / w, "cy": (y1 + y2) / 2 / h,
                 "conf": float(box.conf[0]),
-            })
+            }
+            if i < len(kp_xy) and i < len(kp_conf):
+                xy, kc = kp_xy[i], kp_conf[i]
+                def kp(j):
+                    if j < len(xy) and j < len(kc) and kc[j] >= 0.3:
+                        return {"x": xy[j][0] / w, "y": xy[j][1] / h, "conf": round(kc[j], 3)}
+                    return None
+                named = {"nose": kp(0), "l_ear": kp(3), "r_ear": kp(4),
+                         "l_shoulder": kp(5), "r_shoulder": kp(6),
+                         "l_hip": kp(11), "r_hip": kp(12)}
+                person["keypoints"] = {k: v for k, v in named.items() if v}
+                # Head anchor: nose, else ear midpoint, else nothing (client
+                # falls back to box top-center).
+                if named["nose"]:
+                    person["head"] = {"x": named["nose"]["x"], "y": named["nose"]["y"]}
+                elif named["l_ear"] and named["r_ear"]:
+                    person["head"] = {
+                        "x": (named["l_ear"]["x"] + named["r_ear"]["x"]) / 2,
+                        "y": (named["l_ear"]["y"] + named["r_ear"]["y"]) / 2,
+                    }
+            persons.append(person)
         persons.sort(key=lambda p: (p["x2"] - p["x1"]) * (p["y2"] - p["y1"]), reverse=True)
         self._send(200, {"persons": persons, "ms": round(ms, 1), "w": w, "h": h, "feed": feed})
 

@@ -1,6 +1,42 @@
+import io
+import json
 import unittest
+from unittest import mock
 
 import server
+
+
+class _Conn:
+    """Socketless stand-in so BaseHTTPRequestHandler can parse a canned request."""
+
+    def __init__(self, raw: bytes) -> None:
+        self._raw = raw
+        self.wfile = io.BytesIO()
+
+    def makefile(self, mode: str, *args, **kwargs):
+        return io.BytesIO(self._raw) if "r" in mode else self.wfile
+
+    def sendall(self, data: bytes) -> None:
+        self.wfile.write(data)
+
+
+def post(store: server.TelemetryStore, path: str, payload: dict) -> tuple[int, dict]:
+    """Run one POST through the real TelemetryHandler request parsing/routing."""
+    body = json.dumps(payload).encode()
+    raw = (
+        f"POST {path} HTTP/1.1\r\nHost: t\r\nContent-Type: application/json\r\n"
+        f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n"
+    ).encode() + body
+    conn = _Conn(raw)
+    with mock.patch.object(server.TelemetryHandler, "store", store, create=True):
+        server.TelemetryHandler(conn, ("127.0.0.1", 0), None)
+    head, _, rest = conn.wfile.getvalue().partition(b"\r\n\r\n")
+    status = int(head.split(b" ", 2)[1])
+    try:
+        decoded = json.loads(rest.split(b"\r\n\r\n")[-1] or b"{}")
+    except ValueError:
+        decoded = {}
+    return status, decoded
 
 
 class TrackingGatingTests(unittest.TestCase):
@@ -57,6 +93,25 @@ class TrackingRouteTests(unittest.TestCase):
         self.assertIn('"/api/track/start"', src)
         self.assertIn('"/api/track/stop"', src)
         self.assertIn('"/api/track/status"', src)
+
+    def test_post_track_start_reaches_handler_with_payload(self):
+        # Regression: the paths had handlers but were missing from do_POST's
+        # route allowlist (404 before dispatch) and the JSON-parse list (empty
+        # payload -> 403 even with acks). Feature-disabled must yield 409,
+        # proving both routing and body parsing ran.
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with mock.patch.object(server, "TRACKING_ENABLED", False):
+            status, response = post(
+                store, "/api/track/start", {"armed": True, "i_understand_risk": True}
+            )
+        self.assertEqual(status, 409)
+        self.assertIn("disabled", response.get("error", ""))
+
+    def test_post_track_stop_is_dispatched(self):
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        status, response = post(store, "/api/track/stop", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(response["ok"])
 
 
 class TrackToolTests(unittest.TestCase):

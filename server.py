@@ -5900,6 +5900,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/rename",
             "/api/recording/replay/robot",
             "/api/smartplug/toggle",
+            "/api/track/start",
+            "/api/track/stop",
             "/mcp",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
@@ -5928,6 +5930,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/sequence",
             "/api/recording/rename",
             "/api/recording/replay/robot",
+            "/api/track/start",
         ):
             try:
                 length = int(self.headers.get("Content-Length", "0"))

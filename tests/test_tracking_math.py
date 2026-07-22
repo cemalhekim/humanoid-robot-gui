@@ -66,10 +66,26 @@ class MapperTests(unittest.TestCase):
                 self.assertGreaterEqual(value, lo, f"joint {joint} cx={cx} cy={cy}")
                 self.assertLessEqual(value, hi, f"joint {joint} cx={cx} cy={cy}")
 
-    def test_dead_band_freezes_small_motion(self):
+    def test_dead_band_only_swallows_subpixel_jitter(self):
         a = self.mapper.targets(0.500, 0.500)
-        b = self.mapper.targets(0.515, 0.510)  # inside +-0.03 dead band
+        b = self.mapper.targets(0.503, 0.502)  # inside the +-0.005 band
         self.assertEqual(a, b)
+        # Small-but-real target motion must move the arm (operator request
+        # 2026-07-22: much less tolerance for small target changes).
+        c = self.mapper.targets(0.515, 0.510)
+        self.assertNotEqual(a, c)
+
+
+class AimPointTests(unittest.TestCase):
+    def test_prefers_detector_head_anchor(self):
+        target = {"cx": 0.5, "y1": 0.1, "y2": 0.9, "head": {"x": 0.44, "y": 0.18}}
+        self.assertEqual(tracking.aim_point(target), (0.44, 0.18))
+
+    def test_falls_back_to_top_of_box(self):
+        target = {"cx": 0.5, "y1": 0.1, "y2": 0.9}
+        cx, cy = tracking.aim_point(target)
+        self.assertEqual(cx, 0.5)
+        self.assertAlmostEqual(cy, 0.22, places=6)  # y1 + 15% of box height
 
 
 class RateLimiterTests(unittest.TestCase):

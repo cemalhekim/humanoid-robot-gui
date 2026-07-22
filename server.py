@@ -4383,9 +4383,12 @@ class TelemetryStore:
         return 200, {"ok": True, "tracking": self.track_snapshot()}
 
     def _run_tracking(self, cancel: threading.Event) -> None:
+        # Faster limiter/smoother per operator request 2026-07-22 — the
+        # closed-loop arm_sdk gains (the "PID") are untouched; only the
+        # setpoint is allowed to move quicker.
         mapper = tracking.PointingMapper()
-        limiter = tracking.RateLimiter(max_step_rad_s=0.35)
-        smoother = tracking.Smoother(alpha=0.35)
+        limiter = tracking.RateLimiter(max_step_rad_s=0.9)
+        smoother = tracking.Smoother(alpha=0.6)
         state = tracking.TrackState(stale_after_s=1.5, hold_s=2.0, max_failures=10)
         period = 1.0 / TRACKING_RATE_HZ
         started = time.time()
@@ -4407,11 +4410,14 @@ class TelemetryStore:
                 persons: list[dict[str, Any]] | None = None
                 if frame:
                     try:
+                        # Shrink before upload: full head frames (~150 KB) push
+                        # the round-trip toward the timeout; shrunk (~34 KB)
+                        # measured 40-300 ms robot->AI host on 2026-07-22.
                         req = urllib.request.Request(
-                            TRACKING_DETECT_URL, data=frame,
+                            TRACKING_DETECT_URL, data=shrink_jpeg_for_detection(frame),
                             headers={"Content-Type": "image/jpeg"}, method="POST",
                         )
-                        with urllib.request.urlopen(req, timeout=0.5) as resp:
+                        with urllib.request.urlopen(req, timeout=0.8) as resp:
                             persons = json.loads(resp.read()).get("persons", [])
                     except Exception:
                         persons = None
@@ -4425,9 +4431,9 @@ class TelemetryStore:
                     self._set_track_status(message="Detection service failing repeatedly; aborting.")
                     break
                 if state.phase == "tracking" and state.target is not None:
-                    # Aim at the upper third of the box (~chest height).
-                    aim_cy = state.target["y1"] + (state.target["y2"] - state.target["y1"]) / 3.0
-                    goal = mapper.targets(state.target["cx"], aim_cy)
+                    # Aim at the head (detector anchor, else top-of-box).
+                    aim_cx, aim_cy = tracking.aim_point(state.target)
+                    goal = mapper.targets(aim_cx, aim_cy)
                 elif state.phase == "hold":
                     goal = dict(current)
                 else:  # stale

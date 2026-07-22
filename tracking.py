@@ -92,7 +92,9 @@ class PointingMapper:
         fov_pitch_rad: float = 0.9,
         yaw_offset: float = 0.11,
         pitch_offset: float = -1.52,
-        dead_band: float = 0.03,
+        # Operator wants the arm to answer small target motion; the band only
+        # swallows sub-pixel detector jitter, the Smoother handles the rest.
+        dead_band: float = 0.005,
     ) -> None:
         self.fov_yaw_rad = fov_yaw_rad
         self.fov_pitch_rad = fov_pitch_rad
@@ -166,6 +168,17 @@ class Smoother:
                 prev = self._value.get(joint, v)
                 self._value[joint] = prev + self.alpha * (v - prev)
         return dict(self._value)
+
+
+def aim_point(target: dict[str, Any]) -> tuple[float, float]:
+    """Where to aim on a person: the detector's head anchor (nose, else ear
+    midpoint) when present, else near the top of the box as a head-height
+    fallback. Operator request 2026-07-22: aim for the head as much as
+    possible, even as it moves slightly."""
+    head = target.get("head")
+    if isinstance(head, dict) and "x" in head and "y" in head:
+        return head["x"], head["y"]
+    return target["cx"], target["y1"] + (target["y2"] - target["y1"]) * 0.15
 
 
 def _area(person: dict[str, Any]) -> float:

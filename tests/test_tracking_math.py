@@ -16,11 +16,26 @@ class MapperTests(unittest.TestCase):
             places=5,
         )
 
-    def test_person_left_of_center_swings_yaw_left(self):
+    def test_person_left_of_center_swings_yaw_toward_them(self):
+        # Field-verified 2026-07-22: the arm mirrored the person until the yaw
+        # sign was flipped — image-left (small cx) must give LARGER joint-22 yaw.
         left = self.mapper.targets(0.2, 0.5)[tracking.R_SHOULDER_YAW]
         right = self.mapper.targets(0.8, 0.5)[tracking.R_SHOULDER_YAW]
         self.assertNotEqual(left, right)
-        self.assertLess(left, right)
+        self.assertGreater(left, right)
+
+    def test_person_higher_in_image_raises_arm(self):
+        # H1-2 shoulder pitch: NEGATIVE raises the arm forward/up (operator's
+        # authored pointing pose has LeftShoulderPitch -1.315). Higher person
+        # (smaller cy) must therefore give a MORE NEGATIVE pitch.
+        high = self.mapper.targets(0.5, 0.2)[tracking.R_SHOULDER_PITCH]
+        low = self.mapper.targets(0.5, 0.8)[tracking.R_SHOULDER_PITCH]
+        self.assertLess(high, low)
+
+    def test_template_extends_arm_forward(self):
+        # The pointing template must hold the arm raised well forward
+        # (mirrored from the operator's saved pose), not near the side.
+        self.assertLess(tracking.POINTING_TEMPLATE[tracking.R_SHOULDER_PITCH], -1.0)
 
     def test_targets_always_inside_track_limits(self):
         for cx, cy in [(0.0, 0.0), (1.0, 1.0), (0.0, 1.0), (1.0, 0.0)]:

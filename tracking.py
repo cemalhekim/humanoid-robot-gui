@@ -14,13 +14,17 @@ R_SHOULDER_ROLL = 21
 R_SHOULDER_YAW = 22
 R_ELBOW = 23
 
-# Fixed "pointing" arm shape: elbow slightly bent, arm raised forward.
+# Fixed "pointing" arm shape: arm raised well forward, elbow bent so shoulder
+# yaw swings the forearm laterally. Mirrored from the operator's authored
+# left-arm pointing pose (recordings/20260722-143533, L pitch -1.315,
+# roll -0.169, yaw 0.138, elbow 1.447; left->right mirror negates roll/yaw).
+# H1-2 sign convention: NEGATIVE shoulder pitch raises the arm forward.
 # Shoulder pitch/yaw are the two aimed joints; roll and elbow stay fixed.
 POINTING_TEMPLATE: dict[int, float] = {
-    R_SHOULDER_PITCH: 0.35,
-    R_SHOULDER_ROLL: -0.10,
-    R_SHOULDER_YAW: 0.0,
-    R_ELBOW: 0.25,
+    R_SHOULDER_PITCH: -1.3,
+    R_SHOULDER_ROLL: 0.17,
+    R_SHOULDER_YAW: -0.14,
+    R_ELBOW: 1.45,
 }
 
 # Where the arm parks when tracking is stale/stopped (relaxed at the side).
@@ -34,10 +38,10 @@ NEUTRAL_TEMPLATE: dict[int, float] = {
 # Conservative aiming envelope, intentionally tighter than server.py
 # JOINT_LIMITS. server.py re-clamps against JOINT_LIMITS anyway.
 TRACK_LIMITS: dict[int, tuple[float, float]] = {
-    R_SHOULDER_PITCH: (-0.6, 1.2),
-    R_SHOULDER_ROLL: (-0.6, 0.2),
+    R_SHOULDER_PITCH: (-1.8, -0.6),
+    R_SHOULDER_ROLL: (-0.6, 0.3),
     R_SHOULDER_YAW: (-1.0, 1.0),
-    R_ELBOW: (0.1, 1.2),
+    R_ELBOW: (0.1, 1.6),
 }
 
 
@@ -56,8 +60,8 @@ class PointingMapper:
         self,
         fov_yaw_rad: float = 1.25,
         fov_pitch_rad: float = 0.9,
-        yaw_offset: float = 0.0,
-        pitch_offset: float = 0.35,
+        yaw_offset: float = -0.14,
+        pitch_offset: float = -1.3,
         dead_band: float = 0.03,
     ) -> None:
         self.fov_yaw_rad = fov_yaw_rad
@@ -78,9 +82,12 @@ class PointingMapper:
         else:
             self._last_cx, self._last_cy = cx, cy
 
-        yaw = self.yaw_offset + (cx - 0.5) * self.fov_yaw_rad
-        # Image y grows downward; higher person position = raise the arm.
-        pitch = self.pitch_offset + (0.5 - cy) * self.fov_pitch_rad
+        # Both signs are flipped vs the naive map, verified live 2026-07-22:
+        # the arm mirrored the person horizontally until yaw was negated, and
+        # H1-2 shoulder pitch raises the arm with NEGATIVE values, so a higher
+        # person (smaller cy) must drive pitch more negative.
+        yaw = self.yaw_offset - (cx - 0.5) * self.fov_yaw_rad
+        pitch = self.pitch_offset - (0.5 - cy) * self.fov_pitch_rad
 
         out = dict(POINTING_TEMPLATE)
         out[R_SHOULDER_YAW] = yaw

@@ -3187,9 +3187,9 @@ connectEvents();
   if (!toggle || !panel || !img || !layer) return;
 
   const MATCH_DIST = 0.18;    // fallback center-distance gate (id-less detections)
-  const SMOOTH_ALPHA = 0.45;  // exponential smoothing for box coords
+  const SMOOTH_ALPHA = 0.6;   // exponential smoothing for box coords (responsive)
   const TRACK_TTL_MS = 5000;  // ride out occlusions; identity comes from service ids
-  const POLL_MS = 125;        // ~8 Hz; in-flight guard caps it at the real roundtrip
+  const POLL_MS = 100;        // ~10 Hz; in-flight guard caps it at the real roundtrip
 
   let inFlight = false;
   let tracks = [];            // {id, serviceId, x1, y1, x2, y2, lastSeen, btn}

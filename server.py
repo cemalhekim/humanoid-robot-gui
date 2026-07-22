@@ -1711,6 +1711,29 @@ def clean_h264_payload(payload: bytes) -> bytes | None:
     return payload or None
 
 
+def shrink_jpeg_for_detection(frame: bytes, max_width: int = 640, quality: int = 72) -> bytes:
+    """Downscale a JPEG before shipping it to the detection service.
+
+    YOLO infers at 640 px anyway, so this only cuts the Wi-Fi upload time
+    (the robot reaches the AI host over its wireless link). Any failure
+    falls back to the original bytes."""
+    if cv2 is None or np is None:
+        return frame
+    try:
+        img = cv2.imdecode(np.frombuffer(frame, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return frame
+        h, w = img.shape[:2]
+        if w <= max_width:
+            return frame
+        scale = max_width / float(w)
+        img = cv2.resize(img, (max_width, max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+        ok, encoded = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+        return encoded.tobytes() if ok else frame
+    except Exception:
+        return frame
+
+
 def h264_payload_from_video_msg(msg: Any, target_resolution: int = 360) -> bytes | None:
     fields = {
         720: bytes(getattr(msg, "video720p", b"")),
@@ -4255,6 +4278,7 @@ class TelemetryStore:
         # The feed name selects a per-feed ByteTrack state on the detection
         # service, so person ids are persistent within each camera stream.
         url = TRACKING_DETECT_URL + ("&" if "?" in TRACKING_DETECT_URL else "?") + "feed=" + feed
+        frame = shrink_jpeg_for_detection(frame)
         try:
             req = urllib.request.Request(
                 url, data=frame,

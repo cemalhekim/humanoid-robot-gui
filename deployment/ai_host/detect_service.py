@@ -2,15 +2,20 @@
 
 POST /detect?feed=<name> with a JPEG body ->
     JSON {persons: [{id,x1,y1,x2,y2,conf,cx,cy}], ms, w, h}
-GET  /health -> {ok: true, feeds: [...]}
+GET  /health -> {ok: true, feeds: [...], model: ..., device: ...}
 
 Coordinates are normalized 0..1 relative to image width/height. Each feed
 keeps its own ByteTrack state (one YOLO instance per feed), so `id` is a
 persistent track id for the same person across frames — it survives fast
 motion (Kalman motion prediction) and brief occlusions (track buffer).
 `id` is null for the first frame or two while a track is being confirmed.
+
+Model selection: DETECT_MODEL env var (default yolo11m.pt — accurate and
+~20 ms on the host GPU). Runs on CUDA when available. Each feed's model is
+warmed up with a dummy frame at creation so the first real request is fast.
 """
 import json
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,9 +23,14 @@ from urllib.parse import parse_qs, urlsplit
 
 import cv2
 import numpy as np
+import torch
 from ultralytics import YOLO
 
 PORT = 8188
+MODEL_NAME = os.environ.get("DETECT_MODEL", "yolo11m.pt")
+DEVICE = 0 if torch.cuda.is_available() else "cpu"
+CONF = float(os.environ.get("DETECT_CONF", "0.35"))
+IMGSZ = int(os.environ.get("DETECT_IMGSZ", "640"))
 
 _feeds: dict = {}
 _feeds_guard = threading.Lock()
@@ -30,7 +40,10 @@ def feed_model(name):
     """One (model, lock) pair per feed; model.track(persist=True) is stateful."""
     with _feeds_guard:
         if name not in _feeds:
-            _feeds[name] = (YOLO("yolov8n.pt"), threading.Lock())
+            model = YOLO(MODEL_NAME)
+            dummy = np.zeros((480, 640, 3), dtype=np.uint8)
+            model.track(dummy, classes=[0], persist=True, verbose=False, device=DEVICE)
+            _feeds[name] = (model, threading.Lock())
         return _feeds[name]
 
 
@@ -47,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
         if urlsplit(self.path).path == "/health":
             with _feeds_guard:
                 feeds = sorted(_feeds)
-            self._send(200, {"ok": True, "feeds": feeds})
+            self._send(200, {"ok": True, "feeds": feeds, "model": MODEL_NAME, "device": str(DEVICE)})
         else:
             self._send(404, {"error": "not found"})
 
@@ -68,8 +81,8 @@ class Handler(BaseHTTPRequestHandler):
         t0 = time.time()
         with lock:
             results = model.track(
-                img, classes=[0], conf=0.4, persist=True,
-                tracker="bytetrack.yaml", verbose=False,
+                img, classes=[0], conf=CONF, imgsz=IMGSZ, persist=True,
+                tracker="bytetrack.yaml", verbose=False, device=DEVICE,
             )
         ms = (time.time() - t0) * 1000
         persons = []
@@ -89,4 +102,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    feed_model("default")  # warm the common path before serving
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

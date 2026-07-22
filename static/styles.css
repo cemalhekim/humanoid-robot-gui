@@ -4281,7 +4281,7 @@ button:not(:disabled):active { transform: scale(0.96); }
   cursor: pointer;
   pointer-events: auto;
   animation: target-pulse 1.6s ease-in-out infinite;
-  transition: left 0.12s linear, top 0.12s linear;
+  transition: left 0.08s linear, top 0.08s linear;
 }
 .target-lock-btn::before {
   /* Invisible halo: extends the hit target well past the visible circle. */

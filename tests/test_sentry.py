@@ -74,6 +74,37 @@ class SentryDetectTests(unittest.TestCase):
         self.assertIn("unreachable", result["error"])
 
 
+class ShrinkJpegTests(unittest.TestCase):
+    def test_returns_original_without_cv2(self):
+        with mock.patch.object(server, "cv2", None):
+            self.assertEqual(server.shrink_jpeg_for_detection(b"frame"), b"frame")
+
+    def test_returns_original_on_undecodable_input(self):
+        if server.cv2 is None:
+            self.skipTest("OpenCV not available")
+        self.assertEqual(server.shrink_jpeg_for_detection(b"not-a-jpeg"), b"not-a-jpeg")
+
+    def test_downscales_wide_jpeg(self):
+        if server.cv2 is None or server.np is None:
+            self.skipTest("OpenCV not available")
+        big = server.np.full((720, 1280, 3), 128, dtype=server.np.uint8)
+        ok, encoded = server.cv2.imencode(".jpg", big)
+        self.assertTrue(ok)
+        shrunk = server.shrink_jpeg_for_detection(encoded.tobytes(), max_width=640)
+        img = server.cv2.imdecode(
+            server.np.frombuffer(shrunk, server.np.uint8), server.cv2.IMREAD_COLOR)
+        self.assertEqual(img.shape[1], 640)
+        self.assertEqual(img.shape[0], 360)
+
+    def test_keeps_small_jpeg_untouched(self):
+        if server.cv2 is None or server.np is None:
+            self.skipTest("OpenCV not available")
+        small = server.np.full((240, 320, 3), 128, dtype=server.np.uint8)
+        ok, encoded = server.cv2.imencode(".jpg", small)
+        self.assertTrue(ok)
+        self.assertEqual(server.shrink_jpeg_for_detection(encoded.tobytes()), encoded.tobytes())
+
+
 class SentryRouteTests(unittest.TestCase):
     def test_route_dispatched(self):
         with open("server.py") as fh:

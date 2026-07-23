@@ -61,5 +61,32 @@ class ArmKinematicsTest(unittest.TestCase):
         self.assertGreater(dist(base["left"]["hand"], turned["left"]["hand"]), 0.05)
 
 
+class ArmPoseGuideTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.kin = kinematics.ArmKinematics()
+        cls.limits = {name: (-1.0, 1.0) for name in kinematics.ARM_JOINT_NAMES}
+        cls.guide = kinematics.arm_pose_guide(cls.kin, cls.limits)
+
+    def test_every_arm_joint_is_documented_with_limits(self) -> None:
+        for name in kinematics.ARM_JOINT_NAMES:
+            self.assertIn(name, self.guide)
+        self.assertIn("[-1.0, 1.0]", self.guide)
+
+    def test_axes_convention_is_stated(self) -> None:
+        self.assertIn("x=forward, y=left, z=up", self.guide)
+
+    def test_shoulder_pitch_lines_mention_a_direction(self) -> None:
+        for line in self.guide.splitlines():
+            if "ShoulderPitch" in line:
+                self.assertTrue(any(w in line for w in ("forward", "backward", "up", "down")), line)
+
+    def test_zero_pose_description_is_derived_not_wrong(self) -> None:
+        # The H1-2 zero pose has elbows bent ~90 deg with forearms forward; the
+        # guide must describe where the hands actually start, not claim they hang.
+        self.assertIn("zero", self.guide.lower())
+        self.assertNotIn("hang straight down", self.guide)
+
+
 if __name__ == "__main__":
     unittest.main()

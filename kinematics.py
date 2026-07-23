@@ -132,3 +132,37 @@ class ArmKinematics:
                     "x": round(position[0], 3), "y": round(position[1], 3), "z": round(position[2], 3),
                 }
         return result
+
+
+def arm_pose_guide(kin: ArmKinematics, limits_by_name: dict[str, tuple[float, float]]) -> str:
+    """LLM cheat sheet: probe each arm joint via FK and describe the hand motion."""
+    zero = kin.landmarks({})
+    lines = [
+        "ARM JOINT GUIDE (derived from the URDF; angles in radians; frame: x=forward, y=left, z=up):",
+    ]
+    for name in ARM_JOINT_NAMES:
+        side = "left" if name.startswith("Left") else "right"
+        low, high = limits_by_name.get(name, (-math.pi, math.pi))
+        probe = min(0.5, high) if high >= 0.1 else max(-0.5, low)
+        hand0, hand1 = zero[side]["hand"], kin.landmarks({name: probe})[side]["hand"]
+        delta = {axis: hand1[axis] - hand0[axis] for axis in ("x", "y", "z")}
+        parts = []
+        if abs(delta["x"]) >= 0.02:
+            parts.append("forward" if delta["x"] > 0 else "backward")
+        if abs(delta["y"]) >= 0.02:
+            parts.append("to the robot's left" if delta["y"] > 0 else "to the robot's right")
+        if abs(delta["z"]) >= 0.02:
+            parts.append("up" if delta["z"] > 0 else "down")
+        if parts:
+            effect = f"moves the {side} hand " + " and ".join(parts)
+        else:
+            effect = f"mostly reorients the {side} hand in place"
+        lines.append(f"- {name}: {probe:+.1f} rad {effect}; limits [{low}, {high}]")
+    right = zero["right"]
+    lines.append(
+        "Zero pose (all angles 0): upper arms hang down, elbows are bent ~90 deg so the "
+        f"forearms point forward; each hand starts near x={right['hand']['x']:.2f}, "
+        f"z={right['hand']['z']:.2f} relative to the pelvis, shoulders at z={right['shoulder']['z']:.2f}. "
+        "Combine joints; unspecified joints keep their current angle."
+    )
+    return "\n".join(lines)

@@ -62,8 +62,12 @@ class McpRequestTest(unittest.TestCase):
         with TemporaryDirectory() as directory:
             with mock.patch.object(server, "RECORDINGS_DIR", server.Path(directory)):
                 names = [t["name"] for t in self.store.mcp_request(rpc("tools/list"))["result"]["tools"]]
+        # propose_arm_pose is appended dynamically alongside the move tool
+        # (LLM_TOOL_MOVE_ENABLED); with no saved poses it is the only extra.
         self.assertEqual(
-            names, [spec["function"]["name"] for spec in server.CHAT_TOOL_SPECS]
+            names,
+            [spec["function"]["name"] for spec in server.CHAT_TOOL_SPECS]
+            + ["propose_arm_pose"],
         )
 
     def test_tools_list_gains_move_when_named_position_exists(self) -> None:

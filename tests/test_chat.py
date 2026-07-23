@@ -106,6 +106,42 @@ class TelemetryContextTest(unittest.TestCase):
         self.assertIsNotNone(text)
         self.assertIsNone(image)
 
+    def test_semantic_pose_describes_forward_sideways_and_cross_body_arms(self) -> None:
+        hands = {
+            "left": {"landmarks_robot_m": {
+                "shoulder": {"x": 0.0, "y": 0.2, "z": 1.4},
+                "elbow": {"x": 0.18, "y": 0.38, "z": 1.4},
+                "hand": {"x": 0.36, "y": 0.58, "z": 1.4},
+            }},
+            "right": {"landmarks_robot_m": {
+                "shoulder": {"x": 0.0, "y": -0.2, "z": 1.4},
+                "elbow": {"x": 0.18, "y": -0.38, "z": 1.4},
+                "hand": {"x": 0.36, "y": -0.58, "z": 1.4},
+            }},
+        }
+        semantic = server.semantic_arm_pose(hands)
+        self.assertIn("held forward", semantic["arms"]["left"]["concepts"])
+        self.assertIn("opened outward to the side", semantic["arms"]["right"]["concepts"])
+        self.assertIn("diagonal forward-and-outward", semantic["arms"]["left"]["concepts"])
+        self.assertIn("both arms opened to the sides", semantic["whole_body_concepts"])
+        self.assertIn("both arms held forward", semantic["whole_body_concepts"])
+
+        crossed = {
+            "left": {"landmarks_robot_m": {
+                "shoulder": {"x": 0.0, "y": 0.2, "z": 1.4},
+                "elbow": {"x": 0.15, "y": 0.1, "z": 1.35},
+                "hand": {"x": 0.2, "y": -0.12, "z": 1.4},
+            }},
+            "right": {"landmarks_robot_m": {
+                "shoulder": {"x": 0.0, "y": -0.2, "z": 1.4},
+                "elbow": {"x": 0.15, "y": -0.1, "z": 1.35},
+                "hand": {"x": 0.2, "y": 0.12, "z": 1.4},
+            }},
+        }
+        semantic = server.semantic_arm_pose(crossed)
+        self.assertIn("reaching across the body", semantic["arms"]["left"]["concepts"])
+        self.assertIn("arms crossed in front of the torso", semantic["whole_body_concepts"])
+
 
 class ChatValidationTest(unittest.TestCase):
     def setUp(self) -> None:

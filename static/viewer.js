@@ -408,6 +408,17 @@ class RobotViewer {
     return effector.getWorldPosition(new THREE.Vector3());
   }
 
+  robotLandmark(linkName) {
+    const link = this.linkGroups?.get(linkName);
+    if (!link) return null;
+    link.updateWorldMatrix(true, false);
+    const local = this.worldToRobotLocal(link.getWorldPosition(new THREE.Vector3()));
+    if (!local) return null;
+    return Object.fromEntries(
+      ["x", "y", "z"].map((axis) => [axis, Number(local[axis].toFixed(3))]),
+    );
+  }
+
   liveSpatialEvidence() {
     if (!this.live || !this.modelReady || !this.robotRoot) return null;
     const hands = {};
@@ -420,6 +431,13 @@ class RobotViewer {
         ground_m: Object.fromEntries(
           Object.entries(ground).map(([axis, value]) => [axis, Number(value.toFixed(3))]),
         ),
+        landmarks_robot_m: {
+          shoulder: this.robotLandmark(`${side}_shoulder_pitch_link`),
+          elbow: this.robotLandmark(`${side}_elbow_link`),
+          hand: Object.fromEntries(
+            ["x", "y", "z"].map((axis) => [axis, Number(local[axis].toFixed(3))]),
+          ),
+        },
         direction: {
           forward: ground.x > 0.18 ? "front" : ground.x < -0.08 ? "behind" : "torso-line",
           lateral: ground.y > 0.16 ? "left" : ground.y < -0.16 ? "right" : "center",

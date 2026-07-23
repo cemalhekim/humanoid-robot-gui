@@ -797,6 +797,27 @@ def parse_twin_evidence(value: Any) -> tuple[str | None, str | None]:
                 for key in ("forward", "lateral", "height")
             },
         }
+        landmarks = hand.get("landmarks_robot_m")
+        if isinstance(landmarks, dict):
+            clean_landmarks: dict[str, dict[str, float]] = {}
+            for name in ("shoulder", "elbow", "hand"):
+                point = landmarks.get(name)
+                if not isinstance(point, dict):
+                    continue
+                clean_point: dict[str, float] = {}
+                for axis in ("x", "y", "z"):
+                    number = point.get(axis)
+                    if (
+                        isinstance(number, bool)
+                        or not isinstance(number, (int, float))
+                        or not math.isfinite(number)
+                    ):
+                        break
+                    clean_point[axis] = round(float(number), 3)
+                if len(clean_point) == 3:
+                    clean_landmarks[name] = clean_point
+            if len(clean_landmarks) == 3:
+                clean_hands[side]["landmarks_robot_m"] = clean_landmarks
     if not clean_hands:
         return None, None
     camera = value.get("camera")
@@ -806,6 +827,9 @@ def parse_twin_evidence(value: Any) -> tuple[str | None, str | None]:
         "axes": "x=forward, y=left, z=up",
         "hands": clean_hands,
     }
+    semantic = semantic_arm_pose(clean_hands)
+    if semantic:
+        evidence["semantic_pose"] = semantic
     if isinstance(camera, dict):
         evidence["camera"] = camera
     text = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
@@ -821,6 +845,130 @@ def parse_twin_evidence(value: Any) -> tuple[str | None, str | None]:
     except (ValueError, binascii.Error):
         return text, None
     return text, image if decoded_size <= LLM_TWIN_IMAGE_MAX_BYTES else None
+
+
+def _point_distance(a: dict[str, float], b: dict[str, float]) -> float:
+    return math.sqrt(sum((a[axis] - b[axis]) ** 2 for axis in ("x", "y", "z")))
+
+
+def _vector(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
+    return {axis: b[axis] - a[axis] for axis in ("x", "y", "z")}
+
+
+def _elbow_angle_deg(
+    shoulder: dict[str, float], elbow: dict[str, float], hand: dict[str, float]
+) -> float:
+    to_shoulder = _vector(elbow, shoulder)
+    to_hand = _vector(elbow, hand)
+    lengths = (
+        math.sqrt(sum(value * value for value in to_shoulder.values())),
+        math.sqrt(sum(value * value for value in to_hand.values())),
+    )
+    if min(lengths) < 1e-6:
+        return 0.0
+    cosine = sum(to_shoulder[a] * to_hand[a] for a in ("x", "y", "z")) / (
+        lengths[0] * lengths[1]
+    )
+    return math.degrees(math.acos(max(-1.0, min(1.0, cosine))))
+
+
+def semantic_arm_pose(hands: dict[str, Any]) -> dict[str, Any] | None:
+    """Turn URDF shoulder/elbow/hand geometry into body-language concepts."""
+    arms: dict[str, Any] = {}
+    for side in ("left", "right"):
+        landmarks = (hands.get(side) or {}).get("landmarks_robot_m")
+        if not isinstance(landmarks, dict):
+            continue
+        shoulder, elbow, hand = (
+            landmarks.get("shoulder"),
+            landmarks.get("elbow"),
+            landmarks.get("hand"),
+        )
+        if not all(isinstance(point, dict) for point in (shoulder, elbow, hand)):
+            continue
+        reach = _vector(shoulder, hand)
+        outward = reach["y"] if side == "left" else -reach["y"]
+        inward = -outward
+        upper = _point_distance(shoulder, elbow)
+        forearm = _point_distance(elbow, hand)
+        shoulder_hand = _point_distance(shoulder, hand)
+        extension = shoulder_hand / max(upper + forearm, 1e-6)
+        concepts: list[str] = []
+        if reach["x"] > 0.20:
+            concepts.append("held forward")
+        elif reach["x"] < -0.10:
+            concepts.append("held behind the torso")
+        if outward > 0.22:
+            concepts.append("opened outward to the side")
+        elif inward > 0.14:
+            concepts.append("reaching across the body")
+        if reach["z"] > 0.22:
+            concepts.append("raised above the shoulder")
+        elif reach["z"] < -0.28:
+            concepts.append("lowered below the shoulder")
+        if reach["x"] > 0.16 and outward > 0.14:
+            concepts.append("diagonal forward-and-outward")
+        elif reach["x"] > 0.16 and inward > 0.10:
+            concepts.append("diagonal forward across the torso")
+        concepts.append(
+            "nearly straight" if extension > 0.86
+            else "strongly bent" if extension < 0.62
+            else "partly bent"
+        )
+        arms[side] = {
+            "shoulder_to_hand_m": {axis: round(value, 3) for axis, value in reach.items()},
+            "elbow_angle_deg": round(_elbow_angle_deg(shoulder, elbow, hand), 1),
+            "extension_ratio": round(extension, 3),
+            "concepts": concepts,
+        }
+
+    if not arms:
+        return None
+    proximity: list[str] = []
+    bilateral: list[str] = []
+    if "left" in arms and "right" in arms:
+        left_lm = hands["left"]["landmarks_robot_m"]
+        right_lm = hands["right"]["landmarks_robot_m"]
+        left_hand, right_hand = left_lm["hand"], right_lm["hand"]
+        shoulder_center = {
+            axis: (left_lm["shoulder"][axis] + right_lm["shoulder"][axis]) / 2
+            for axis in ("x", "y", "z")
+        }
+        chest_center = dict(shoulder_center)
+        chest_center["z"] -= 0.12
+        face_center = dict(shoulder_center)
+        face_center["z"] += 0.28
+        distances = {
+            "left_hand_to_left_shoulder": _point_distance(left_hand, left_lm["shoulder"]),
+            "left_hand_to_right_shoulder": _point_distance(left_hand, right_lm["shoulder"]),
+            "right_hand_to_right_shoulder": _point_distance(right_hand, right_lm["shoulder"]),
+            "right_hand_to_left_shoulder": _point_distance(right_hand, left_lm["shoulder"]),
+            "left_hand_to_chest": _point_distance(left_hand, chest_center),
+            "right_hand_to_chest": _point_distance(right_hand, chest_center),
+            "left_hand_to_face": _point_distance(left_hand, face_center),
+            "right_hand_to_face": _point_distance(right_hand, face_center),
+            "between_hands": _point_distance(left_hand, right_hand),
+        }
+        for name, distance in distances.items():
+            if distance < 0.22:
+                proximity.append(f"{name} very close")
+            elif distance < 0.34:
+                proximity.append(f"{name} near")
+
+        left_reach = arms["left"]["shoulder_to_hand_m"]
+        right_reach = arms["right"]["shoulder_to_hand_m"]
+        if left_reach["y"] > 0.25 and right_reach["y"] < -0.25:
+            bilateral.append("both arms opened to the sides")
+        if left_reach["x"] > 0.24 and right_reach["x"] > 0.24:
+            bilateral.append("both arms held forward")
+        if left_reach["z"] > 0.22 and right_reach["z"] > 0.22:
+            bilateral.append("both arms raised")
+        if left_hand["y"] < 0.0 and right_hand["y"] > 0.0:
+            bilateral.append("arms crossed in front of the torso")
+        if distances["between_hands"] < 0.22:
+            bilateral.append("hands held together")
+
+    return {"arms": arms, "proximity": proximity, "whole_body_concepts": bilateral}
 
 
 def build_telemetry_context(snapshot: dict[str, Any], ros_graph: dict[str, Any] | None = None) -> str:
@@ -4090,7 +4238,10 @@ class TelemetryStore:
             system += (
                 "\n\nDIGITAL TWIN SPATIAL EVIDENCE:\n"
                 f"{twin_text}\nUse these URDF-derived hand coordinates for exact direction. "
-                "Use the screenshot only as a visual cross-check; report disagreement instead of guessing."
+                "Express semantic_pose naturally as human body language: for example arms forward, "
+                "opened sideways, crossed, diagonal, raised, bent, or a hand near a shoulder. "
+                "Do not answer with coordinates unless asked. Use the screenshot only as a visual "
+                "cross-check; report disagreement instead of guessing."
             )
         if twin_image and LLM_TWIN_VISION_ENABLED:
             last = cleaned[-1]

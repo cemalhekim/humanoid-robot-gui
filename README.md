@@ -1007,3 +1007,19 @@ checks, emergency stop supervision, and simulation validation.
 
 No explicit project license is currently included in this repository. Add one
 before broader distribution, external contributions, or commercial use.
+
+## Claude chat backend (operator-machine bridge)
+
+The dashboard chatbot can answer with Claude instead of the on-prem model —
+same telemetry context, same ARM JOINT GUIDE, same guarded tools. No API key
+is stored anywhere: requests run through the Claude Code CLI on the operator's
+machine.
+
+1. On the operator machine (where `claude` is installed and logged in):
+   `python3 tools/claude_bridge.py` (listens on `0.0.0.0:8399`).
+2. Point the robot at it, e.g. in the service environment:
+   `CLAUDE_BRIDGE_URL=http://<operator-lan-ip>:8399`
+   (`/api/chat/status` reports `claude_bridge.configured`).
+3. In the dashboard chat header, click the ✳ Claude toggle. Replies made by
+   Claude carry a ✳ badge with the model name. The toggle only switches the
+   engine; every safety gate and tool contract stays identical.

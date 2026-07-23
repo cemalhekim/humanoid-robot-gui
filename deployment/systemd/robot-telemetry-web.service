@@ -6,6 +6,10 @@ After=default.target
 Type=simple
 WorkingDirectory=/home/unitree/robot_telemetry_web
 Environment=MAMBA_ROOT_PREFIX=/home/unitree/.micromamba
+# Claude chat backend: the operator's Mac running tools/claude_bridge.py.
+# The Mac's DHCP address can change — update here if the ✳ toggle reports
+# the bridge unreachable.
+Environment=CLAUDE_BRIDGE_URL=http://10.2.100.81:8399
 # On a cold boot the dashboard can start before eth0 has its robot-network IP.
 # The DDS participant then binds to a not-yet-ready interface and never receives
 # rt/lowstate, so telemetry shows "disconnected" until a manual restart. Wait

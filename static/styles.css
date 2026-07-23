@@ -444,28 +444,30 @@ h1 {
   content: none;
 }
 
-/* Checkbox toggles rendered as pill buttons: red when off, green when on. */
+/* Checkbox toggles rendered as icon pill buttons: red when off, green when on. */
 .inline-toggle.toggle-button {
-  gap: 8px;
+  justify-content: center;
+  width: 40px;
+  min-width: 40px;
   min-height: 34px;
-  padding: 0 12px;
+  padding: 0;
   border: 1px solid rgba(230, 0, 0, 0.45);
   border-radius: 999px;
   background: rgba(230, 0, 0, 0.08);
   color: #ff5555;
   cursor: pointer;
   user-select: none;
-  white-space: nowrap;
   transition: color 0.2s, border-color 0.2s, background 0.2s;
 }
 
-.inline-toggle.toggle-button::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 14px currentColor;
+.inline-toggle.toggle-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .inline-toggle.toggle-button input {

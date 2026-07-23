@@ -35,6 +35,19 @@ if command -v loginctl >/dev/null 2>&1; then
   loginctl enable-linger "${USER}" 2>/dev/null || sudo -n loginctl enable-linger "${USER}" 2>/dev/null || true
 fi
 
+# SAFETY: never restart the dashboard while it is actively commanding the
+# robot (arm replay or person tracking) — killing the publisher mid-motion
+# drops the arms (operator-reported incident 2026-07-23). Wait bounded, then
+# proceed so a wedged flag cannot block updates forever.
+for attempt in $(seq 1 60); do
+  motion="$(curl -s -m 2 http://localhost:8088/api/motion/active 2>/dev/null | grep -o '"active": *true' || true)"
+  if [ -z "$motion" ]; then
+    break
+  fi
+  echo "motion active; delaying dashboard restart (${attempt}/60)..."
+  sleep 5
+done
+
 systemctl --user daemon-reload
 systemctl --user enable --now robot-telemetry-web.service
 systemctl --user enable --now robot-telemetry-web-autoupdate.timer

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# One update at a time: a timer tick overlapping a still-running install
+# re-restarted services mid-deploy (and mid arm-motion) on 2026-07-23.
+exec 9>/tmp/robot_autoupdate.lock
+if ! flock -n 9; then
+  exit 0
+fi
+
 cd /home/unitree/robot_telemetry_web
 
 # Last commit install_robot_services.sh actually ran for. Restart decisions

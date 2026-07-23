@@ -633,6 +633,21 @@ class MoveProposedTest(unittest.TestCase):
         self.assertEqual(enum, ["proposed", "home"])
 
 
+class MotionActiveTest(unittest.TestCase):
+    def test_motion_active_reflects_replay_and_track_threads(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        self.assertFalse(store.motion_active_snapshot()["active"])
+        alive = mock.Mock()
+        alive.is_alive.return_value = True
+        store.replay_thread = alive
+        snap = store.motion_active_snapshot()
+        self.assertTrue(snap["active"])
+        self.assertTrue(snap["replay"])
+        store.replay_thread = None
+        store.track_thread = alive
+        self.assertTrue(store.motion_active_snapshot()["tracking"])
+
+
 class FeedbackRepoSyncTest(unittest.TestCase):
     def setUp(self) -> None:
         self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")

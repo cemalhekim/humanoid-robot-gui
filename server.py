@@ -2931,6 +2931,17 @@ class TelemetryStore:
             })
         self._schedule_feedback_sync()
 
+    def motion_active_snapshot(self) -> dict[str, Any]:
+        """Is this server actively commanding the robot right now?
+
+        The deployment scripts consult this before restarting the service:
+        killing the process mid arm-replay or mid-tracking drops the arms.
+        """
+        with self.command_lock:
+            replay = self.replay_thread is not None and self.replay_thread.is_alive()
+            track = self.track_thread is not None and self.track_thread.is_alive()
+        return {"ok": True, "active": replay or track, "replay": replay, "tracking": track}
+
     def _schedule_feedback_sync(self) -> None:
         if not FEEDBACK_SYNC_KEY.exists():
             return
@@ -6673,6 +6684,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.snapshot())
         elif request_path == "/api/spatial/pose":
             self._send_json(self.store.spatial_pose_snapshot())
+        elif request_path == "/api/motion/active":
+            self._send_json(self.store.motion_active_snapshot())
         elif request_path == "/api/camera":
             self._send_json(self.store.camera_snapshot())
         elif request_path == "/api/track/status":

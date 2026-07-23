@@ -2,6 +2,7 @@ import io
 import json
 import threading
 import unittest
+from tempfile import TemporaryDirectory
 from unittest import mock
 
 import server
@@ -202,6 +203,60 @@ class SentryFollowInvariantTests(unittest.TestCase):
         snap = store.track_snapshot()
         self.assertFalse(snap["sentry_mode"])
         self.assertFalse(snap["active"])
+
+
+class HomeMoveTests(unittest.TestCase):
+    """The Home button = move to the saved 'home' pose, and every tracking
+    session end (= Sentry off) must send the arms home (operator, 2026-07-23)."""
+
+    def make_store(self):
+        return server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+    def test_home_moves_to_saved_home_position(self):
+        store = self.make_store()
+        with TemporaryDirectory() as directory:
+            (server.Path(directory) / "20260714-111543-home.pose.json").write_text(
+                "{}", encoding="utf-8")
+            with mock.patch.object(server, "RECORDINGS_DIR", server.Path(directory)):
+                with mock.patch.object(
+                    store, "request_robot_replay", return_value=(202, {"ok": True})
+                ) as replay:
+                    status, response = store.request_home()
+        self.assertEqual(status, 202)
+        self.assertTrue(response["ok"])
+        payload = replay.call_args[0][0]
+        self.assertEqual(payload["filename"], "20260714-111543-home.pose.json")
+        self.assertTrue(payload["execute_arm_sdk"])
+        self.assertEqual(payload["command_scope"], "arms")
+        self.assertTrue(payload["closed_loop"])
+
+    def test_home_errors_without_saved_home_position(self):
+        store = self.make_store()
+        with TemporaryDirectory() as directory:
+            with mock.patch.object(server, "RECORDINGS_DIR", server.Path(directory)):
+                status, response = store.request_home()
+        self.assertEqual(status, 404)
+        self.assertIn("home", response["error"])
+
+    def test_session_natural_end_triggers_home_move(self):
+        store = self.make_store()
+        store.sentry_mode_on = True
+        with mock.patch.object(
+            store, "request_home", return_value=(404, {"ok": False})
+        ) as home:
+            with mock.patch.object(server, "TRACKING_MAX_SESSION_S", -1.0):
+                store._run_tracking(threading.Event())
+        home.assert_called_once()
+
+    def test_operator_stop_triggers_home_move(self):
+        store = self.make_store()
+        cancel = threading.Event()
+        cancel.set()
+        with mock.patch.object(
+            store, "request_home", return_value=(404, {"ok": False})
+        ) as home:
+            store._run_tracking(cancel)
+        home.assert_called_once()
 
 
 class SentryUiSourceTests(unittest.TestCase):

@@ -292,9 +292,6 @@ ARM_SDK_KD = [2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1
 # gravity just like the arm_sdk path.
 ARM_SDK_GAIN_BY_INDEX = {joint: (ARM_SDK_KP[k], ARM_SDK_KD[k]) for k, joint in enumerate(ARM_SDK_JOINTS)}
 
-# Home button: hold the arms at their press-time pose with the closed-loop
-# (PID + gravity feed-forward) corrector instead of raw position targets.
-HOME_HOLD_CLOSED_LOOP = os.environ.get("HOME_HOLD_CLOSED_LOOP", "1") not in ("0", "false", "False", "")
 REPLAY_COMMAND_SCOPES = {
     "all": list(JOINT_NAMES),
     "arms": JOINT_GROUPS["left_arm"] + JOINT_GROUPS["right_arm"] + JOINT_GROUPS["waist"],
@@ -4869,6 +4866,18 @@ class TelemetryStore:
                 if self.track_cancel is cancel:
                     self.track_thread = None
                     self.track_cancel = None
+            # Every session end also means Sentry Mode is now off — return the
+            # arms to the saved home pose so the robot never stays frozen
+            # mid-point (operator request 2026-07-23). Refs above are already
+            # cleared, so the replay start guards see no live session.
+            try:
+                home_status, home_result = self.request_home()
+                self.record_command_event(
+                    "track_end_home",
+                    {"status": home_status, "ok": bool(home_result.get("ok"))},
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                self.record_command_event("track_end_home", {"error": str(exc)})
 
     def record_command_event(self, name: str, payload: dict[str, Any]) -> None:
         self.recorder.write_event(name, payload)
@@ -5381,14 +5390,30 @@ class TelemetryStore:
         return self.request_chill({"armed": True, "i_understand_risk": True})
 
     def request_home(self) -> tuple[int, dict[str, Any]]:
-        """Home: hold the arms at their CURRENT position via arm_sdk.
-
-        The hold target is always the measured pose at the moment the button is
-        pressed, so engaging never commands motion — it only stiffens the arms
-        where they are. Falls back to the legacy XR teleop home command when the
-        DDS arm_sdk path is unavailable.
+        """Home: closed-loop move of the arms to the saved 'home' pose — the
+        identical request body the dashboard Move button / chat move tool
+        sends, so every arm_sdk safety gate applies unchanged (operator,
+        2026-07-23; previously this held the current pose instead). Falls back
+        to the legacy XR teleop home command when the DDS path is unavailable.
         """
-        status, result = self.hold_current_pose()
+        filename = self.named_positions().get("home")
+        if not filename:
+            return 404, {
+                "ok": False,
+                "error": "No saved position named 'home' — rename a saved pose "
+                         "in the dashboard to 'home' to create one.",
+            }
+        status, result = self.request_robot_replay(
+            {
+                "filename": filename,
+                "execute_arm_sdk": True,
+                "command_scope": "arms",
+                "closed_loop": True,
+                "hold_after_convergence": True,
+                "position_tolerance_rad": 0.01,
+                "replay_response": 2.5,
+            }
+        )
         if status == 503:
             xr_status, xr_result = self._request_xr_ipc(
                 "CMD_STOP", "XR teleop stop requested. Arms should move home during clean shutdown."
@@ -5397,99 +5422,6 @@ class TelemetryStore:
                 return xr_status, xr_result
             result["xr_fallback_error"] = xr_result.get("error")
         return status, result
-
-    def hold_current_pose(self) -> tuple[int, dict[str, Any]]:
-        with self.command_lock:
-            publisher = self.wrist_publisher
-            msg = self.lowstate_msg
-            previous_cancel = self.replay_cancel
-        if publisher is None or msg is None or self.lowcmd_factory is None or self.crc is None:
-            return 503, {"ok": False, "error": "DDS arm_sdk publisher or lowstate is not available."}
-
-        targets: dict[int, float] = {}
-        try:
-            for joint in ARM_SDK_JOINTS:
-                if joint == WAIST_YAW_JOINT:
-                    continue
-                value = float(msg.motor_state[joint].q)
-                if not math.isfinite(value):
-                    return 503, {"ok": False, "error": f"Joint {joint} has no finite position in lowstate."}
-                targets[joint] = value
-        except (AttributeError, IndexError, TypeError) as exc:
-            return 503, {"ok": False, "error": f"Could not read current joint positions: {exc}"}
-
-        xr_suspend = self._suspend_xr_motion_publishers()
-        if not xr_suspend.get("ok"):
-            return 409, {
-                "ok": False,
-                "error": "XR teleop motion publisher is still active; the hold would be overwritten.",
-                "xr_suspend": xr_suspend,
-            }
-        if previous_cancel is not None:
-            previous_cancel.set()
-
-        gain_by_index = {
-            joint: (kp * ARM_REPLAY_HOLD_KP_SCALE, kd * ARM_REPLAY_HOLD_KD_SCALE)
-            for joint, (kp, kd) in ARM_SDK_GAIN_BY_INDEX.items()
-            if joint in targets
-        }
-        cancel = threading.Event()
-        ramp_seconds = 1.2
-        dt = 0.02
-        closed_loop = HOME_HOLD_CLOSED_LOOP
-        tuning = self._arm_replay_tuning()
-        pid_state: dict[int, dict[str, float]] = {}
-
-        def run_hold() -> None:
-            writes = 0
-            try:
-                start = time.monotonic()
-                while not cancel.is_set():
-                    weight = min(1.0, (time.monotonic() - start) / ramp_seconds)
-                    with self.command_lock:
-                        latest_msg = self.lowstate_msg or msg
-                    if closed_loop:
-                        # Same PID + gravity feed-forward loop as arm replay:
-                        # corrects the commanded q from measured error so the
-                        # arms hold the press-time pose instead of sagging.
-                        commanded, _metrics, tau_ff = self._closed_loop_arm_targets(
-                            latest_msg, targets, pid_state, dt, tuning
-                        )
-                    else:
-                        commanded, tau_ff = targets, None
-                    publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(
-                            latest_msg, commanded, gain_by_index,
-                            feedforward_tau_by_index=tau_ff, weight=weight,
-                        )
-                    )
-                    writes += 1
-                    time.sleep(dt)
-            except Exception as exc:  # pragma: no cover - DDS runtime failure
-                self._set_wrist_status(active=False, message=f"Home hold failed: {exc}")
-                return
-            finally:
-                with self.command_lock:
-                    if self.replay_cancel is cancel:
-                        self.replay_cancel = None
-            self._set_wrist_status(active=False, message=f"Home hold released ({writes} writes).")
-
-        thread = threading.Thread(target=run_hold, name="arm-sdk-home-hold", daemon=True)
-        with self.command_lock:
-            self.replay_cancel = cancel
-        self._set_wrist_status(
-            active=True,
-            message="Home: holding arms at their current position (arm_sdk"
-            + (", closed-loop PID)." if closed_loop else ")."),
-            last_command={"mode": "home_hold", "joints": len(targets)},
-        )
-        thread.start()
-        self.record_command_event("home_hold", {"targets": targets})
-        return 202, {
-            "ok": True,
-            "message": "Holding arms at their current position. Release or a new command stops the hold.",
-            "joints": len(targets),
-        }
 
     def request_straight(self) -> tuple[int, dict[str, Any]]:
         return self._request_xr_ipc("CMD_STRAIGHT", "Straight arm hold requested. XR arm tracking is paused.")

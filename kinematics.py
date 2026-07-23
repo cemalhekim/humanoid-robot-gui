@@ -277,6 +277,8 @@ def arm_pose_guide(kin: ArmKinematics, limits_by_name: dict[str, tuple[float, fl
         "Zero pose (all angles 0): upper arms hang down, elbows are bent ~90 deg so the "
         f"forearms point forward; each hand starts near x={right['hand']['x']:.2f}, "
         f"z={right['hand']['z']:.2f} relative to the pelvis, shoulders at z={right['shoulder']['z']:.2f}. "
+        "ELBOW CONVENTION: Elbow 0 = the natural ~90 deg bend, Elbow +1.57 = arm fully "
+        "STRAIGHT (use it whenever the operator wants open/straight/unbent arms). "
         "Combine joints; unspecified joints keep their current angle."
     )
     lines.append("CANONICAL POSES (right-arm angles; MIRROR the sign of Roll and Yaw for the "
@@ -286,10 +288,12 @@ def arm_pose_guide(kin: ArmKinematics, limits_by_name: dict[str, tuple[float, fl
         ("hand at rest beside the hip", {}),
         ("hand extended straight forward at shoulder height",
          {"RightShoulderPitch": -1.57, "RightElbow": 1.57}),
-        ("hands raised high in the air (above the head)",
+        ("hands raised high in the air (elbows keep their natural bend)",
          {"RightShoulderPitch": -2.2, "RightShoulderRoll": -0.35}),
-        ("arm opened sideways at shoulder height (T-pose)",
-         {"RightShoulderRoll": -1.57}),
+        ("arm raised STRAIGHT up above the head",
+         {"RightShoulderPitch": -2.6, "RightShoulderRoll": -0.35, "RightElbow": 1.57}),
+        ("arm opened sideways STRAIGHT at shoulder height (true T-pose, no elbow bend)",
+         {"RightShoulderRoll": -1.57, "RightElbow": 1.57}),
         ("arm crossed in front of the chest (hand on the opposite side)",
          {"RightShoulderPitch": -1.6, "RightShoulderRoll": 0.38,
           "RightShoulderYaw": 1.5, "RightElbow": 1.2}),

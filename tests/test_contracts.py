@@ -609,23 +609,19 @@ class TelemetryContractsTest(unittest.TestCase):
 
     def test_chat_tool_specs_include_move_with_position_enum(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        # move no longer depends on saved recordings: proposed + home only.
         with TemporaryDirectory() as directory:
             original_dir = server.RECORDINGS_DIR
             server.RECORDINGS_DIR = server.Path(directory)
             try:
-                (server.RECORDINGS_DIR / "20260714-111543-home.pose.json").write_text("{}", encoding="utf-8")
                 specs = {spec["function"]["name"]: spec for spec in store.chat_tool_specs()}
-                empty_dir_specs = None
-                for item in server.RECORDINGS_DIR.glob("*.pose.json"):
-                    item.unlink()
-                empty_dir_specs = {spec["function"]["name"] for spec in store.chat_tool_specs()}
             finally:
                 server.RECORDINGS_DIR = original_dir
 
         move = specs["move"]["function"]
-        self.assertEqual(move["parameters"]["properties"]["position"]["enum"], ["home"])
+        self.assertEqual(move["parameters"]["properties"]["position"]["enum"], ["proposed", "home"])
         self.assertEqual(move["parameters"]["required"], ["position", "confirm"])
-        self.assertNotIn("move", empty_dir_specs)
+        self.assertIn("propose_arm_pose", specs)
 
     def test_move_tool_requires_confirm_and_known_position(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
@@ -644,25 +640,25 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertFalse(unknown["ok"])
         self.assertIn("home", unknown["error"])
 
-    def test_move_tool_replays_named_position_like_move_button(self) -> None:
+    def test_move_tool_replays_home_like_move_button(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         with TemporaryDirectory() as directory:
             original_dir = server.RECORDINGS_DIR
             server.RECORDINGS_DIR = server.Path(directory)
             try:
-                (server.RECORDINGS_DIR / "20260714-112354-hand-forward.pose.json").write_text("{}", encoding="utf-8")
+                (server.RECORDINGS_DIR / "20260714-111543-home.pose.json").write_text("{}", encoding="utf-8")
                 with mock.patch.object(
                     store, "request_robot_replay", return_value=(200, {"ok": True, "message": "moving", "plan": {"x": 1}})
                 ) as replay:
-                    result = store.run_chat_tool("move", {"position": "hand_forward", "confirm": True})
+                    result = store.run_chat_tool("move", {"position": "home", "confirm": True})
             finally:
                 server.RECORDINGS_DIR = original_dir
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["position"], "hand-forward")
+        self.assertEqual(result["position"], "home")
         self.assertNotIn("plan", result)
         payload = replay.call_args[0][0]
-        self.assertEqual(payload["filename"], "20260714-112354-hand-forward.pose.json")
+        self.assertEqual(payload["filename"], "20260714-111543-home.pose.json")
         self.assertIs(payload["execute_arm_sdk"], True)
         self.assertEqual(payload["command_scope"], "arms")
 
@@ -698,19 +694,19 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(server.json.loads(captured["messages"][3]["content"]), {"ok": True})
 
     def test_extract_textual_tool_call_promotes_move_json(self) -> None:
-        tools = [server.move_tool_spec(["home", "raise-hand"])]
+        tools = [server.move_tool_spec()]
         for reply in (
-            '{"position": "raise-hand", "confirm": true}',
-            'Sure: {"position": "raise-hand", "confirm": true} done',
-            '<tool_call>{"name": "move", "arguments": {"position": "raise-hand", "confirm": true}}</tool_call>',
+            '{"position": "proposed", "confirm": true}',
+            'Sure: {"position": "proposed", "confirm": true} done',
+            '<tool_call>{"name": "move", "arguments": {"position": "proposed", "confirm": true}}</tool_call>',
         ):
             call = server.extract_textual_tool_call(reply, tools)
             self.assertIsNotNone(call, reply)
             self.assertEqual(call["function"]["name"], "move")
-            self.assertEqual(server.json.loads(call["function"]["arguments"])["position"], "raise-hand")
+            self.assertEqual(server.json.loads(call["function"]["arguments"])["position"], "proposed")
 
     def test_extract_textual_tool_call_ignores_plain_answers(self) -> None:
-        tools = [server.move_tool_spec(["home"])]
+        tools = [server.move_tool_spec()]
         for reply in (
             "Motor sayısı: 0",
             "raising your hand now.",

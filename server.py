@@ -694,23 +694,20 @@ def propose_tool_spec() -> dict[str, Any]:
     )
 
 
-def move_tool_spec(positions: list[str]) -> dict[str, Any]:
-    """Build the move tool spec with the currently saved positions as an enum."""
+def move_tool_spec() -> dict[str, Any]:
+    """Move tool: execute the staged proposal, or return to the saved home pose."""
     return _chat_tool(
         "move",
-        "GUARDED ACTION: physically move the robot's arms to a saved named position "
-        "using the dashboard's validated arm replay (identical to the Move button: "
-        "arm_sdk, arms scope, closed-loop, safety-checked). Only call when the "
-        "operator's latest message, in any language, explicitly asks for that "
-        "motion. Position names are short ENGLISH descriptions of the resulting "
-        "pose; translate the request literally before choosing (Turkish: 'kaldir' "
-        "= raise = up, 'one uzat' = forward; German: 'heben' = raise = up, 'nach "
-        "vorne strecken' = forward). Available positions: " + ", ".join(positions) + ".",
+        "GUARDED ACTION: physically move the arms via the dashboard's validated closed-loop "
+        "arm replay (arm_sdk, arms scope, safety-checked). position='proposed' executes the "
+        "pending pose staged by propose_arm_pose — call it ONLY after the operator has seen "
+        "the green preview and explicitly approved (okay/tamam/yes/ja). position='home' "
+        "returns the arms to the operator-saved home pose. Never call on your own initiative.",
         {
             "position": {
                 "type": "string",
-                "enum": positions,
-                "description": "Name of the saved position to move to.",
+                "enum": ["proposed", "home"],
+                "description": "'proposed' = the staged propose_arm_pose targets; 'home' = the saved home pose.",
             },
             "confirm": {
                 "type": "boolean",
@@ -2675,8 +2672,9 @@ class TelemetryStore:
             "actual": pose,
             "target_interface": {
                 "tool": "move",
-                "contract": {"position": "saved position name", "confirm": True},
-                "available_positions": sorted(self.named_positions()),
+                "contract": {"position": "proposed | home", "confirm": True},
+                "workflow": "propose_arm_pose stages a pose (green preview) -> operator approves -> move",
+                "pending_proposal": self.arm_proposal_public(),
             },
         }
 
@@ -4443,9 +4441,7 @@ class TelemetryStore:
             specs = [spec for spec in specs if spec["function"]["name"] != "chill_motors"]
         if LLM_TOOL_MOVE_ENABLED:
             specs.append(propose_tool_spec())
-            positions = sorted(self.named_positions())
-            if positions:
-                specs.append(move_tool_spec(positions))
+            specs.append(move_tool_spec())
         if LLM_TOOL_TRACK_ENABLED and TRACKING_ENABLED:
             specs.append(track_tool_spec())
         return specs
@@ -4613,23 +4609,54 @@ class TelemetryStore:
             return {"ok": False, "error": "Refused: confirm must be true (operator must have explicitly asked for this movement)."}
         raw = arguments.get("position")
         if not isinstance(raw, str) or not raw.strip():
-            return {"ok": False, "error": "Provide a position name."}
-        positions = self.named_positions()
+            return {"ok": False, "error": "Provide position: 'proposed' or 'home'."}
         wanted = normalize_position_name(raw)
-        filename = positions.get(wanted)
-        if not filename:
-            fragments = [name for name in sorted(positions) if wanted in name or name in wanted]
-            if len(fragments) == 1:
-                wanted = fragments[0]
-                filename = positions[wanted]
-            else:
-                available = ", ".join(sorted(positions)) or "none (rename a saved pose in the dashboard to create one)"
-                return {"ok": False, "error": f"No saved position matches '{raw}'. Available: {available}"}
-        # Identical request body to the dashboard's Move button (see requestRobotReplay
-        # in static/app.js), so every arm_sdk safety gate applies unchanged.
+
+        if wanted == "home":
+            filename = self.named_positions().get("home")
+            if not filename:
+                return {"ok": False, "error": "No saved 'home' pose exists. Save one from the dashboard first."}
+            # Identical request body to the dashboard's Move button (see requestRobotReplay
+            # in static/app.js), so every arm_sdk safety gate applies unchanged.
+            status, result = self.request_robot_replay(
+                {
+                    "filename": filename,
+                    "execute_arm_sdk": True,
+                    "command_scope": "arms",
+                    "closed_loop": True,
+                    "hold_after_convergence": True,
+                    "position_tolerance_rad": 0.01,
+                    "replay_response": 2.5,
+                }
+            )
+            self.record_command_event(
+                "chat_move", {"source": "chat", "position": "home", "filename": filename, "status": status}
+            )
+            if isinstance(result, dict):
+                result = {key: value for key, value in result.items() if key != "plan"}
+            return {"ok": status < 400 and bool(result.get("ok")), "status": status, "position": "home", **result}
+
+        if wanted != "proposed":
+            return {"ok": False, "error": f"Unknown position '{raw}'. Use 'proposed' (staged pose) or 'home'."}
+
+        with self.proposal_lock:
+            proposal = self.arm_proposal
+        if not proposal or (time.time() - proposal["created_at"]) > ARM_PROPOSAL_TTL_SECONDS:
+            return {
+                "ok": False,
+                "error": "No pending pose proposal (it may have expired). Call propose_arm_pose first, "
+                         "let the operator approve the green preview, then retry.",
+            }
+        # Same inline-snapshot path the 3D editor's Move button uses: the ephemeral
+        # .pose.json goes through plan_replay_control_path + execute_arm_sdk_replay,
+        # so every arm_sdk safety gate applies unchanged.
+        motors = [
+            {"index": ARM_JOINT_INDEX_BY_NAME[name], "name": name, "q": q}
+            for name, q in proposal["targets"].items()
+        ]
         status, result = self.request_robot_replay(
             {
-                "filename": filename,
+                "snapshot": {"motors": motors},
                 "execute_arm_sdk": True,
                 "command_scope": "arms",
                 "closed_loop": True,
@@ -4638,12 +4665,18 @@ class TelemetryStore:
                 "replay_response": 2.5,
             }
         )
+        executed = status < 400 and bool(result.get("ok"))
+        if executed:
+            with self.proposal_lock:
+                if self.arm_proposal is proposal:
+                    self.arm_proposal = None
         self.record_command_event(
-            "chat_move", {"source": "chat", "position": wanted, "filename": filename, "status": status}
+            "chat_move",
+            {"source": "chat", "position": "proposed", "proposal_id": proposal["id"], "status": status},
         )
         if isinstance(result, dict):
             result = {key: value for key, value in result.items() if key != "plan"}
-        return {"ok": status < 400 and bool(result.get("ok")), "status": status, "position": wanted, **result}
+        return {"ok": executed, "status": status, "position": "proposed", **result}
 
     def mcp_request(self, payload: Any) -> dict[str, Any] | None:
         """Handle one MCP JSON-RPC message (stateless streamable HTTP).

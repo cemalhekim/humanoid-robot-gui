@@ -548,5 +548,55 @@ class ProposeArmPoseTest(unittest.TestCase):
         self.assertIn("propose_arm_pose", names)
 
 
+class MoveProposedTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+    def test_move_requires_confirm_and_known_position(self) -> None:
+        self.assertFalse(self.store.run_chat_tool("move", {"position": "proposed"})["ok"])
+        result = self.store.run_chat_tool("move", {"position": "wave", "confirm": True})
+        self.assertFalse(result["ok"])
+        self.assertIn("proposed", result["error"])
+        self.assertIn("home", result["error"])
+
+    def test_move_proposed_without_proposal_fails(self) -> None:
+        result = self.store.run_chat_tool("move", {"position": "proposed", "confirm": True})
+        self.assertFalse(result["ok"])
+        self.assertIn("propose_arm_pose", result["error"])
+
+    def test_move_proposed_executes_inline_snapshot_and_clears(self) -> None:
+        self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightElbow": 1.5, "RightShoulderPitch": -1.0}}
+        )
+        with mock.patch.object(
+            self.store, "request_robot_replay", return_value=(200, {"ok": True})
+        ) as replay:
+            result = self.store.run_chat_tool("move", {"position": "proposed", "confirm": True})
+        self.assertTrue(result["ok"], result)
+        payload = replay.call_args[0][0]
+        self.assertIs(payload["execute_arm_sdk"], True)
+        self.assertEqual(payload["command_scope"], "arms")
+        self.assertNotIn("filename", payload)
+        q_by_index = {m["index"]: m["q"] for m in payload["snapshot"]["motors"]}
+        self.assertEqual(q_by_index[23], 1.5)   # RightElbow
+        self.assertEqual(q_by_index[20], -1.0)  # RightShoulderPitch
+        self.assertIsNone(self.store.arm_proposal_public())  # consumed on success
+
+    def test_move_proposed_keeps_proposal_on_failure(self) -> None:
+        self.store.run_chat_tool("propose_arm_pose", {"joints": {"RightElbow": 1.5}})
+        with mock.patch.object(
+            self.store, "request_robot_replay", return_value=(503, {"ok": False, "error": "no DDS"})
+        ):
+            result = self.store.run_chat_tool("move", {"position": "proposed", "confirm": True})
+        self.assertFalse(result["ok"])
+        self.assertIsNotNone(self.store.arm_proposal_public())  # operator can retry
+
+    def test_move_tool_spec_offers_only_proposed_and_home(self) -> None:
+        specs = {s["function"]["name"]: s for s in self.store.chat_tool_specs()}
+        self.assertIn("move", specs)  # offered even with zero saved positions now
+        enum = specs["move"]["function"]["parameters"]["properties"]["position"]["enum"]
+        self.assertEqual(enum, ["proposed", "home"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4390,3 +4390,27 @@ button:not(:disabled):active { transform: scale(0.96); }
   font-size: 11px;
   opacity: 0.75;
 }
+
+/* Claude backend toggle + reply badge. */
+.claude-backend-toggle {
+  height: 26px;
+  width: 30px;
+  min-width: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+}
+.claude-backend-toggle.active {
+  color: #d97757;
+  border-color: rgba(217, 119, 87, 0.65);
+}
+.chat-backend-badge {
+  margin-left: 8px;
+  font-size: 10px;
+  color: #d97757;
+  border: 1px solid rgba(217, 119, 87, 0.5);
+  border-radius: 6px;
+  padding: 1px 5px;
+}

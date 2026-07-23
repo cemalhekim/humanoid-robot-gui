@@ -4202,6 +4202,9 @@ button:not(:disabled):active { transform: scale(0.96); }
 
 /* ---- Sentry Mode: passive person-detection overlay ---- */
 .sentry-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid rgba(230, 0, 0, 0.55);
   background: transparent;
   color: var(--muted);
@@ -4209,9 +4212,17 @@ button:not(:disabled):active { transform: scale(0.96); }
   font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.04em;
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-radius: 999px;
   cursor: pointer;
+}
+.sentry-toggle svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
 }
 .sentry-toggle.on {
   background: #e60000;

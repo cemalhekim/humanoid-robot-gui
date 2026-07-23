@@ -1,7 +1,7 @@
 # Sentry Mode Phase 3 — permanent closed-loop pointing at the locked person
 
 **Date:** 2026-07-22
-**Status:** Approved design (operator decisions recorded below). Builds on
+**Status:** Implemented 2026-07-23 (operator decisions recorded below). Builds on
 Phase 1 (`/api/sentry/detect`) and Phase 2 (head-lock buttons).
 
 ## Operator decisions (2026-07-22)
@@ -66,7 +66,8 @@ Phase 1 (`/api/sentry/detect`) and Phase 2 (head-lock buttons).
 - Lock click (while Sentry on) → `POST /api/track/start` with
   `{armed: true, i_understand_risk: true, source: "sentry-lock",
   camera: "webcam", permanent: true, closed_loop: true,
-  target: {cx, cy}}` (center of the clicked track's smoothed box).
+  target: {cx, cy}, target_id}` (center and persistent detector identity of
+  the clicked track's smoothed box).
 - Unlock → `POST /api/track/stop`. Switching person → stop, then start with
   the new seed. Toggle off / floating cam close / locked track aged out →
   stop (fire-and-forget; `clearAllTracks` is the chokepoint).

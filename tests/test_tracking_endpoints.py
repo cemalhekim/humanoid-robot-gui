@@ -3,6 +3,7 @@ import json
 import threading
 import unittest
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import mock
 
 import server
@@ -119,6 +120,48 @@ class TrackingGatingTests(unittest.TestCase):
         for key in ("enabled", "active", "phase", "message", "updated_at"):
             self.assertIn(key, snap)
 
+    def test_sentry_lock_requires_webcam_target(self):
+        store = self.make_store()
+        store.sentry_mode_on = True
+        with mock.patch.object(server, "TRACKING_ENABLED", True):
+            status, response = store.request_track_start({
+                "armed": True,
+                "i_understand_risk": True,
+                "source": "sentry-lock",
+                "camera": "head",
+            })
+        self.assertEqual(status, 400)
+        self.assertIn("webcam target", response["error"])
+
+    def test_locked_webcam_config_reaches_session_snapshot(self):
+        store = self.make_store()
+        store.sentry_mode_on = True
+        store.wrist_publisher = object()
+        store.lowstate_msg = object()
+        store.lowcmd_factory = object()
+        store.crc = object()
+        payload = {
+            "armed": True,
+            "i_understand_risk": True,
+            "source": "sentry-lock",
+            "camera": "webcam",
+            "permanent": True,
+            "closed_loop": True,
+            "target": {"cx": 0.4, "cy": 0.3},
+            "target_id": 21,
+        }
+        with mock.patch.object(server, "TRACKING_ENABLED", True):
+            with mock.patch.object(store, "_suspend_xr_motion_publishers",
+                                   return_value={"ok": True}):
+                with mock.patch.object(threading.Thread, "start"):
+                    status, response = store.request_track_start(payload)
+        self.assertEqual(status, 200)
+        tracking_status = response["tracking"]
+        self.assertEqual(tracking_status["camera"], "webcam")
+        self.assertEqual(tracking_status["target_id"], 21)
+        self.assertTrue(tracking_status["permanent"])
+        self.assertTrue(tracking_status["closed_loop"])
+
 
 class TrackingRouteTests(unittest.TestCase):
     def test_routes_are_dispatched(self):
@@ -154,60 +197,91 @@ class TrackingRouteTests(unittest.TestCase):
         self.assertTrue(response["sentry_mode"])
 
 
-class SentryFollowInvariantTests(unittest.TestCase):
-    """Sentry Mode <=> tracking session (operator invariant, 2026-07-23):
-    on must mean the session runs, off must mean it never does."""
+class TrackPayloadTests(unittest.TestCase):
+    def test_parses_locked_webcam_session(self):
+        parsed = server.parse_track_payload({
+            "camera": "webcam",
+            "permanent": True,
+            "closed_loop": True,
+            "target": {"cx": 0.25, "cy": 0.75},
+            "target_id": 17,
+        })
+        self.assertEqual(parsed["camera"], "webcam")
+        self.assertEqual(parsed["target_id"], 17)
+        self.assertEqual(parsed["target"], {"cx": 0.25, "cy": 0.75})
+        self.assertTrue(parsed["permanent"])
+        self.assertTrue(parsed["closed_loop"])
+
+    def test_rejects_invalid_camera_and_target(self):
+        with self.assertRaises(ValueError):
+            server.parse_track_payload({"camera": "thermal"})
+        with self.assertRaises(ValueError):
+            server.parse_track_payload({"target": {"cx": 1.5, "cy": 0.5}})
+
+    def test_rejects_non_boolean_control_flags(self):
+        with self.assertRaises(ValueError):
+            server.parse_track_payload({"permanent": "yes"})
+        with self.assertRaises(ValueError):
+            server.parse_track_payload({"closed_loop": 1})
+
+
+class SentryArmingTests(unittest.TestCase):
+    """Sentry ON enables prediction; an explicit person lock starts motion."""
 
     def make_store(self):
         return server.TelemetryStore(domain=0, robot_host="127.0.0.1")
 
-    def test_sentry_on_auto_starts_tracking(self):
-        # Turning Sentry on IS the start command. Offline (no DDS) the auto
-        # start must reach the arm_sdk publisher gate (503) — proving it went
-        # past the sentry/risk-ack gates without a separate start call.
+    def test_sentry_on_is_motion_free(self):
         store = self.make_store()
-        with mock.patch.object(server, "TRACKING_ENABLED", True):
+        with mock.patch.object(store, "request_track_start") as start:
             status, response = store.set_sentry_mode({"on": True})
         self.assertEqual(status, 200)
         self.assertTrue(response["sentry_mode"])
-        self.assertEqual(response["start"]["status"], 503)
-        self.assertIn("arm_sdk", response["start"]["error"])
+        self.assertFalse(response["tracking"]["active"])
+        start.assert_not_called()
 
-    def test_sentry_on_cancels_blocking_replay(self):
-        # A held arm replay must not block the master switch: sentry-on
-        # cancels it, then the start attempt reaches the DDS gate.
+    def test_sentry_on_does_not_cancel_unrelated_replay(self):
         store = self.make_store()
         ev = threading.Event()
         thread = threading.Thread(target=ev.wait, daemon=True)
         thread.start()
         store.replay_thread = thread
         store.replay_cancel = ev
-        with mock.patch.object(server, "TRACKING_ENABLED", True):
-            status, response = store.set_sentry_mode({"on": True})
+        status, response = store.set_sentry_mode({"on": True})
         self.assertEqual(status, 200)
-        self.assertTrue(ev.is_set())
-        self.assertEqual(response["start"]["status"], 503)
+        self.assertFalse(ev.is_set())
+        self.assertTrue(response["sentry_mode"])
+        ev.set()
 
-    def test_track_stop_turns_sentry_off(self):
+    def test_track_stop_keeps_sentry_armed_for_another_lock(self):
         store = self.make_store()
         store.set_sentry_mode({"on": True})
         store.request_track_stop()
-        self.assertFalse(store.track_snapshot()["sentry_mode"])
+        self.assertTrue(store.track_snapshot()["sentry_mode"])
 
-    def test_session_natural_end_turns_sentry_off(self):
-        # Ceiling/abort ends must not leave sentry claiming a session runs.
+    def test_session_natural_end_keeps_sentry_armed(self):
         store = self.make_store()
         store.sentry_mode_on = True
-        with mock.patch.object(server, "TRACKING_MAX_SESSION_S", -1.0):
-            store._run_tracking(threading.Event())
+        with mock.patch.object(store, "request_home", return_value=(404, {"ok": False})):
+            with mock.patch.object(server, "TRACKING_MAX_SESSION_S", -1.0):
+                store._run_tracking(threading.Event())
         snap = store.track_snapshot()
-        self.assertFalse(snap["sentry_mode"])
+        self.assertTrue(snap["sentry_mode"])
         self.assertFalse(snap["active"])
+
+    def test_sentry_off_disarms_and_stops_tracking(self):
+        store = self.make_store()
+        store.sentry_mode_on = True
+        with mock.patch.object(store, "request_track_stop", wraps=store.request_track_stop) as stop:
+            status, response = store.set_sentry_mode({"on": False})
+        self.assertEqual(status, 200)
+        self.assertFalse(response["sentry_mode"])
+        stop.assert_called_once()
 
 
 class HomeMoveTests(unittest.TestCase):
-    """The Home button = move to the saved 'home' pose, and every tracking
-    session end (= Sentry off) must send the arms home (operator, 2026-07-23)."""
+    """The Home button and every physical tracking-session end send the arm
+    to the saved home pose; Sentry prediction may remain armed."""
 
     def make_store(self):
         return server.TelemetryStore(domain=0, robot_host="127.0.0.1")
@@ -257,6 +331,60 @@ class HomeMoveTests(unittest.TestCase):
         ) as home:
             store._run_tracking(cancel)
         home.assert_called_once()
+
+
+class TrackingLoopTests(unittest.TestCase):
+    def test_webcam_lock_uses_shared_stream_closed_loop_and_real_publisher(self):
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        motors = [SimpleNamespace(q=0.0, dq=0.0, tau_est=0.0) for _ in range(35)]
+        store.lowstate_msg = SimpleNamespace(motor_state=motors)
+        cancel = threading.Event()
+        publisher = mock.MagicMock()
+        publisher.Write.side_effect = lambda _cmd: cancel.set()
+        store.wrist_publisher = publisher
+        store.track_config = {
+            "camera": "webcam",
+            "permanent": True,
+            "closed_loop": True,
+            "target": {"cx": 0.4, "cy": 0.3},
+            "target_id": 17,
+        }
+        person = {
+            "id": 17,
+            "cx": 0.4,
+            "cy": 0.5,
+            "x1": 0.2,
+            "x2": 0.6,
+            "y1": 0.1,
+            "y2": 0.9,
+            "conf": 0.9,
+            "head": {"x": 0.4, "y": 0.2},
+        }
+        with mock.patch.object(store, "sentry_stream_subscribe") as subscribe:
+            with mock.patch.object(store, "sentry_stream_unsubscribe") as unsubscribe:
+                with mock.patch.object(
+                    store,
+                    "wait_sentry_result",
+                    return_value=({"ok": True, "persons": [person]}, 1),
+                ):
+                    with mock.patch.object(
+                        store,
+                        "_closed_loop_arm_targets",
+                        side_effect=lambda _msg, desired, _state, _dt, _tuning: (
+                            desired, {}, {}
+                        ),
+                    ) as closed_loop:
+                        with mock.patch.object(
+                            store, "_build_arm_sdk_trajectory_cmd", return_value=object()
+                        ):
+                            with mock.patch.object(
+                                store, "request_home", return_value=(200, {"ok": True})
+                            ):
+                                store._run_tracking(cancel)
+        subscribe.assert_called_once()
+        unsubscribe.assert_called_once()
+        closed_loop.assert_called()
+        publisher.Write.assert_called_once()
 
 
 class SentryUiSourceTests(unittest.TestCase):

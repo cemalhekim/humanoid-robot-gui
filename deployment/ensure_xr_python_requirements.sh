@@ -10,6 +10,26 @@ if [[ ! -f "$XR_DIR/requirements.txt" ]]; then
   exit 0
 fi
 
+# A crash-truncated micromamba proc file (empty or NUL-filled JSON) makes every
+# later `micromamba run` die with a libmamba JSON parse error, which blocked
+# install_robot_services.sh — and with it the dashboard service restart — on
+# 2026-07-23. Drop unparseable proc files before touching micromamba.
+python3 - <<'PY'
+import json
+import glob
+import os
+
+for path in glob.glob(os.path.expanduser("~/.cache/mamba/proc/*.json")):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            json.load(handle)
+    except Exception:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+PY
+
 if "$MAMBA" run -n "$ENV_NAME" python - <<'PY'
 import importlib.util
 import sys

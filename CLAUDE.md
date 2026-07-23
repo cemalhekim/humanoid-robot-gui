@@ -7,15 +7,15 @@ edits that leaves the repo in a coherent state, run:
 
 ```bash
 git add -A
-git commit -m "<clear message>"   # end with the Co-Authored-By trailer
+git commit -m "<clear message>"
 git push
 ```
 
 - Work on and push to `main` (the robot's `robot-telemetry-web-autoupdate` timer
   pulls from `origin/main`, so pushing there is how changes reach the robot).
 - Do not batch many changes into one commit — commit each change as it is made.
-- Every commit message must end with:
-  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+- NEVER add Claude as a contributor: no `Co-Authored-By`, no "Generated with"
+  lines, no AI attribution of any kind in commit messages.
 
 ## Project
 

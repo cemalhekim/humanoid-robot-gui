@@ -33,7 +33,7 @@ from typing import Any
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BRIDGE_CLI", shutil.which("claude") or
                             os.path.expanduser("~/.local/bin/claude"))
-CLAUDE_MODEL = os.environ.get("CLAUDE_BRIDGE_CLAUDE_MODEL", "sonnet")
+CLAUDE_MODEL = os.environ.get("CLAUDE_BRIDGE_CLAUDE_MODEL", "opus")
 CLAUDE_TIMEOUT_SECONDS = float(os.environ.get("CLAUDE_BRIDGE_TIMEOUT", "180"))
 MAX_BODY_BYTES = 2_000_000
 

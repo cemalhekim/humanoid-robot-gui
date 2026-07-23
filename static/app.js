@@ -2630,6 +2630,28 @@ function poseFeedbackEnabled() {
   return window.localStorage?.getItem("h1_pose_feedback") !== "0";
 }
 
+// --- Chat backend selection (qwen default vs Claude bridge) -----------------
+// The server sends the SAME system prompt, tools and guards to either engine;
+// this only picks which one answers.
+function chatBackend() {
+  return window.localStorage?.getItem("h1_chat_backend") === "claude" ? "claude" : "default";
+}
+
+function setupClaudeBackendToggle() {
+  const toggle = document.getElementById("claudeBackendToggle");
+  if (!toggle) return;
+  const render = () => {
+    const claude = chatBackend() === "claude";
+    toggle.setAttribute("aria-pressed", claude ? "true" : "false");
+    toggle.classList.toggle("active", claude);
+  };
+  toggle.addEventListener("click", () => {
+    window.localStorage?.setItem("h1_chat_backend", chatBackend() === "claude" ? "default" : "claude");
+    render();
+  });
+  render();
+}
+
 function setupPoseFeedbackToggle() {
   const toggle = document.getElementById("poseFeedbackToggle");
   if (!toggle) return;
@@ -2716,6 +2738,7 @@ function buildPoseFeedbackCard(proposalId, requestText, hooks = {}) {
 function setupChat() {
   if (!els.chatForm || !els.chatInput || !els.chatLog) return;
   setupPoseFeedbackToggle();
+  setupClaudeBackendToggle();
   const history = [];
   let busy = false;
 
@@ -2767,7 +2790,7 @@ function setupChat() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: window_, twin_evidence: twinEvidence }),
+        body: JSON.stringify({ messages: window_, twin_evidence: twinEvidence, backend: chatBackend() }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
@@ -2775,6 +2798,13 @@ function setupChat() {
       }
       pending.card.classList.remove("pending");
       pending.p.textContent = payload.reply;
+      if (payload.backend === "claude") {
+        const badge = document.createElement("span");
+        badge.className = "chat-backend-badge";
+        badge.textContent = `✳ ${payload.model || "Claude"}`;
+        badge.title = "Answered by Claude via the operator-machine bridge";
+        pending.card.querySelector("span")?.append(badge);
+      }
       if (Array.isArray(payload.tools_used) && payload.tools_used.length) {
         const note = document.createElement("p");
         note.className = "chat-tools-note";

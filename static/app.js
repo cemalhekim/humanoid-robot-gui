@@ -2674,10 +2674,15 @@ function setupChat() {
         typeof window.captureDigitalTwinEvidence === "function"
           ? window.captureDigitalTwinEvidence()
           : null;
+      // The server rejects payloads over LLM_MAX_MESSAGES (24). The on-screen
+      // log keeps everything, but only a recent window is sent — trimmed to
+      // start on a user turn so the model never sees a dangling reply.
+      const window_ = history.slice(-20);
+      while (window_.length && window_[0].role !== "user") window_.shift();
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, twin_evidence: twinEvidence }),
+        body: JSON.stringify({ messages: window_, twin_evidence: twinEvidence }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) {

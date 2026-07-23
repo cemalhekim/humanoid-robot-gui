@@ -2724,10 +2724,14 @@ function setupChat() {
     const pending = addMessage("assistant", "Thinking…", { pending: true });
 
     try {
+      const twinEvidence =
+        typeof window.captureDigitalTwinEvidence === "function"
+          ? window.captureDigitalTwinEvidence()
+          : null;
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({ messages: history, twin_evidence: twinEvidence }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) {

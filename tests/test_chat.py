@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import base64
 import unittest
 from unittest import mock
 
@@ -75,6 +76,36 @@ class TelemetryContextTest(unittest.TestCase):
         self.assertIn("ROS 2 GRAPH", ctx)
         self.assertIn("/rt/lowstate [unitree_hg/msg/LowState]", ctx)
 
+    def test_twin_evidence_is_validated_and_compacted(self) -> None:
+        image = "data:image/jpeg;base64," + base64.b64encode(b"jpeg").decode()
+        text, accepted_image = server.parse_twin_evidence({
+            "spatial": {
+                "hands": {
+                    "right": {
+                        "ground_m": {"x": 0.41, "y": -0.27, "z": 1.44},
+                        "direction": {"forward": "front", "lateral": "right", "height": "high"},
+                    }
+                }
+            },
+            "camera": {"position": [2.15, 0.55, 0]},
+            "screenshot": image,
+        })
+        self.assertIn('"right"', text)
+        self.assertIn('"x":0.41', text)
+        self.assertEqual(accepted_image, image)
+
+    def test_twin_evidence_rejects_invalid_coordinates_and_image(self) -> None:
+        self.assertEqual(server.parse_twin_evidence({"spatial": {"hands": {}}}), (None, None))
+        text, image = server.parse_twin_evidence({
+            "spatial": {"hands": {"left": {
+                "ground_m": {"x": 0.1, "y": 0.2, "z": 1.0},
+                "direction": {},
+            }}},
+            "screenshot": "data:image/jpeg;base64,not-valid",
+        })
+        self.assertIsNotNone(text)
+        self.assertIsNone(image)
+
 
 class ChatValidationTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -127,6 +158,37 @@ class ChatValidationTest(unittest.TestCase):
         self.assertIn("TELEMETRY SNAPSHOT", captured["messages"][0]["content"])
         self.assertIn("RightWristRoll", captured["messages"][0]["content"])
         self.assertEqual(captured["messages"][-1]["content"], "hottest joint?")
+
+    def test_success_injects_twin_coordinates_and_optional_vision_image(self) -> None:
+        captured: dict = {}
+        image = "data:image/jpeg;base64," + base64.b64encode(b"jpeg").decode()
+
+        def fake_call_llm(messages, tools=None):
+            captured["messages"] = messages
+            return 200, {"ok": True, "reply": "Sağ el önde."}
+
+        payload = {
+            "messages": [{"role": "user", "content": "Kol nerede?"}],
+            "twin_evidence": {
+                "spatial": {"hands": {"right": {
+                    "ground_m": {"x": 0.41, "y": -0.27, "z": 1.44},
+                    "direction": {"forward": "front", "lateral": "right", "height": "high"},
+                }}},
+                "screenshot": image,
+            },
+        }
+        with mock.patch.object(self.store, "snapshot", return_value=SNAPSHOT), mock.patch.object(
+            server, "LLM_TWIN_VISION_ENABLED", True
+        ), mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            status, response = self.store.chat(payload)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(response["ok"])
+        self.assertIn("DIGITAL TWIN SPATIAL EVIDENCE", captured["messages"][0]["content"])
+        self.assertIn('"x":0.41', captured["messages"][0]["content"])
+        content = captured["messages"][-1]["content"]
+        self.assertEqual(content[0], {"type": "text", "text": "Kol nerede?"})
+        self.assertEqual(content[1]["image_url"]["url"], image)
 
     def test_content_is_truncated(self) -> None:
         long = "a" * (server.LLM_MAX_MESSAGE_CHARS + 500)

@@ -8,6 +8,8 @@ dependency-free web UI with JSON and Server-Sent Events endpoints.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import math
 import mimetypes
@@ -401,6 +403,11 @@ MAX_JSON_BODY_BYTES = 1_000_000
 LLM_ENABLED = os.environ.get("LLM_ENABLED", "1") not in ("0", "false", "False", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://10.2.125.3:11434").rstrip("/")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3:30b-a3b-instruct-2507-q4_K_M")
+LLM_TWIN_VISION_ENABLED = os.environ.get("LLM_TWIN_VISION_ENABLED", "0") not in (
+    "0", "false", "False", "",
+)
+# Keep the base64 image plus chat history below MAX_JSON_BODY_BYTES.
+LLM_TWIN_IMAGE_MAX_BYTES = 650_000
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1024"))
@@ -754,6 +761,66 @@ def _fmt_temp(value: Any) -> str:
         nums = [v for v in value if isinstance(v, (int, float)) and not isinstance(v, bool)]
         return _fmt_num(max(nums), 1) if nums else "?"
     return _fmt_num(value, 1)
+
+
+def parse_twin_evidence(value: Any) -> tuple[str | None, str | None]:
+    """Validate browser-derived digital-twin coordinates and optional image."""
+    if not isinstance(value, dict):
+        return None, None
+    spatial = value.get("spatial")
+    if not isinstance(spatial, dict):
+        return None, None
+    hands = spatial.get("hands")
+    if not isinstance(hands, dict):
+        return None, None
+    clean_hands: dict[str, Any] = {}
+    for side in ("left", "right"):
+        hand = hands.get(side)
+        if not isinstance(hand, dict):
+            continue
+        ground = hand.get("ground_m")
+        direction = hand.get("direction")
+        if not isinstance(ground, dict) or not isinstance(direction, dict):
+            continue
+        coords = {}
+        for axis in ("x", "y", "z"):
+            number = ground.get(axis)
+            if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number):
+                break
+            coords[axis] = round(float(number), 3)
+        if len(coords) != 3:
+            continue
+        clean_hands[side] = {
+            "ground_m": coords,
+            "direction": {
+                key: str(direction.get(key, ""))[:24]
+                for key in ("forward", "lateral", "height")
+            },
+        }
+    if not clean_hands:
+        return None, None
+    camera = value.get("camera")
+    evidence = {
+        "source": "live URDF digital twin driven by the same LowState snapshot",
+        "frame": "robot-ground",
+        "axes": "x=forward, y=left, z=up",
+        "hands": clean_hands,
+    }
+    if isinstance(camera, dict):
+        evidence["camera"] = camera
+    text = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
+
+    image = value.get("screenshot")
+    if not isinstance(image, str) or not image.startswith("data:image/jpeg;base64,"):
+        return text, None
+    encoded = image.partition(",")[2]
+    if len(encoded) > (LLM_TWIN_IMAGE_MAX_BYTES * 4 // 3) + 8:
+        return text, None
+    try:
+        decoded_size = len(base64.b64decode(encoded, validate=True))
+    except (ValueError, binascii.Error):
+        return text, None
+    return text, image if decoded_size <= LLM_TWIN_IMAGE_MAX_BYTES else None
 
 
 def build_telemetry_context(snapshot: dict[str, Any], ros_graph: dict[str, Any] | None = None) -> str:
@@ -4016,8 +4083,21 @@ class TelemetryStore:
             except Exception:  # pragma: no cover - ros2 CLI can be slow/absent
                 ros_graph = None
         context = build_telemetry_context(self.snapshot(), ros_graph)
+        twin_text, twin_image = parse_twin_evidence(payload.get("twin_evidence"))
         behavior = LLM_TOOLS_PROMPT if LLM_TOOLS_ENABLED else LLM_READONLY_PROMPT
         system = f"{LLM_SYSTEM_PROMPT}{behavior}\n\nTELEMETRY SNAPSHOT (updated live):\n{context}"
+        if twin_text:
+            system += (
+                "\n\nDIGITAL TWIN SPATIAL EVIDENCE:\n"
+                f"{twin_text}\nUse these URDF-derived hand coordinates for exact direction. "
+                "Use the screenshot only as a visual cross-check; report disagreement instead of guessing."
+            )
+        if twin_image and LLM_TWIN_VISION_ENABLED:
+            last = cleaned[-1]
+            last["content"] = [
+                {"type": "text", "text": last["content"]},
+                {"type": "image_url", "image_url": {"url": twin_image}},
+            ]
         messages = [{"role": "system", "content": system}, *cleaned]
         if not LLM_TOOLS_ENABLED:
             return call_llm(messages)
@@ -5885,6 +5965,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                     "enabled": LLM_ENABLED,
                     "model": LLM_MODEL,
                     "endpoint": LLM_BASE_URL,
+                    "twin_spatial_evidence": True,
+                    "twin_vision": LLM_TWIN_VISION_ENABLED,
                     "voice_input": LLM_STT_ENABLED,
                     "voice_output": LLM_TTS_ENABLED,
                     "tools_enabled": LLM_TOOLS_ENABLED,

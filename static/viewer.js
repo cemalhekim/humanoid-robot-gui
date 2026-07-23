@@ -408,6 +408,49 @@ class RobotViewer {
     return effector.getWorldPosition(new THREE.Vector3());
   }
 
+  liveSpatialEvidence() {
+    if (!this.live || !this.modelReady || !this.robotRoot) return null;
+    const hands = {};
+    for (const side of ["left", "right"]) {
+      const world = this.getEndEffectorPosition(side);
+      const local = world && this.worldToRobotLocal(world);
+      if (!world || !local) continue;
+      const ground = { x: local.x, y: local.y, z: world.y - FLOOR_Y };
+      hands[side] = {
+        ground_m: Object.fromEntries(
+          Object.entries(ground).map(([axis, value]) => [axis, Number(value.toFixed(3))]),
+        ),
+        direction: {
+          forward: ground.x > 0.18 ? "front" : ground.x < -0.08 ? "behind" : "torso-line",
+          lateral: ground.y > 0.16 ? "left" : ground.y < -0.16 ? "right" : "center",
+          height: ground.z > 1.35 ? "high" : ground.z < 0.85 ? "low" : "mid",
+        },
+      };
+    }
+    return Object.keys(hands).length
+      ? { frame: "robot-ground", axes: "x=forward, y=left, z=up", hands }
+      : null;
+  }
+
+  captureEvidence() {
+    const spatial = this.liveSpatialEvidence();
+    if (!spatial || !this.renderer || !this.scene || !this.camera) return null;
+    // Render immediately before reading the WebGL canvas. This keeps capture
+    // reliable without preserveDrawingBuffer (which would slow every frame).
+    this.renderer.render(this.scene, this.camera);
+    let screenshot = null;
+    try {
+      screenshot = this.renderer.domElement.toDataURL("image/jpeg", 0.72);
+    } catch (error) {
+      console.warn("Digital-twin screenshot capture failed", error);
+    }
+    const camera = {
+      position: this.camera.position.toArray().map((value) => Number(value.toFixed(3))),
+      target: this.controls.target.toArray().map((value) => Number(value.toFixed(3))),
+    };
+    return { spatial, camera, screenshot };
+  }
+
   markerForSide(side = "right") {
     return side === "left" ? this.leftEndEffectorMarker : this.endEffectorMarker;
   }
@@ -1262,6 +1305,8 @@ const replayViewer = new RobotViewer({
   live: false,
   compare: true,
 });
+
+window.captureDigitalTwinEvidence = () => liveViewer.captureEvidence();
 
 window.addEventListener("telemetry-state", (event) => {
   liveViewer.queueTelemetry(event.detail.snapshot, "live");

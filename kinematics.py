@@ -165,4 +165,30 @@ def arm_pose_guide(kin: ArmKinematics, limits_by_name: dict[str, tuple[float, fl
         f"z={right['hand']['z']:.2f} relative to the pelvis, shoulders at z={right['shoulder']['z']:.2f}. "
         "Combine joints; unspecified joints keep their current angle."
     )
+    lines.append("CANONICAL POSES (right-arm angles; MIRROR the sign of Roll and Yaw for the "
+                 "left arm, Pitch and Elbow keep the same sign). Interpolate/combine from "
+                 "these anchors instead of guessing:")
+    anchors = [
+        ("hand at rest beside the hip", {}),
+        ("hand extended straight forward at shoulder height",
+         {"RightShoulderPitch": -1.57, "RightElbow": 1.57}),
+        ("hands raised high in the air (above the head)",
+         {"RightShoulderPitch": -2.2, "RightShoulderRoll": -0.35}),
+        ("arm opened sideways at shoulder height (T-pose)",
+         {"RightShoulderRoll": -1.57}),
+    ]
+    for label, angles in anchors:
+        hand = kin.landmarks(angles)["right"]["hand"]
+        joint_text = ", ".join(f"{name}: {value:+.2f}" for name, value in angles.items()) or "all joints 0"
+        lines.append(
+            f"- {label}: {{{joint_text}}} -> hand at x={hand['x']:.2f}, y={hand['y']:.2f}, z={hand['z']:.2f}"
+        )
+        if angles:
+            both = {}
+            for name, value in angles.items():
+                left = name.replace("Right", "Left")
+                both[left] = -value if ("Roll" in name or "Yaw" in name) else value
+                both[name] = value
+            both_text = ", ".join(f"{name}: {value:+.2f}" for name, value in sorted(both.items()))
+            lines.append(f"  BOTH arms version (note the mirrored Roll/Yaw signs): {{{both_text}}}")
     return "\n".join(lines)

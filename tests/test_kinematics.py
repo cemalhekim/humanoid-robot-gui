@@ -78,8 +78,17 @@ class ArmPoseGuideTest(unittest.TestCase):
 
     def test_shoulder_pitch_lines_mention_a_direction(self) -> None:
         for line in self.guide.splitlines():
-            if "ShoulderPitch" in line:
+            if "ShoulderPitch" in line and "limits [" in line:
                 self.assertTrue(any(w in line for w in ("forward", "backward", "up", "down")), line)
+
+    def test_guide_lists_canonical_pose_anchors(self) -> None:
+        self.assertIn("CANONICAL POSES", self.guide)
+        for anchor in ("hands raised high", "straight forward", "opened sideways"):
+            self.assertIn(anchor, self.guide)
+        # The hands-up anchor must place the hand well above the shoulder per FK.
+        up = self.kin.landmarks({"RightShoulderPitch": -2.2, "RightShoulderRoll": -0.35})
+        shoulder_z = self.kin.landmarks({})["right"]["shoulder"]["z"]
+        self.assertGreater(up["right"]["hand"]["z"], shoulder_z + 0.3)
 
     def test_zero_pose_description_is_derived_not_wrong(self) -> None:
         # The H1-2 zero pose has elbows bent ~90 deg with forearms forward; the

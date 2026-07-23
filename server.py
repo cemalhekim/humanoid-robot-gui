@@ -68,6 +68,18 @@ POSE_FEEDBACK_FIELDS = [
 POSE_FEEDBACK_COMMENT_MAX = 500
 LEARNED_FEEDBACK_LIKED_MAX = 8
 LEARNED_FEEDBACK_DISLIKED_MAX = 4
+# Repo-visible snapshot of the live feedback CSV. The live feedback/ file must
+# stay UNTRACKED: the robot's autoupdate runs `git reset --hard origin/main`,
+# which would clobber a tracked live file and lose rows. The tracked copy under
+# data/ is regenerated from the live file on every sync, so even a lost local
+# commit self-heals on the next push.
+FEEDBACK_REPO_CSV = APP_DIR / "data" / "pose_feedback.csv"
+FEEDBACK_SYNC_PUSH_URL = "git@github.com:cemalhekim/humanoid-robot-gui.git"
+# Sync runs only where this write-access deploy key exists (the robot).
+FEEDBACK_SYNC_KEY = Path(os.environ.get(
+    "FEEDBACK_SYNC_KEY", str(Path.home() / ".ssh" / "robot_feedback_deploy")
+))
+FEEDBACK_SYNC_DEBOUNCE_SECONDS = 20.0
 # The always-on welcome/onboarding page (GitHub Pages). The robot only
 # redirects here; it never serves its own copy.
 WELCOME_PAGE_URL = "https://cemalhekim.github.io/humanoid-robot-gui/"
@@ -2649,6 +2661,11 @@ class TelemetryStore:
         self.proposal_lock = threading.Lock()
         self.proposal_meta: dict[str, dict[str, Any]] = {}
         self.last_chat_user_text = ""
+        self.feedback_sync_timer: threading.Timer | None = None
+        # Rows appended while the service was down (or pushes failed) get
+        # another chance right after startup.
+        if FEEDBACK_SYNC_KEY.exists() and POSE_FEEDBACK_CSV.exists():
+            self._schedule_feedback_sync()
         self.arm_proposal: dict[str, Any] | None = None
         self.camera_process: subprocess.Popen[bytes] | None = None
         self.camera_backend = os.environ.get("CAMERA_BACKEND", "auto")
@@ -2903,6 +2920,67 @@ class TelemetryStore:
                                              separators=(",", ":")),
                 "comment": comment,
             })
+        self._schedule_feedback_sync()
+
+    def _schedule_feedback_sync(self) -> None:
+        if not FEEDBACK_SYNC_KEY.exists():
+            return
+        with self.proposal_lock:
+            if self.feedback_sync_timer is not None:
+                return
+            timer = threading.Timer(FEEDBACK_SYNC_DEBOUNCE_SECONDS, self._run_feedback_sync)
+            timer.daemon = True
+            self.feedback_sync_timer = timer
+        timer.start()
+
+    def _run_feedback_sync(self) -> None:
+        with self.proposal_lock:
+            self.feedback_sync_timer = None
+        try:
+            self.sync_feedback_to_repo()
+        except Exception:  # pragma: no cover - best effort; live CSV stays source of truth
+            pass
+
+    def sync_feedback_to_repo(self) -> dict[str, Any]:
+        """Copy the live feedback CSV into the tracked data/ file, commit, push.
+
+        Best-effort: any failure leaves the live file untouched and the next
+        feedback (or service start) retries with the FULL file, so no row is
+        ever lost to a failed push or an autoupdate hard-reset.
+        """
+        if not POSE_FEEDBACK_CSV.exists():
+            return {"ok": False, "pushed": False, "reason": "no feedback recorded yet"}
+        FEEDBACK_REPO_CSV.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(POSE_FEEDBACK_CSV, FEEDBACK_REPO_CSV)
+        env = {
+            **os.environ,
+            "GIT_SSH_COMMAND": f"ssh -i {FEEDBACK_SYNC_KEY} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new",
+        }
+
+        def git(*args: str) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                ["git", *args], cwd=str(APP_DIR), env=env,
+                capture_output=True, text=True, timeout=60,
+            )
+
+        git("add", "--", str(FEEDBACK_REPO_CSV))
+        if git("diff", "--cached", "--quiet", "--", str(FEEDBACK_REPO_CSV)).returncode == 0:
+            return {"ok": True, "pushed": False, "reason": "no new rows"}
+        commit = git(
+            "-c", "user.name=H1-2 Robot", "-c", "user.email=robot@humanoid-robot-gui",
+            "commit", "-m", "Pose feedback data update (auto-sync from robot)",
+            "--", str(FEEDBACK_REPO_CSV),
+        )
+        if commit.returncode != 0:
+            return {"ok": False, "pushed": False, "reason": commit.stderr[:200]}
+        push = git("push", FEEDBACK_SYNC_PUSH_URL, "HEAD:main")
+        if push.returncode != 0:
+            # Lost a race with a concurrent dev push: rebase (data file is only
+            # ever written by the robot, so this is conflict-free) and retry once.
+            git("pull", "--rebase", FEEDBACK_SYNC_PUSH_URL, "main")
+            push = git("push", FEEDBACK_SYNC_PUSH_URL, "HEAD:main")
+        pushed = push.returncode == 0
+        return {"ok": pushed, "pushed": pushed, "reason": "" if pushed else push.stderr[:200]}
 
     def record_pose_feedback(self, payload: Any) -> tuple[int, dict[str, Any]]:
         """Operator verdict on a staged/recent proposal: liked or disliked + comment.
@@ -2926,7 +3004,12 @@ class TelemetryStore:
         if not known:
             return 404, {"ok": False, "error": "Unknown or expired proposal_id."}
         self._append_pose_feedback_row(proposal_id, verdict, comment.strip())
-        return 200, {"ok": True, "recorded": verdict}
+        response: dict[str, Any] = {"ok": True, "recorded": verdict}
+        # Thumbs-up doubles as the operator's approval click (same consent as
+        # the Move button): execute the staged proposal through the guarded path.
+        if verdict == "liked" and payload.get("execute") is True:
+            response["move"] = self.run_chat_tool("move", {"position": "proposed", "confirm": True})
+        return 200, response
 
     def arm_proposal_public(self) -> dict[str, Any] | None:
         """Proposal summary for /api/state and the browser ghost; expires by TTL."""

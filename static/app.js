@@ -2645,31 +2645,51 @@ function setupPoseFeedbackToggle() {
   render();
 }
 
-function buildPoseFeedbackCard(proposalId) {
+function buildPoseFeedbackCard(proposalId, requestText, hooks = {}) {
   const wrap = document.createElement("div");
   wrap.className = "pose-feedback";
   const label = document.createElement("span");
   label.className = "pose-feedback-label";
-  label.textContent = "Rate this pose proposal:";
+  label.textContent = "👍 executes · 👎 + note retries:";
   const comment = document.createElement("input");
   comment.type = "text";
   comment.maxLength = 500;
-  comment.placeholder = "optional comment…";
+  comment.placeholder = "note for 👎 retry (optional)…";
   comment.className = "pose-feedback-comment";
   const status = document.createElement("span");
   status.className = "pose-feedback-status";
   const send = async (verdict, button) => {
+    const note = comment.value.trim();
+    status.textContent = verdict === "liked" ? "recording + executing…" : "recording…";
     try {
+      const body = { proposal_id: proposalId, verdict, comment: note };
+      // The thumbs-up click IS the operator's approval (same consent as the
+      // Move button), so the server executes the staged pose in the same call.
+      if (verdict === "liked") body.execute = true;
       const response = await fetch("/api/pose/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proposal_id: proposalId, verdict, comment: comment.value.trim() }),
+        body: JSON.stringify(body),
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error(payload.error || "Feedback failed.");
       wrap.querySelectorAll("button").forEach((b) => b.classList.remove("chosen"));
       button.classList.add("chosen");
-      status.textContent = verdict === "liked" ? "recorded 👍" : "recorded 👎";
+      if (verdict === "liked") {
+        if (payload.move && payload.move.ok) {
+          status.textContent = "recorded 👍 — moving ✓";
+          hooks.onExecuted?.();
+        } else {
+          status.textContent = "recorded 👍, move failed: " + (payload.move?.error || "unknown");
+        }
+      } else if (note && hooks.onRetry) {
+        status.textContent = "recorded 👎 — retrying with your note…";
+        hooks.onRetry(
+          `Önerine 👎 verdim: "${note}". "${requestText}" isteğimi bu notu dikkate alarak düzeltilmiş açılarla yeniden öner.`,
+        );
+      } else {
+        status.textContent = "recorded 👎";
+      }
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : "Feedback failed.";
     }
@@ -2766,7 +2786,23 @@ function setupChat() {
         pending.card.append(note);
       }
       if (payload.proposal && poseFeedbackEnabled()) {
-        pending.card.append(buildPoseFeedbackCard(payload.proposal.id));
+        pending.card.append(
+          buildPoseFeedbackCard(payload.proposal.id, text, {
+            // Replayed to qwen as a real move call so later turns know the
+            // pose was executed via the thumbs-up, not just talked about.
+            onExecuted: () => {
+              history.push({
+                role: "assistant",
+                content: "(Operator approved via thumbs-up; the staged pose was executed.)",
+                tools_used: [{ name: "move", arguments: { position: "proposed", confirm: true }, ok: true }],
+              });
+            },
+            onRetry: (message) => {
+              els.chatInput.value = message;
+              els.chatForm.requestSubmit();
+            },
+          }),
+        );
       }
       // Keep which tools ran with this reply: the server replays them to the
       // LLM as real tool calls so later motion commands aren't answered with

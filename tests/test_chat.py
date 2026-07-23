@@ -633,6 +633,75 @@ class MoveProposedTest(unittest.TestCase):
         self.assertEqual(enum, ["proposed", "home"])
 
 
+class FeedbackRepoSyncTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = server.Path(self.tmp.name)
+        live = base / "live" / "pose_feedback.csv"
+        live.parent.mkdir()
+        live.write_text("header\nrow1\n", encoding="utf-8")
+        self.live = live
+        self.repo_copy = base / "data" / "pose_feedback.csv"
+        key = base / "deploy_key"
+        key.write_text("k", encoding="utf-8")
+        for name, value in (
+            ("POSE_FEEDBACK_CSV", live),
+            ("FEEDBACK_REPO_CSV", self.repo_copy),
+            ("FEEDBACK_SYNC_KEY", key),
+        ):
+            patcher = mock.patch.object(server, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _git_result(self, returncode: int = 0):
+        result = mock.Mock()
+        result.returncode = returncode
+        result.stdout = result.stderr = ""
+        return result
+
+    def test_sync_copies_live_csv_commits_and_pushes(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(list(cmd))
+            if "--quiet" in cmd:
+                return self._git_result(1)  # staged changes present
+            return self._git_result(0)
+
+        with mock.patch.object(server.subprocess, "run", side_effect=fake_run):
+            result = self.store.sync_feedback_to_repo()
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["pushed"])
+        self.assertEqual(self.repo_copy.read_text(encoding="utf-8"), "header\nrow1\n")
+        joined = [" ".join(c) for c in calls]
+        self.assertTrue(any("add" in c for c in joined))
+        self.assertTrue(any("commit" in c for c in joined))
+        self.assertTrue(any("push" in c and "HEAD:main" in c for c in joined))
+
+    def test_sync_skips_commit_when_nothing_changed(self) -> None:
+        def fake_run(cmd, **kwargs):
+            return self._git_result(0)  # diff --cached --quiet: rc 0 = no change
+
+        with mock.patch.object(server.subprocess, "run", side_effect=fake_run):
+            result = self.store.sync_feedback_to_repo()
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["pushed"])
+
+    def test_schedule_noops_without_deploy_key(self) -> None:
+        with mock.patch.object(server, "FEEDBACK_SYNC_KEY", server.Path(self.tmp.name) / "missing"):
+            self.store._schedule_feedback_sync()
+        self.assertIsNone(self.store.feedback_sync_timer)
+
+    def test_feedback_append_schedules_sync(self) -> None:
+        with mock.patch.object(self.store, "_schedule_feedback_sync") as schedule:
+            self.store.last_chat_user_text = "test"
+            result = self.store.run_chat_tool("propose_arm_pose", {"joints": {"LeftElbow": 1.0}})
+            self.store.record_pose_feedback({"proposal_id": result["proposal_id"], "verdict": "liked"})
+        schedule.assert_called_once()
+
+
 class PoseFeedbackTest(unittest.TestCase):
     def setUp(self) -> None:
         self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
@@ -696,6 +765,31 @@ class PoseFeedbackTest(unittest.TestCase):
         rows = self._rows()
         self.assertEqual([r["event"] for r in rows], ["executed"])
         self.assertEqual(rows[0]["proposal_id"], proposal_id)
+
+    def test_liked_with_execute_runs_the_guarded_move(self) -> None:
+        proposal_id = self._propose()
+        with mock.patch.object(
+            self.store, "request_robot_replay", return_value=(200, {"ok": True})
+        ) as replay:
+            status, response = self.store.record_pose_feedback(
+                {"proposal_id": proposal_id, "verdict": "liked", "execute": True}
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(response["ok"])
+        self.assertTrue(response["move"]["ok"], response)
+        replay.assert_called_once()
+        events = [r["event"] for r in self._rows()]
+        self.assertEqual(events, ["liked", "executed"])
+
+    def test_execute_flag_is_ignored_for_disliked(self) -> None:
+        proposal_id = self._propose()
+        with mock.patch.object(self.store, "request_robot_replay") as replay:
+            status, response = self.store.record_pose_feedback(
+                {"proposal_id": proposal_id, "verdict": "disliked", "execute": True}
+            )
+        self.assertEqual(status, 200)
+        self.assertNotIn("move", response)
+        replay.assert_not_called()
 
     def test_learned_examples_reach_the_system_prompt(self) -> None:
         liked_id = self._propose("iki elini havaya kaldir")

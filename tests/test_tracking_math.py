@@ -111,11 +111,47 @@ class RateLimiterTests(unittest.TestCase):
         self.assertAlmostEqual(stepped[20], 1.0, places=6)
 
 
+def _person(cx, cy, area, head=True):
+    half = area ** 0.5 / 2
+    person = {"cx": cx, "cy": cy, "x1": cx - half, "x2": cx + half,
+              "y1": cy - half, "y2": cy + half, "conf": 0.9}
+    if head:
+        person["head"] = {"x": cx, "y": cy - half * 0.7}
+    return person
+
+
+class HeadGateTests(unittest.TestCase):
+    """Only detections with a head anchor may ever be targeted — the robot's
+    own raised arm shows up as a headless 'person' box and must be invisible
+    to tracking (operator, 2026-07-23)."""
+
+    def test_headless_detection_is_never_a_target(self):
+        arm_blob = _person(0.2, 0.8, 0.3, head=False)
+        self.assertIsNone(tracking.associate([arm_blob], None, None))
+
+    def test_head_person_wins_over_bigger_headless_blob(self):
+        arm_blob = _person(0.3, 0.8, 0.4, head=False)
+        human = _person(0.7, 0.4, 0.1, head=True)
+        self.assertEqual(tracking.associate([arm_blob, human], None, None), human)
+
+    def test_headless_blob_cannot_steal_the_lock_by_distance(self):
+        arm_blob = _person(0.31, 0.5, 0.2, head=False)
+        human = _person(0.6, 0.5, 0.1, head=True)
+        self.assertEqual(tracking.associate([arm_blob, human], 0.3, 0.5), human)
+
+    def test_only_headless_detections_hold_then_go_stale(self):
+        state = tracking.TrackState(hold_s=1.0)
+        state.on_detection([_person(0.5, 0.4, 0.1, head=True)], 0.0)
+        self.assertEqual(state.phase, "tracking")
+        state.on_detection([_person(0.5, 0.6, 0.2, head=False)], 0.5)
+        self.assertEqual(state.phase, "hold")
+        state.on_detection([_person(0.5, 0.6, 0.2, head=False)], 2.0)
+        self.assertEqual(state.phase, "stale")
+
+
 class AssociateTests(unittest.TestCase):
     def person(self, cx, cy, area):
-        half = area ** 0.5 / 2
-        return {"cx": cx, "cy": cy, "x1": cx - half, "x2": cx + half,
-                "y1": cy - half, "y2": cy + half, "conf": 0.9}
+        return _person(cx, cy, area)
 
     def test_no_previous_target_picks_largest(self):
         big = self.person(0.7, 0.5, 0.20)
@@ -134,14 +170,12 @@ class AssociateTests(unittest.TestCase):
 class TrackStateTests(unittest.TestCase):
     def test_fresh_detection_keeps_tracking(self):
         state = tracking.TrackState(stale_after_s=1.5, hold_s=2.0, max_failures=10)
-        state.on_detection([{"cx": 0.5, "cy": 0.5, "x1": 0.4, "x2": 0.6,
-                             "y1": 0.3, "y2": 0.7, "conf": 0.9}], now=100.0)
+        state.on_detection([_person(0.5, 0.5, 0.04)], now=100.0)
         self.assertEqual(state.phase, "tracking")
 
     def test_target_lost_holds_then_goes_stale(self):
         state = tracking.TrackState(stale_after_s=1.5, hold_s=2.0, max_failures=10)
-        state.on_detection([{"cx": 0.5, "cy": 0.5, "x1": 0.4, "x2": 0.6,
-                             "y1": 0.3, "y2": 0.7, "conf": 0.9}], now=100.0)
+        state.on_detection([_person(0.5, 0.5, 0.04)], now=100.0)
         state.on_detection([], now=101.0)
         self.assertEqual(state.phase, "hold")
         state.on_detection([], now=103.5)
@@ -157,8 +191,7 @@ class TrackStateTests(unittest.TestCase):
         state = tracking.TrackState(stale_after_s=1.5, hold_s=2.0, max_failures=3)
         state.on_failure(now=100.0)
         state.on_failure(now=100.1)
-        state.on_detection([{"cx": 0.5, "cy": 0.5, "x1": 0.4, "x2": 0.6,
-                             "y1": 0.3, "y2": 0.7, "conf": 0.9}], now=100.2)
+        state.on_detection([_person(0.5, 0.5, 0.04)], now=100.2)
         self.assertEqual(state.failures, 0)
         self.assertEqual(state.phase, "tracking")
 

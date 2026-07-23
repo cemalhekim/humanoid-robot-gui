@@ -84,9 +84,6 @@ const els = {
   batteryFields: document.getElementById("batteryFields"),
   handFields: document.getElementById("handFields"),
   forceFields: document.getElementById("forceFields"),
-  smartplugState: document.getElementById("smartplugState"),
-  smartplugToggle: document.getElementById("smartplugToggle"),
-  smartplugMessage: document.getElementById("smartplugMessage"),
   motorRows: document.getElementById("motorRows"),
   rawJson: document.getElementById("rawJson"),
   cameraStream: document.getElementById("cameraStream"),
@@ -1247,62 +1244,6 @@ async function loadRecordingStatus() {
   }
 }
 
-function renderSmartplugStatus(status) {
-  if (!els.smartplugToggle || !els.smartplugState) return;
-  const enabled = Boolean(status?.enabled);
-  const plugState = String(status?.state || "unavailable");
-  const known = plugState === "on" || plugState === "off";
-  const on = plugState === "on";
-  els.smartplugState.textContent = enabled && known ? (on ? "ON" : "OFF") : "N/A";
-  els.smartplugToggle.disabled = !enabled || !known;
-  els.smartplugToggle.classList.toggle("is-on", enabled && known && on);
-  els.smartplugToggle.classList.toggle("is-off", enabled && known && !on);
-  els.smartplugToggle.classList.toggle("is-unavailable", !enabled || !known);
-  els.smartplugToggle.setAttribute("aria-pressed", String(enabled && known && on));
-  els.smartplugToggle.setAttribute(
-    "aria-label",
-    enabled && known ? `Turn robot power ${on ? "off" : "on"}` : "Robot power unavailable",
-  );
-  els.smartplugToggle.title = status?.error || status?.friendly_name || (known ? `Robot power is ${plugState}` : "Robot power unavailable");
-  if (els.smartplugMessage) {
-    els.smartplugMessage.textContent = status?.error || status?.friendly_name || "--";
-  }
-}
-
-async function loadSmartplugStatus() {
-  if (!els.smartplugToggle) return;
-  try {
-    const response = await fetch("/api/smartplug/status");
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    renderSmartplugStatus(data);
-  } catch (error) {
-    renderSmartplugStatus({
-      ok: false,
-      enabled: false,
-      state: "unavailable",
-      error: error instanceof Error ? error.message : "Status request failed.",
-    });
-  }
-}
-
-async function sendSmartplugToggle() {
-  if (!els.smartplugToggle) return;
-  els.smartplugToggle.disabled = true;
-  if (els.smartplugMessage) els.smartplugMessage.textContent = "Switching…";
-  try {
-    const response = await fetch("/api/smartplug/toggle", { method: "POST" });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    renderSmartplugStatus(data);
-  } catch (error) {
-    if (els.smartplugMessage) {
-      els.smartplugMessage.textContent = error instanceof Error ? error.message : "Toggle failed.";
-    }
-    loadSmartplugStatus();
-  }
-}
-
 async function startRecording() {
   if (!els.recordingRobotMotionToggle || !state.latest?.connected) return;
   els.recordingRobotMotionToggle.disabled = true;
@@ -1375,13 +1316,23 @@ function renderSequenceBuilder() {
   els.sequenceBuilder?.classList.toggle("is-hidden", !state.sequenceBuilder.active);
   els.recordingSequenceToggle?.classList.toggle("active", state.sequenceBuilder.active);
   if (els.recordingSequenceToggle) {
-    els.recordingSequenceToggle.textContent = state.sequenceBuilder.active ? "Close Sequence" : "Create Sequence";
+    const label = state.sequenceBuilder.active ? "Close Sequence" : "Create Sequence";
+    els.recordingSequenceToggle.innerHTML = state.sequenceBuilder.active
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M18 14v6M15 17h6"/></svg>';
+    els.recordingSequenceToggle.title = label;
+    els.recordingSequenceToggle.setAttribute("aria-label", label);
   }
   if (els.recordingSaveSequence) {
     els.recordingSaveSequence.disabled = state.sequenceBuilder.points.length === 0;
   }
   if (els.recordingCapturePose) {
-    els.recordingCapturePose.textContent = state.sequenceBuilder.active ? "Add Point" : "Save Pose";
+    const label = state.sequenceBuilder.active ? "Add Point" : "Save Pose";
+    els.recordingCapturePose.innerHTML = state.sequenceBuilder.active
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4.2L6 21z"/></svg>';
+    els.recordingCapturePose.title = label;
+    els.recordingCapturePose.setAttribute("aria-label", label);
   }
   if (!state.sequenceBuilder.active) {
     els.endEffectorStatus?.classList.add("is-hidden");
@@ -2978,9 +2929,6 @@ updateReplayResponseLabel();
 updateReplayUi();
 window.setInterval(loadRecordingStatus, 2000);
 window.setInterval(loadRecordingFiles, 5000);
-els.smartplugToggle?.addEventListener("click", sendSmartplugToggle);
-loadSmartplugStatus();
-window.setInterval(loadSmartplugStatus, 5000);
 setupLocoControls();
 setupWristControls();
 connectEvents();

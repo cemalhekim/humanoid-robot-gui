@@ -406,6 +406,27 @@ h1 {
   font-size: 12px;
 }
 
+/* Square toolbar buttons that show an icon instead of a text label. */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .dashboard {
   display: grid;
   grid-template-columns: minmax(360px, 0.82fr) minmax(430px, 0.9fr) minmax(500px, 1.12fr);
@@ -3401,105 +3422,6 @@ button:not(:disabled):active { transform: scale(0.96); }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-}
-
-/* ---- robot power (smart plug) toggle in the topbar ---- */
-.robot-power {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 3px 6px 3px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.robot-power-label {
-  font-size: 0.85rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  color: var(--text);
-}
-
-.robot-power-switch {
-  position: relative;
-  width: 112px;
-  height: 42px;
-  padding: 0;
-  overflow: hidden;
-  border: 2px solid rgba(255, 255, 255, 0.34);
-  border-radius: 999px;
-  color: #fff;
-  background: #ef1b2d;
-  box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.18),
-    0 7px 18px rgba(0, 0, 0, 0.24);
-  cursor: pointer;
-  transition: background 180ms ease, border-color 180ms ease, opacity 180ms ease, transform 180ms ease;
-}
-
-.robot-power-switch:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-.robot-power-switch-state {
-  position: absolute;
-  top: 50%;
-  right: 17px;
-  z-index: 1;
-  transform: translateY(-50%);
-  font-size: 0.86rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  transition: left 180ms ease, right 180ms ease;
-}
-
-.robot-power-switch-knob {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.34);
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.robot-power-switch.is-on {
-  background: #21b84b;
-  border-color: rgba(115, 255, 154, 0.82);
-}
-
-.robot-power-switch.is-on .robot-power-switch-state {
-  right: auto;
-  left: 17px;
-}
-
-.robot-power-switch.is-on .robot-power-switch-knob {
-  transform: translateX(70px);
-}
-
-.robot-power-switch.is-off {
-  background: #ef1b2d;
-  border-color: rgba(255, 88, 102, 0.84);
-}
-
-.robot-power-switch.is-unavailable {
-  border-color: rgba(255, 255, 255, 0.16);
-  color: rgba(255, 255, 255, 0.55);
-  background: #343434;
-}
-
-.robot-power-switch.is-unavailable .robot-power-switch-knob {
-  background: #8d8d8d;
-}
-
-.robot-power-switch:disabled {
-  cursor: not-allowed;
-  opacity: 0.72;
 }
 
 .visually-hidden {

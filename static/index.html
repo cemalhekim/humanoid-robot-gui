@@ -74,14 +74,6 @@
             <p id="subtitle">Waiting for rt/lowstate</p>
           </div>
           <div class="status-strip">
-            <span class="robot-power" title="Robot power — the showcase smart plug via Home Assistant">
-              <span class="robot-power-label">Robot</span>
-              <button id="smartplugToggle" class="robot-power-switch is-unavailable" type="button" aria-pressed="false" aria-label="Robot power unavailable" disabled>
-                <span id="smartplugState" class="robot-power-switch-state">N/A</span>
-                <span class="robot-power-switch-knob" aria-hidden="true"></span>
-              </button>
-              <span id="smartplugMessage" class="visually-hidden" aria-live="polite"></span>
-            </span>
             <button id="sentryToggle" class="sentry-toggle" type="button" aria-pressed="false" title="Sentry Mode — draw person-detection boxes on the floating camera (no robot motion)">Sentry Mode</button>
             <span id="networkType" class="metric signal-chip">Detecting network</span>
             <span id="rate" class="metric success">-- Hz</span>
@@ -228,9 +220,9 @@
               <div class="wrist-actions">
                 <span id="recordingState" class="pill bad">Idle</span>
                 <label class="inline-toggle sequence-debug-toggle"><input id="collisionDebugToggle" type="checkbox"> Bounds</label>
-                <button id="recordingSequenceToggle" class="ghost-button" type="button">Create Sequence</button>
+                <button id="recordingSequenceToggle" class="ghost-button icon-button" type="button" title="Create Sequence" aria-label="Create Sequence"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M18 14v6M15 17h6"/></svg></button>
                 <button id="recordingRobotMotionToggle" class="ghost-button compact" type="button" disabled>Save Real Robot Motion</button>
-                <button id="recordingCapturePose" class="ghost-button" type="button">Save Pose</button>
+                <button id="recordingCapturePose" class="ghost-button icon-button" type="button" title="Save Pose" aria-label="Save Pose"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4.2L6 21z"/></svg></button>
               </div>
             </div>
             <div class="recording-layout">
@@ -249,7 +241,7 @@
               <section class="recording-replay">
                 <div class="recording-replay-toolbar">
                   <select id="recordingFileSelect" aria-label="Recording file"></select>
-                  <button id="recordingRename" class="ghost-button compact" type="button" disabled>Rename</button>
+                  <button id="recordingRename" class="ghost-button compact icon-button" type="button" title="Rename" aria-label="Rename" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.6 3.9a2.05 2.05 0 0 1 2.9 2.9L7.4 18.9 3 20l1.1-4.4z"/><path d="M14.5 6l3 3"/></svg></button>
                   <span id="endEffectorStatus" class="ik-status is-hidden">IK idle</span>
                   <label class="slider-row recording-response-row">
                     <span>Arm replay response <strong id="recordingReplayResponseValue">Balanced 50%</strong></span>

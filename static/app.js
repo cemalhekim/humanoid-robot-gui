@@ -2674,21 +2674,19 @@ function buildPoseFeedbackCard(proposalId) {
       status.textContent = error instanceof Error ? error.message : "Feedback failed.";
     }
   };
-  const makeThumb = (verdict, path, title) => {
+  const makeThumb = (verdict, glyph, title) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `pose-feedback-thumb ${verdict}`;
     button.title = title;
-    button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
+    button.textContent = glyph;
     button.addEventListener("click", () => send(verdict, button));
     return button;
   };
-  const upPath = "M7 10.5v9H4.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1H7zm0 0 3.2-6.4a1.6 1.6 0 0 1 3 .8v3.6h4.6a2 2 0 0 1 2 2.4l-1.1 5.6a2 2 0 0 1-2 1.6H7";
-  const downPath = "M17 13.5v-9h2.5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H17zm0 0-3.2 6.4a1.6 1.6 0 0 1-3-.8v-3.6H6.2a2 2 0 0 1-2-2.4l1.1-5.6a2 2 0 0 1 2-1.6H17";
   wrap.append(
     label,
-    makeThumb("liked", upPath, "Good proposal (learning data)"),
-    makeThumb("disliked", downPath, "Bad proposal (learning data)"),
+    makeThumb("liked", "👍", "Good proposal (learning data)"),
+    makeThumb("disliked", "👎", "Bad proposal (learning data)"),
     comment,
     status,
   );

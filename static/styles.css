@@ -4360,24 +4360,19 @@ button:not(:disabled):active { transform: scale(0.96); }
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
+  /* Emoji glyphs (like the chat's tool wrench): render everywhere, no SVG quirks. */
+  font-size: 13px;
+  line-height: 1;
+  filter: grayscale(1) opacity(0.65);
 }
-.pose-feedback-thumb svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.pose-feedback-thumb.chosen {
+  filter: none;
 }
 .pose-feedback-thumb.liked.chosen {
-  color: #35e08a;
   border-color: rgba(53, 224, 138, 0.7);
 }
 .pose-feedback-thumb.disliked.chosen {
-  color: #ff5a4e;
   border-color: rgba(255, 90, 78, 0.7);
 }
 .pose-feedback-comment {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=loco-console-v4">
+    <link rel="stylesheet" href="/styles.css?v=pose-feedback-v1">
     <script type="importmap">
       {
         "imports": {
@@ -91,6 +91,7 @@
                 <h2>Command Center</h2>
                 <p class="panel-subtitle">Ask the assistant about live robot telemetry</p>
               </div>
+              <button id="poseFeedbackToggle" class="icon-button pose-feedback-toggle" type="button" aria-pressed="true" title="Pose feedback: rate proposed poses with thumbs up/down (collects learning data)" aria-label="Pose feedback"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10.5v9H4.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1H7zm0 0 3.2-6.4a1.6 1.6 0 0 1 3 .8v3.6h4.6a2 2 0 0 1 2 2.4l-1.1 5.6a2 2 0 0 1-2 1.6H7"/></svg></button>
               <span id="chatStatus" class="status-dot" title="LLM assistant status">Assistant</span>
             </div>
             <div class="chat-shell">
@@ -672,7 +673,7 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=sentry-tracking-v1"></script>
+    <script src="/app.js?v=pose-feedback-v1"></script>
     <script src="/diagram.js?v=locov1"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);

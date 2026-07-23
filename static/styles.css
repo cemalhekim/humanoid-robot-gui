@@ -4324,3 +4324,74 @@ button:not(:disabled):active { transform: scale(0.96); }
   0%, 100% { box-shadow: 0 0 6px 2px rgba(230, 0, 0, 0.6); }
   50% { box-shadow: 0 0 18px 7px rgba(230, 0, 0, 0.9); }
 }
+
+/* Pose-proposal feedback: thumbs verdict card under assistant replies + header toggle. */
+.pose-feedback-toggle {
+  height: 26px;
+  width: 30px;
+  min-width: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+}
+.pose-feedback-toggle.active {
+  color: #35e08a;
+  border-color: rgba(53, 224, 138, 0.55);
+}
+.pose-feedback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.pose-feedback-label {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.pose-feedback-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+.pose-feedback-thumb svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pose-feedback-thumb.liked.chosen {
+  color: #35e08a;
+  border-color: rgba(53, 224, 138, 0.7);
+}
+.pose-feedback-thumb.disliked.chosen {
+  color: #ff5a4e;
+  border-color: rgba(255, 90, 78, 0.7);
+}
+.pose-feedback-comment {
+  flex: 1 1 140px;
+  min-width: 120px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font-size: 11px;
+  padding: 0 8px;
+}
+.pose-feedback-status {
+  font-size: 11px;
+  opacity: 0.75;
+}

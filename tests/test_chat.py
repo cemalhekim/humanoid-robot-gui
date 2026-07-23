@@ -575,6 +575,17 @@ class PosePromptTest(unittest.TestCase):
 class MoveProposedTest(unittest.TestCase):
     def setUp(self) -> None:
         self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        # Successful proposed-moves append to the feedback CSV — keep tests out
+        # of the real feedback/ dir.
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for name, value in (
+            ("FEEDBACK_DIR", server.Path(tmp.name)),
+            ("POSE_FEEDBACK_CSV", server.Path(tmp.name) / "pose_feedback.csv"),
+        ):
+            patcher = mock.patch.object(server, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_move_requires_confirm_and_known_position(self) -> None:
         self.assertFalse(self.store.run_chat_tool("move", {"position": "proposed"})["ok"])

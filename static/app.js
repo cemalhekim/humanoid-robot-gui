@@ -2622,8 +2622,82 @@ document.addEventListener("selectstart", (event) => {
 document.addEventListener("dragstart", (event) => {
   event.preventDefault();
 });
+// --- Pose-proposal feedback (thumbs up/down learning data) ------------------
+// Verdicts are independent of execution: the operator can dislike a pose and
+// still say "okay", or like it and ask for changes. Every verdict lands in the
+// server-side CSV and feeds qwen's learned examples.
+function poseFeedbackEnabled() {
+  return window.localStorage?.getItem("h1_pose_feedback") !== "0";
+}
+
+function setupPoseFeedbackToggle() {
+  const toggle = document.getElementById("poseFeedbackToggle");
+  if (!toggle) return;
+  const render = () => {
+    const on = poseFeedbackEnabled();
+    toggle.setAttribute("aria-pressed", on ? "true" : "false");
+    toggle.classList.toggle("active", on);
+  };
+  toggle.addEventListener("click", () => {
+    window.localStorage?.setItem("h1_pose_feedback", poseFeedbackEnabled() ? "0" : "1");
+    render();
+  });
+  render();
+}
+
+function buildPoseFeedbackCard(proposalId) {
+  const wrap = document.createElement("div");
+  wrap.className = "pose-feedback";
+  const label = document.createElement("span");
+  label.className = "pose-feedback-label";
+  label.textContent = "Rate this pose proposal:";
+  const comment = document.createElement("input");
+  comment.type = "text";
+  comment.maxLength = 500;
+  comment.placeholder = "optional comment…";
+  comment.className = "pose-feedback-comment";
+  const status = document.createElement("span");
+  status.className = "pose-feedback-status";
+  const send = async (verdict, button) => {
+    try {
+      const response = await fetch("/api/pose/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proposal_id: proposalId, verdict, comment: comment.value.trim() }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "Feedback failed.");
+      wrap.querySelectorAll("button").forEach((b) => b.classList.remove("chosen"));
+      button.classList.add("chosen");
+      status.textContent = verdict === "liked" ? "recorded 👍" : "recorded 👎";
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : "Feedback failed.";
+    }
+  };
+  const makeThumb = (verdict, path, title) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `pose-feedback-thumb ${verdict}`;
+    button.title = title;
+    button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
+    button.addEventListener("click", () => send(verdict, button));
+    return button;
+  };
+  const upPath = "M7 10.5v9H4.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1H7zm0 0 3.2-6.4a1.6 1.6 0 0 1 3 .8v3.6h4.6a2 2 0 0 1 2 2.4l-1.1 5.6a2 2 0 0 1-2 1.6H7";
+  const downPath = "M17 13.5v-9h2.5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H17zm0 0-3.2 6.4a1.6 1.6 0 0 1-3-.8v-3.6H6.2a2 2 0 0 1-2-2.4l1.1-5.6a2 2 0 0 1 2-1.6H17";
+  wrap.append(
+    label,
+    makeThumb("liked", upPath, "Good proposal (learning data)"),
+    makeThumb("disliked", downPath, "Bad proposal (learning data)"),
+    comment,
+    status,
+  );
+  return wrap;
+}
+
 function setupChat() {
   if (!els.chatForm || !els.chatInput || !els.chatLog) return;
+  setupPoseFeedbackToggle();
   const history = [];
   let busy = false;
 
@@ -2692,6 +2766,9 @@ function setupChat() {
             .map((tool) => tool.name + (tool.ok ? "" : " (failed)"))
             .join(", ");
         pending.card.append(note);
+      }
+      if (payload.proposal && poseFeedbackEnabled()) {
+        pending.card.append(buildPoseFeedbackCard(payload.proposal.id));
       }
       // Keep which tools ran with this reply: the server replays them to the
       // LLM as real tool calls so later motion commands aren't answered with

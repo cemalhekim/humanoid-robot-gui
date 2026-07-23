@@ -1,5 +1,6 @@
 import io
 import json
+import threading
 import unittest
 from unittest import mock
 
@@ -150,6 +151,76 @@ class TrackingRouteTests(unittest.TestCase):
         status, response = post(store, "/api/sentry/mode", {"on": True})
         self.assertEqual(status, 200)
         self.assertTrue(response["sentry_mode"])
+
+
+class SentryFollowInvariantTests(unittest.TestCase):
+    """Sentry Mode <=> tracking session (operator invariant, 2026-07-23):
+    on must mean the session runs, off must mean it never does."""
+
+    def make_store(self):
+        return server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+    def test_sentry_on_auto_starts_tracking(self):
+        # Turning Sentry on IS the start command. Offline (no DDS) the auto
+        # start must reach the arm_sdk publisher gate (503) — proving it went
+        # past the sentry/risk-ack gates without a separate start call.
+        store = self.make_store()
+        with mock.patch.object(server, "TRACKING_ENABLED", True):
+            status, response = store.set_sentry_mode({"on": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(response["sentry_mode"])
+        self.assertEqual(response["start"]["status"], 503)
+        self.assertIn("arm_sdk", response["start"]["error"])
+
+    def test_sentry_on_cancels_blocking_replay(self):
+        # A held arm replay must not block the master switch: sentry-on
+        # cancels it, then the start attempt reaches the DDS gate.
+        store = self.make_store()
+        ev = threading.Event()
+        thread = threading.Thread(target=ev.wait, daemon=True)
+        thread.start()
+        store.replay_thread = thread
+        store.replay_cancel = ev
+        with mock.patch.object(server, "TRACKING_ENABLED", True):
+            status, response = store.set_sentry_mode({"on": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(ev.is_set())
+        self.assertEqual(response["start"]["status"], 503)
+
+    def test_track_stop_turns_sentry_off(self):
+        store = self.make_store()
+        store.set_sentry_mode({"on": True})
+        store.request_track_stop()
+        self.assertFalse(store.track_snapshot()["sentry_mode"])
+
+    def test_session_natural_end_turns_sentry_off(self):
+        # Ceiling/abort ends must not leave sentry claiming a session runs.
+        store = self.make_store()
+        store.sentry_mode_on = True
+        with mock.patch.object(server, "TRACKING_MAX_SESSION_S", -1.0):
+            store._run_tracking(threading.Event())
+        snap = store.track_snapshot()
+        self.assertFalse(snap["sentry_mode"])
+        self.assertFalse(snap["active"])
+
+
+class SentryUiSourceTests(unittest.TestCase):
+    def test_toggle_state_comes_from_server_not_localstorage(self):
+        # The dashboard toggle must render the SERVER's sentry flag; the old
+        # localStorage-as-truth push caused UI-on/server-off drift (2026-07-23).
+        with open("static/app.js") as fh:
+            src = fh.read()
+        self.assertNotIn('"h1_sentry_mode"', src)
+        self.assertNotIn("pushMode(isOn())", src)
+
+    def test_lock_button_colors_swapped(self):
+        # Operator request 2026-07-23: unlocked = green, locked = red.
+        with open("static/styles.css") as fh:
+            css = fh.read()
+        unlocked = css.split(".target-lock-btn {", 1)[1][:600]
+        locked = css.split(".target-lock-btn.locked", 1)[1][:300]
+        self.assertIn("rgba(18, 178, 82", unlocked)
+        self.assertIn("rgba(230, 0, 0", locked)
 
 
 class TrackToolTests(unittest.TestCase):

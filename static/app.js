@@ -3182,7 +3182,6 @@ connectEvents();
 
 // ---- Sentry Mode: head-tracked glowing lock buttons on the webcam feed ----
 (function setupSentry() {
-  const KEY = "h1_sentry_mode";
   const toggle = document.getElementById("sentryToggle");
   const panel = document.getElementById("floatCam");
   const counter = document.getElementById("floatCamSentry");
@@ -3211,28 +3210,37 @@ connectEvents();
   let count = null;           // persons in last good detection, or null
   let lastError = null;
 
-  const isOn = () => localStorage.getItem(KEY) === "1";
+  // The SERVER owns Sentry Mode (operator invariant 2026-07-23: on = a
+  // tracking session runs, off = none). The toggle only renders the server
+  // flag and requests changes — no localStorage truth, so a reload, server
+  // restart, or second browser can never silently flip the master switch.
+  let serverOn = false;
+  const isOn = () => serverOn;
   const renderToggle = () => {
     toggle.classList.toggle("on", isOn());
     toggle.setAttribute("aria-pressed", isOn() ? "true" : "false");
   };
-  // Sentry is the MASTER switch for person-following: the server refuses
-  // track starts while it is off and kills any running session on off.
+  const applyServerFlag = (flag) => {
+    if (typeof flag === "boolean" && flag !== serverOn) {
+      serverOn = flag;
+      renderToggle();
+    }
+  };
   const pushMode = (on) => fetch("/api/sentry/mode", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ on }),
-  }).catch(() => {});
-  toggle.addEventListener("click", () => {
-    const turningOff = isOn();
-    try { localStorage.setItem(KEY, turningOff ? "0" : "1"); } catch {}
-    renderToggle();
-    pushMode(!turningOff);
-  });
+  }).then((resp) => resp.json())
+    .then((data) => applyServerFlag(data.sentry_mode))
+    .catch(() => {});
+  const syncMode = () => fetch("/api/track/status")
+    .then((resp) => resp.json())
+    .then((data) => applyServerFlag(data.tracking && data.tracking.sentry_mode))
+    .catch(() => {});
+  toggle.addEventListener("click", () => pushMode(!isOn()));
   renderToggle();
-  // Re-arm the server gate to match the persisted switch on every page load,
-  // so a dashboard reload or server restart can't leave them out of sync.
-  pushMode(isOn());
+  syncMode();
+  window.setInterval(syncMode, 2000);
 
   const renderBoxesToggle = () => {
     if (!boxesToggle) return;

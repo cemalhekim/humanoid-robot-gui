@@ -558,25 +558,26 @@ LLM_TOOLS_PROMPT = (
     "moved or is moving unless the tool call returned ok=true. chill_motors "
     "damps all motors so the robot goes "
     "limp (it will sag or collapse if unsupported); use it only for explicit "
-    "release/chill/damp/relax requests. move drives the arms to a saved named "
-    "position through the dashboard's validated arm replay (same as the Move "
-    "button); a direct imperative like 'raise your hand' or 'elini kaldir' must "
-    "produce a move call right away. Operators speak any language (e.g. English, Turkish, German); "
-    "translate their request into English and pick the position name that "
-    "matches it LITERALLY, distinguishing directions carefully: raising a hand "
-    "UP ('raise your hand' / 'elini kaldir' / 'heb die Hand') is a raise-style "
-    "position, extending a hand FORWARD ('reach forward' / 'elini one dogru "
-    "uzat' / 'streck die Hand nach vorne') is a forward-style position, and "
-    "returning to rest ('go home' / 'home pozisyonuna git' / 'Grundstellung') "
-    "is a home-style position. If no position fits, say which "
-    "positions exist instead of guessing. For any other motion request, say "
-    "command actions are done through the dashboard's dedicated controls, not the "
-    "chat.\n"
-    "Example: the operator writes 'elini kaldır' (raise your hand) -> you MUST "
-    "answer with a move tool call {\"position\": \"raise-hand\", \"confirm\": true}, "
-    "not with text. Replying to an action command with prose like 'raising your "
-    "hand now' without the tool call is a critical error: nothing physically "
-    "happens."
+    "release/chill/damp/relax requests.\n"
+    "The arm-pose workflow has two steps. STEP 1 — when the operator asks for an arm "
+    "pose in any language ('extend your hand forward', 'elini one uzat', 'streck die "
+    "Hand nach vorne'), do NOT ask questions: estimate target joint angles in radians "
+    "from the ARM JOINT GUIDE below, call propose_arm_pose, and compare the returned "
+    "predicted_semantics with the request. If they disagree, correct the angles and "
+    "call propose_arm_pose again (up to 3 attempts). When they agree, tell the operator "
+    "in one short sentence to check the GREEN preview twin and confirm. The robot has "
+    "NOT moved yet — never claim it did. STEP 2 — only when the operator then approves "
+    "(okay/tamam/evet/yes/ja/onayla), call move {\"position\": \"proposed\", \"confirm\": true}. "
+    "A request to return to rest ('go home' / 'home pozisyonuna don' / 'Grundstellung') "
+    "is the one direct move: call move {\"position\": \"home\", \"confirm\": true} immediately. "
+    "For non-arm motion requests, say command actions are done through the dashboard's "
+    "dedicated controls, not the chat. Never claim the robot moved or is moving unless "
+    "move returned ok=true.\n"
+    "Example: operator writes 'elini one uzat' -> you MUST call propose_arm_pose with "
+    "your angle estimate (not answer in prose), then reply like 'Yesil onizlemeye bak, "
+    "onayliyor musun?' -> operator writes 'tamam' -> you MUST call move "
+    "{\"position\": \"proposed\", \"confirm\": true}. Replying to an action command with "
+    "prose alone, without the tool call, is a critical error: nothing happens."
 )
 
 
@@ -4413,7 +4414,7 @@ class TelemetryStore:
             cached_pose = self.spatial_pose_snapshot()
             if cached_pose.get("available"):
                 twin_text = json.dumps(cached_pose["actual"], ensure_ascii=False, separators=(",", ":"))
-        behavior = LLM_TOOLS_PROMPT if LLM_TOOLS_ENABLED else LLM_READONLY_PROMPT
+        behavior = (LLM_TOOLS_PROMPT + "\n\n" + LLM_ARM_GUIDE) if LLM_TOOLS_ENABLED else LLM_READONLY_PROMPT
         system = f"{LLM_SYSTEM_PROMPT}{behavior}\n\nTELEMETRY SNAPSHOT (updated live):\n{context}"
         if twin_text:
             system += (

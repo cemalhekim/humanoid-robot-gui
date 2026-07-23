@@ -548,6 +548,29 @@ class ProposeArmPoseTest(unittest.TestCase):
         self.assertIn("propose_arm_pose", names)
 
 
+class PosePromptTest(unittest.TestCase):
+    def test_tools_prompt_teaches_the_proposal_workflow(self) -> None:
+        for token in ("propose_arm_pose", "green", "proposed", "okay/tamam"):
+            self.assertIn(token, server.LLM_TOOLS_PROMPT.lower())
+        self.assertNotIn("saved named position", server.LLM_TOOLS_PROMPT)
+        self.assertNotIn("Available positions", server.LLM_TOOLS_PROMPT)
+
+    def test_arm_guide_is_appended_to_tools_behavior(self) -> None:
+        self.assertIn("ARM JOINT GUIDE", server.LLM_ARM_GUIDE)
+        self.assertIn("RightShoulderPitch", server.LLM_ARM_GUIDE)
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        captured: dict = {}
+
+        def fake_call_llm(messages, tools=None):
+            captured["system"] = messages[0]["content"]
+            return 200, {"ok": True, "reply": "ok"}
+
+        with mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            with mock.patch.object(server, "LLM_TOOLS_ENABLED", True):
+                store.chat({"messages": [{"role": "user", "content": "hi"}]})
+        self.assertIn("ARM JOINT GUIDE", captured["system"])
+
+
 class MoveProposedTest(unittest.TestCase):
     def setUp(self) -> None:
         self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")

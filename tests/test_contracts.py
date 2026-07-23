@@ -693,6 +693,20 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(server.json.loads(replayed["arguments"])["position"], "raise-hand")
         self.assertEqual(server.json.loads(captured["messages"][3]["content"]), {"ok": True})
 
+    def test_extract_textual_tool_call_promotes_propose_json(self) -> None:
+        # qwen sometimes narrates the proposal as text; a bare {"joints": {...}}
+        # blob must still become a real propose_arm_pose call.
+        tools = [server.propose_tool_spec(), server.move_tool_spec()]
+        for reply in (
+            '{"joints": {"RightShoulderPitch": -1.57, "RightElbow": 1.57}}',
+            'Staging: {"joints": {"RightShoulderPitch": -1.57}} now',
+            '<tool_call>{"name": "propose_arm_pose", "arguments": {"joints": {"LeftElbow": 1.0}}}</tool_call>',
+        ):
+            call = server.extract_textual_tool_call(reply, tools)
+            self.assertIsNotNone(call, reply)
+            self.assertEqual(call["function"]["name"], "propose_arm_pose")
+            self.assertIn("joints", server.json.loads(call["function"]["arguments"]))
+
     def test_extract_textual_tool_call_promotes_move_json(self) -> None:
         tools = [server.move_tool_spec()]
         for reply in (

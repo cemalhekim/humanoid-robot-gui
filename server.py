@@ -570,14 +570,32 @@ LLM_TOOLS_PROMPT = (
     "(okay/tamam/evet/yes/ja/onayla), call move {\"position\": \"proposed\", \"confirm\": true}. "
     "A request to return to rest ('go home' / 'home pozisyonuna don' / 'Grundstellung') "
     "is the one direct move: call move {\"position\": \"home\", \"confirm\": true} immediately. "
-    "For non-arm motion requests, say command actions are done through the dashboard's "
-    "dedicated controls, not the chat. Never claim the robot moved or is moving unless "
-    "move returned ok=true.\n"
-    "Example: operator writes 'elini one uzat' -> you MUST call propose_arm_pose with "
-    "your angle estimate (not answer in prose), then reply like 'Yesil onizlemeye bak, "
-    "onayliyor musun?' -> operator writes 'tamam' -> you MUST call move "
-    "{\"position\": \"proposed\", \"confirm\": true}. Replying to an action command with "
-    "prose alone, without the tool call, is a critical error: nothing happens."
+    "Redirecting an ARM or HAND request to the dashboard is a critical error — the "
+    "propose/move workflow exists precisely for those. Only for OTHER body motion "
+    "(walking, locomotion, head, torso) say command actions are done through the "
+    "dashboard's dedicated controls, not the chat. Never claim the robot moved or is "
+    "moving unless move returned ok=true.\n"
+    "NEVER mention or promise the preview without having called propose_arm_pose in the "
+    "SAME turn — without the call the preview stays empty and the operator sees nothing; "
+    "that is a critical error. Same for move: prose without the tool call moves nothing.\n"
+    "Example: operator writes 'elini one uzat' (extend your hand forward) -> you emit the "
+    "tool call propose_arm_pose {\"joints\": {\"RightShoulderPitch\": -1.57, \"RightElbow\": 1.57}} "
+    "(that combination puts the right hand straight forward at shoulder height; adapt "
+    "joints and angles to what was actually asked) -> the result confirms 'held forward' "
+    "-> only NOW reply 'Yesil onizlemeye bak, onayliyor musun?' -> operator writes "
+    "'tamam' -> you emit move {\"position\": \"proposed\", \"confirm\": true}.\n"
+    "SCOPE: EVERY request to pose, raise, lower, extend, open, cross, spread, wave or "
+    "point one or both ARMS/HANDS — singular or plural, any language — is an arm-pose "
+    "request and MUST go through propose_arm_pose. Only walking/locomotion/head/torso "
+    "requests are outside this workflow.\n"
+    "propose_arm_pose is a pure PREVIEW: it works even when telemetry shows the robot "
+    "disconnected or motors absent — never refuse to stage a pose for that reason. Only "
+    "the later move step needs the robot, and its own safety gates report any problem.\n"
+    "TOOL-CALL FORMAT RULE (applies in EVERY language, especially Turkish): action "
+    "requests are answered with a tool call, never with joint names in prose. If you "
+    "are unable to emit a structured tool call, output ONLY the bare JSON object on "
+    "its own, e.g. {\"joints\": {\"RightShoulderPitch\": -1.57, \"RightElbow\": 1.57}} or "
+    "{\"position\": \"proposed\", \"confirm\": true} — no other words around it."
 )
 
 
@@ -746,6 +764,16 @@ def extract_textual_tool_call(reply: str, tools: list[dict[str, Any]]) -> dict[s
                     "id": "text-fallback",
                     "type": "function",
                     "function": {"name": "move", "arguments": json.dumps(candidate)},
+                }
+            if (
+                "propose_arm_pose" in names
+                and isinstance(candidate.get("joints"), dict)
+                and set(candidate) <= {"joints", "clear"}
+            ):
+                return {
+                    "id": "text-fallback",
+                    "type": "function",
+                    "function": {"name": "propose_arm_pose", "arguments": json.dumps(candidate)},
                 }
         index = reply.find("{", index + 1)
     return None
@@ -4416,6 +4444,15 @@ class TelemetryStore:
                 twin_text = json.dumps(cached_pose["actual"], ensure_ascii=False, separators=(",", ":"))
         behavior = (LLM_TOOLS_PROMPT + "\n\n" + LLM_ARM_GUIDE) if LLM_TOOLS_ENABLED else LLM_READONLY_PROMPT
         system = f"{LLM_SYSTEM_PROMPT}{behavior}\n\nTELEMETRY SNAPSHOT (updated live):\n{context}"
+        if LLM_TOOLS_ENABLED:
+            # Recency beats the workflow text above: without this reminder AFTER the
+            # snapshot, a disconnected-looking snapshot makes qwen refuse to even
+            # STAGE a pose (observed with English imperatives on a robot-less host).
+            system += (
+                "\n\nREMINDER: an arm/hand pose request ALWAYS gets a propose_arm_pose tool "
+                "call first — it is a preview and works regardless of the connection state "
+                "shown above. Never refuse or redirect an arm-pose request to the dashboard."
+            )
         if twin_text:
             system += (
                 "\n\nDIGITAL TWIN SPATIAL EVIDENCE:\n"

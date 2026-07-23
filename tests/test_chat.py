@@ -504,5 +504,49 @@ class _fake_response:
         return None
 
 
+class ProposeArmPoseTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+    def test_propose_clamps_stores_and_predicts(self) -> None:
+        result = self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightShoulderPitch": -1.4, "RightElbow": 9.0}}
+        )
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["moved_nothing"])
+        self.assertEqual(result["targets_rad"]["RightElbow"], 3.18)  # clamped to JOINT_LIMITS
+        self.assertTrue(any("RightElbow" in c for c in result["clamped_to_limits"]))
+        self.assertIn("right", result["predicted_landmarks_m"])
+        self.assertIn("arms", result["predicted_semantics"])
+        public = self.store.arm_proposal_public()
+        self.assertIsNotNone(public)
+        by_name = {t["name"]: t for t in public["targets"]}
+        self.assertEqual(by_name["RightShoulderPitch"]["q"], -1.4)
+        self.assertEqual(by_name["RightShoulderPitch"]["index"], 20)
+
+    def test_propose_rejects_unknown_and_non_finite(self) -> None:
+        self.assertFalse(self.store.run_chat_tool("propose_arm_pose", {"joints": {"LeftKnee": 0.2}})["ok"])
+        self.assertFalse(self.store.run_chat_tool("propose_arm_pose", {"joints": {"LeftElbow": float("nan")}})["ok"])
+        self.assertFalse(self.store.run_chat_tool("propose_arm_pose", {"joints": {}})["ok"])
+        self.assertIsNone(self.store.arm_proposal_public())
+
+    def test_clear_discards_proposal(self) -> None:
+        self.store.run_chat_tool("propose_arm_pose", {"joints": {"LeftElbow": 1.0}})
+        result = self.store.run_chat_tool("propose_arm_pose", {"clear": True})
+        self.assertTrue(result["ok"])
+        self.assertIsNone(self.store.arm_proposal_public())
+
+    def test_snapshot_exposes_active_proposal_and_ttl_expiry(self) -> None:
+        self.store.run_chat_tool("propose_arm_pose", {"joints": {"LeftElbow": 1.0}})
+        self.assertIsNotNone(self.store.snapshot()["arm_proposal"])
+        with self.store.proposal_lock:
+            self.store.arm_proposal["created_at"] -= server.ARM_PROPOSAL_TTL_SECONDS + 1
+        self.assertIsNone(self.store.snapshot()["arm_proposal"])
+
+    def test_tool_spec_offered_when_move_enabled(self) -> None:
+        names = [spec["function"]["name"] for spec in self.store.chat_tool_specs()]
+        self.assertIn("propose_arm_pose", names)
+
+
 if __name__ == "__main__":
     unittest.main()

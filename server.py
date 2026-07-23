@@ -33,6 +33,7 @@ import urllib.request
 from urllib.parse import unquote, urlsplit, parse_qs
 from typing import Any
 
+import kinematics
 import tracking
 
 try:
@@ -319,6 +320,17 @@ JOINT_LIMITS = {
     26: (-1.27, 1.27),
 }
 WRIST_LIMITS = (-1.2, 1.2)
+ARM_JOINT_INDEX_BY_NAME = {name: index for index, name in JOINT_NAMES.items() if 13 <= index <= 26}
+ARM_PROPOSAL_TTL_SECONDS = 300.0
+try:
+    ARM_KINEMATICS: kinematics.ArmKinematics | None = kinematics.ArmKinematics()
+    LLM_ARM_GUIDE = kinematics.arm_pose_guide(
+        ARM_KINEMATICS,
+        {name: JOINT_LIMITS[index] for name, index in ARM_JOINT_INDEX_BY_NAME.items()},
+    )
+except Exception as _kin_exc:  # pragma: no cover - URDF missing on exotic installs
+    ARM_KINEMATICS = None
+    LLM_ARM_GUIDE = f"(arm kinematics unavailable: {_kin_exc})"
 # Waist ("torso") yaw is NOT part of the H1-2 arm_sdk joint set (H1_2_JointArmIndex
 # is 13-26 only), so it cannot be moved through rt/arm_sdk. It is driven separately
 # via rt/lowcmd commanding ONLY joint 12 -- legs and arms get mode=0 (no signal),
@@ -655,6 +667,30 @@ def track_tool_spec() -> dict[str, Any]:
                         "description": "Must be true; confirms the operator explicitly asked."},
         },
         ["action", "confirm"],
+    )
+
+
+def propose_tool_spec() -> dict[str, Any]:
+    return _chat_tool(
+        "propose_arm_pose",
+        "Plan an arm pose WITHOUT moving the robot. Give target angles in RADIANS for any "
+        "of the 14 arm joints (see the ARM JOINT GUIDE); the server clamps them to joint "
+        "limits, predicts the hands' positions with forward kinematics from the same URDF "
+        "as the digital twin, shows the operator a GREEN simulated twin next to the live "
+        "model, and returns predicted landmarks + body-language semantics. Check the "
+        "prediction against the operator's request and re-propose with corrected angles if "
+        "it mismatches. Nothing moves until the operator approves and you call move with "
+        "position='proposed'.",
+        {
+            "joints": {
+                "type": "object",
+                "description": "Target angles in radians keyed by joint name "
+                               "(LeftShoulderPitch ... RightWristYaw). Unlisted arm joints "
+                               "keep their current angle.",
+                "additionalProperties": {"type": "number"},
+            },
+            "clear": {"type": "boolean", "description": "true discards the pending proposal and hides the green preview."},
+        },
     )
 
 
@@ -2503,6 +2539,8 @@ class TelemetryStore:
         self.spatial_lock = threading.Lock()
         self.spatial_pose: dict[str, Any] | None = None
         self.spatial_pose_updated_at: float | None = None
+        self.proposal_lock = threading.Lock()
+        self.arm_proposal: dict[str, Any] | None = None
         self.camera_process: subprocess.Popen[bytes] | None = None
         self.camera_backend = os.environ.get("CAMERA_BACKEND", "auto")
         self.camera_topic = "/frontvideostream"
@@ -2605,6 +2643,7 @@ class TelemetryStore:
             **latest,
             "network": network_status(self.robot_host),
             "loco": self._loco_status_payload(loco_status, robot, loco_available, include_metadata=False),
+            "arm_proposal": self.arm_proposal_public(),
         }
 
     def update_spatial_pose(self, payload: Any) -> tuple[int, dict[str, Any]]:
@@ -2639,6 +2678,101 @@ class TelemetryStore:
                 "contract": {"position": "saved position name", "confirm": True},
                 "available_positions": sorted(self.named_positions()),
             },
+        }
+
+    def propose_arm_pose(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Validate + clamp LLM-guessed joint angles and stage them as a preview.
+
+        NEVER moves the robot: the proposal only feeds the green ghost in the
+        dashboard and the later, separately confirmed 'move position=proposed'.
+        """
+        if ARM_KINEMATICS is None:
+            return {"ok": False, "error": "Arm kinematics are unavailable on this host."}
+        if arguments.get("clear") is True:
+            with self.proposal_lock:
+                had = self.arm_proposal is not None
+                self.arm_proposal = None
+            return {"ok": True, "cleared": had, "message": "Proposal discarded; the green preview is hidden."}
+        joints = arguments.get("joints")
+        valid_names = ", ".join(sorted(ARM_JOINT_INDEX_BY_NAME))
+        if not isinstance(joints, dict) or not joints:
+            return {"ok": False, "error": f"Provide joints as {{name: radians}}. Valid names: {valid_names}"}
+        targets: dict[str, float] = {}
+        clamped: list[str] = []
+        for name, value in joints.items():
+            index = ARM_JOINT_INDEX_BY_NAME.get(str(name))
+            if index is None:
+                return {"ok": False, "error": f"Unknown arm joint '{name}'. Valid names: {valid_names}"}
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                return {"ok": False, "error": f"Angle for {name} must be a finite number in radians."}
+            limited = self._clamp_joint_target(index, float(value))
+            if abs(limited - float(value)) > 1e-9:
+                clamped.append(f"{name}: {float(value):.3f} -> {limited:.3f} (joint limit)")
+            targets[str(name)] = round(limited, 4)
+        with self.lock:
+            motors = list(self.latest.get("motors") or [])
+        q_by_name = {
+            str(motor.get("name")): float(motor["q"])
+            for motor in motors
+            if isinstance(motor, dict) and isinstance(motor.get("q"), (int, float))
+            and not isinstance(motor.get("q"), bool) and math.isfinite(float(motor["q"]))
+        }
+        no_live_telemetry = False
+        full: dict[str, float] = {}
+        for name in ARM_JOINT_INDEX_BY_NAME:
+            if name in targets:
+                full[name] = targets[name]
+            elif name in q_by_name:
+                full[name] = round(q_by_name[name], 4)
+            else:
+                full[name] = 0.0
+                no_live_telemetry = True
+        landmarks = ARM_KINEMATICS.landmarks(full)
+        semantic = semantic_arm_pose({side: {"landmarks_robot_m": landmarks[side]} for side in landmarks})
+        proposal = {
+            "id": f"pose-{time.monotonic_ns()}",
+            "created_at": time.time(),
+            "requested": dict(targets),
+            "targets": full,
+        }
+        with self.proposal_lock:
+            self.arm_proposal = proposal
+        result: dict[str, Any] = {
+            "ok": True,
+            "moved_nothing": True,
+            "proposal_id": proposal["id"],
+            "targets_rad": full,
+            "predicted_landmarks_m": landmarks,
+            "predicted_semantics": semantic,
+            "preview": "The operator now sees this pose as a GREEN simulated twin next to the live model.",
+            "next_step": "If the prediction matches the request, briefly ask the operator to check the "
+                         "green preview; after they approve, call move {'position': 'proposed', 'confirm': true}.",
+        }
+        if clamped:
+            result["clamped_to_limits"] = clamped
+        if no_live_telemetry:
+            result["note"] = "No live joint telemetry; unspecified joints were assumed 0 rad."
+        return result
+
+    def arm_proposal_public(self) -> dict[str, Any] | None:
+        """Proposal summary for /api/state and the browser ghost; expires by TTL."""
+        with self.proposal_lock:
+            proposal = self.arm_proposal
+        if not proposal:
+            return None
+        age = time.time() - proposal["created_at"]
+        if age > ARM_PROPOSAL_TTL_SECONDS:
+            with self.proposal_lock:
+                if self.arm_proposal is proposal:
+                    self.arm_proposal = None
+            return None
+        return {
+            "id": proposal["id"],
+            "age_seconds": round(age, 1),
+            "targets": [
+                {"index": ARM_JOINT_INDEX_BY_NAME[name], "name": name, "q": q}
+                for name, q in sorted(proposal["targets"].items(), key=lambda kv: ARM_JOINT_INDEX_BY_NAME[kv[0]])
+            ],
         }
 
     def camera_snapshot(self) -> dict[str, Any]:
@@ -4308,6 +4442,7 @@ class TelemetryStore:
         if not LLM_TOOL_CHILL_ENABLED:
             specs = [spec for spec in specs if spec["function"]["name"] != "chill_motors"]
         if LLM_TOOL_MOVE_ENABLED:
+            specs.append(propose_tool_spec())
             positions = sorted(self.named_positions())
             if positions:
                 specs.append(move_tool_spec(positions))
@@ -4382,6 +4517,8 @@ class TelemetryStore:
                 return self._tool_joint_details(arguments.get("joint"))
             if name == "get_spatial_pose":
                 return self.spatial_pose_snapshot()
+            if name == "propose_arm_pose":
+                return self.propose_arm_pose(arguments)
             if name == "get_loco_status":
                 return {"ok": True, "loco": self.loco_snapshot()}
             if name == "ros2_node_list":

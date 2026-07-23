@@ -176,6 +176,9 @@ def arm_pose_guide(kin: ArmKinematics, limits_by_name: dict[str, tuple[float, fl
          {"RightShoulderPitch": -2.2, "RightShoulderRoll": -0.35}),
         ("arm opened sideways at shoulder height (T-pose)",
          {"RightShoulderRoll": -1.57}),
+        ("arm crossed in front of the chest (hand on the opposite side)",
+         {"RightShoulderPitch": -1.6, "RightShoulderRoll": 0.38,
+          "RightShoulderYaw": 1.5, "RightElbow": 1.2}),
     ]
     for label, angles in anchors:
         hand = kin.landmarks(angles)["right"]["hand"]

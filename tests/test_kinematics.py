@@ -83,8 +83,12 @@ class ArmPoseGuideTest(unittest.TestCase):
 
     def test_guide_lists_canonical_pose_anchors(self) -> None:
         self.assertIn("CANONICAL POSES", self.guide)
-        for anchor in ("hands raised high", "straight forward", "opened sideways"):
+        for anchor in ("hands raised high", "straight forward", "opened sideways", "crossed in front"):
             self.assertIn(anchor, self.guide)
+        # The crossed anchor must actually put the right hand on the LEFT side.
+        crossed = self.kin.landmarks({"RightShoulderPitch": -1.6, "RightShoulderRoll": 0.38,
+                                      "RightShoulderYaw": 1.5, "RightElbow": 1.2})
+        self.assertGreater(crossed["right"]["hand"]["y"], 0.05)
         # The hands-up anchor must place the hand well above the shoulder per FK.
         up = self.kin.landmarks({"RightShoulderPitch": -2.2, "RightShoulderRoll": -0.35})
         shoulder_z = self.kin.landmarks({})["right"]["shoulder"]["z"]

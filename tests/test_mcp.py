@@ -89,6 +89,18 @@ class McpRequestTest(unittest.TestCase):
         self.assertFalse(result["isError"])
         self.assertEqual(json.loads(result["content"][0]["text"]), {"ok": True, "loco": {}})
 
+    def test_shared_spatial_pose_tool_is_available_to_mcp_clients(self) -> None:
+        self.store.spatial_pose = {"semantic_pose": {"whole_body_concepts": ["both arms held forward"]}}
+        self.store.spatial_pose_updated_at = server.time.time()
+        response = self.store.mcp_request(rpc("tools/call", {"name": "get_spatial_pose"}))
+        result = json.loads(response["result"]["content"][0]["text"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["actual"]["semantic_pose"]["whole_body_concepts"],
+            ["both arms held forward"],
+        )
+        self.assertEqual(result["target_interface"]["tool"], "move")
+
     def test_tools_call_unknown_tool_is_invalid_params(self) -> None:
         response = self.store.mcp_request(rpc("tools/call", {"name": "launch_rockets"}))
         self.assertEqual(response["error"]["code"], -32602)

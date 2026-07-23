@@ -587,6 +587,12 @@ def _chat_tool(name: str, description: str, properties: dict[str, Any] | None = 
 # Every handler runs locally on the robot PC (in-process state or the ros2 CLI).
 CHAT_TOOL_SPECS: list[dict[str, Any]] = [
     _chat_tool(
+        "get_spatial_pose",
+        "Shared semantic arm-pose state used by both the dashboard assistant and "
+        "external Claude/MCP clients. Returns actual hand/arm body-language concepts, "
+        "target-vs-actual context when available, and saved target position names.",
+    ),
+    _chat_tool(
         "get_joint_details",
         "Full live state (q, dq, tau_est, temperature, voltage, mode) of one body motor "
         "or hand joint, looked up by name (e.g. RightElbow, LeftIndex).",
@@ -2494,6 +2500,9 @@ class TelemetryStore:
         self.webcam_frame: bytes | None = None
         self.webcam_timestamp: float | None = None
         self.webcam_error: str | None = "Webcam bridge starting."
+        self.spatial_lock = threading.Lock()
+        self.spatial_pose: dict[str, Any] | None = None
+        self.spatial_pose_updated_at: float | None = None
         self.camera_process: subprocess.Popen[bytes] | None = None
         self.camera_backend = os.environ.get("CAMERA_BACKEND", "auto")
         self.camera_topic = "/frontvideostream"
@@ -2596,6 +2605,40 @@ class TelemetryStore:
             **latest,
             "network": network_status(self.robot_host),
             "loco": self._loco_status_payload(loco_status, robot, loco_available, include_metadata=False),
+        }
+
+    def update_spatial_pose(self, payload: Any) -> tuple[int, dict[str, Any]]:
+        """Accept validated URDF geometry from the live twin, without its image."""
+        value = payload.get("twin_evidence") if isinstance(payload, dict) else None
+        if value is None and isinstance(payload, dict):
+            value = payload
+        text, _ = parse_twin_evidence(value)
+        if text is None:
+            return 400, {"ok": False, "error": "Valid digital-twin spatial evidence is required."}
+        pose = json.loads(text)
+        now = time.time()
+        with self.spatial_lock:
+            self.spatial_pose = pose
+            self.spatial_pose_updated_at = now
+        return 200, {"ok": True, "updated_at": now}
+
+    def spatial_pose_snapshot(self) -> dict[str, Any]:
+        with self.spatial_lock:
+            pose = json.loads(json.dumps(self.spatial_pose)) if self.spatial_pose else None
+            updated_at = self.spatial_pose_updated_at
+        age = None if updated_at is None else max(0.0, time.time() - updated_at)
+        return {
+            "ok": pose is not None,
+            "available": pose is not None,
+            "stale": age is None or age > 3.0,
+            "age_seconds": None if age is None else round(age, 3),
+            "updated_at": updated_at,
+            "actual": pose,
+            "target_interface": {
+                "tool": "move",
+                "contract": {"position": "saved position name", "confirm": True},
+                "available_positions": sorted(self.named_positions()),
+            },
         }
 
     def camera_snapshot(self) -> dict[str, Any]:
@@ -4232,6 +4275,12 @@ class TelemetryStore:
                 ros_graph = None
         context = build_telemetry_context(self.snapshot(), ros_graph)
         twin_text, twin_image = parse_twin_evidence(payload.get("twin_evidence"))
+        if twin_text:
+            self.update_spatial_pose(payload)
+        else:
+            cached_pose = self.spatial_pose_snapshot()
+            if cached_pose.get("available"):
+                twin_text = json.dumps(cached_pose["actual"], ensure_ascii=False, separators=(",", ":"))
         behavior = LLM_TOOLS_PROMPT if LLM_TOOLS_ENABLED else LLM_READONLY_PROMPT
         system = f"{LLM_SYSTEM_PROMPT}{behavior}\n\nTELEMETRY SNAPSHOT (updated live):\n{context}"
         if twin_text:
@@ -4331,6 +4380,8 @@ class TelemetryStore:
         try:
             if name == "get_joint_details":
                 return self._tool_joint_details(arguments.get("joint"))
+            if name == "get_spatial_pose":
+                return self.spatial_pose_snapshot()
             if name == "get_loco_status":
                 return {"ok": True, "loco": self.loco_snapshot()}
             if name == "ros2_node_list":
@@ -6065,6 +6116,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_file(STATIC_DIR / "styles.css", "text/css; charset=utf-8")
         elif request_path == "/api/state":
             self._send_json(self.store.snapshot())
+        elif request_path == "/api/spatial/pose":
+            self._send_json(self.store.spatial_pose_snapshot())
         elif request_path == "/api/camera":
             self._send_json(self.store.camera_snapshot())
         elif request_path == "/api/track/status":
@@ -6153,6 +6206,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/loco/command",
             "/api/xr/mode",
             "/api/chat",
+            "/api/spatial/pose",
             "/api/stt",
             "/api/tts",
             "/api/recording/start",
@@ -6187,6 +6241,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/loco/command",
             "/api/xr/mode",
             "/api/chat",
+            "/api/spatial/pose",
             "/api/tts",
             "/api/recording/start",
             "/api/recording/pose",
@@ -6261,6 +6316,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/chat":
             status, response = self.store.chat(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/spatial/pose":
+            status, response = self.store.update_spatial_pose(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

@@ -687,7 +687,7 @@
       const params = new URLSearchParams(window.location.search);
       const lite = ["1", "true", "yes"].includes((params.get("lite") || params.get("no3d") || "").toLowerCase());
       if (!lite) {
-        import("/viewer.js?v=twin-evidence-v1");
+        import("/viewer.js?v=shared-spatial-v1");
       }
     </script>
   </body>

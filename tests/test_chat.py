@@ -226,6 +226,42 @@ class ChatValidationTest(unittest.TestCase):
         self.assertEqual(content[0], {"type": "text", "text": "Kol nerede?"})
         self.assertEqual(content[1]["image_url"]["url"], image)
 
+    def test_shared_spatial_pose_is_cached_for_local_chat_and_external_clients(self) -> None:
+        evidence = {
+            "spatial": {"hands": {"right": {
+                "ground_m": {"x": 0.41, "y": -0.27, "z": 1.44},
+                "landmarks_robot_m": {
+                    "shoulder": {"x": 0.0, "y": -0.2, "z": 1.4},
+                    "elbow": {"x": 0.2, "y": -0.3, "z": 1.42},
+                    "hand": {"x": 0.41, "y": -0.27, "z": 1.44},
+                },
+                "direction": {"forward": "front", "lateral": "right", "height": "high"},
+            }}},
+        }
+        status, updated = self.store.update_spatial_pose(evidence)
+        self.assertEqual(status, 200)
+        self.assertTrue(updated["ok"])
+        shared = self.store.spatial_pose_snapshot()
+        self.assertTrue(shared["available"])
+        self.assertFalse(shared["stale"])
+        self.assertIn("held forward", shared["actual"]["semantic_pose"]["arms"]["right"]["concepts"])
+        self.assertEqual(shared["target_interface"]["tool"], "move")
+
+        captured: dict = {}
+
+        def fake_call_llm(messages, tools=None):
+            captured["messages"] = messages
+            return 200, {"ok": True, "reply": "Sağ kol önde."}
+
+        with mock.patch.object(self.store, "snapshot", return_value=SNAPSHOT), mock.patch.object(
+            server, "call_llm", side_effect=fake_call_llm
+        ):
+            status, response = self.store.chat({"messages": [{"role": "user", "content": "Kol nerede?"}]})
+        self.assertEqual(status, 200)
+        self.assertTrue(response["ok"])
+        self.assertIn("DIGITAL TWIN SPATIAL EVIDENCE", captured["messages"][0]["content"])
+        self.assertIn("held forward", captured["messages"][0]["content"])
+
     def test_content_is_truncated(self) -> None:
         long = "a" * (server.LLM_MAX_MESSAGE_CHARS + 500)
         captured: dict = {}

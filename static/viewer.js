@@ -1326,9 +1326,36 @@ const replayViewer = new RobotViewer({
 
 window.captureDigitalTwinEvidence = () => liveViewer.captureEvidence();
 
+let spatialPublishTimer = null;
+let lastSpatialPublish = 0;
+function publishSharedSpatialPose() {
+  const now = performance.now();
+  const wait = Math.max(0, 500 - (now - lastSpatialPublish));
+  if (spatialPublishTimer) return;
+  spatialPublishTimer = window.setTimeout(async () => {
+    spatialPublishTimer = null;
+    const evidence = liveViewer.captureEvidence();
+    if (!evidence?.spatial) return;
+    // The shared service needs geometry, not a large screenshot. Chat captures
+    // the image separately when a vision-capable model is actually queried.
+    evidence.screenshot = null;
+    try {
+      await fetch("/api/spatial/pose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(evidence),
+      });
+      lastSpatialPublish = performance.now();
+    } catch (error) {
+      // The dashboard must keep rendering even if the optional shared API is unavailable.
+    }
+  }, wait);
+}
+
 window.addEventListener("telemetry-state", (event) => {
   liveViewer.queueTelemetry(event.detail.snapshot, "live");
   replayViewer.queueTelemetry(event.detail.snapshot, "reference");
+  publishSharedSpatialPose();
 });
 window.addEventListener("recording-replay-frame", (event) => replayViewer.applyTelemetry(event.detail.snapshot, "replay"));
 window.addEventListener("recording-replay-target", (event) => replayViewer.applyTelemetry(event.detail.snapshot, "target"));

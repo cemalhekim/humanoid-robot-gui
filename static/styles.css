@@ -444,6 +444,17 @@ h1 {
   content: none;
 }
 
+/* Full-size topbar action buttons (48px tall) get a matching square width. */
+.status-strip .icon-button {
+  width: 48px;
+  min-width: 48px;
+}
+
+.status-strip .icon-button svg {
+  width: 20px;
+  height: 20px;
+}
+
 /* Checkbox toggles rendered as icon pill buttons: red when off, green when on. */
 .inline-toggle.toggle-button {
   justify-content: center;

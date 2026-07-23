@@ -589,7 +589,10 @@ function updateRobotMotionToggle() {
   if (!button) return;
   const connected = Boolean(state.latest?.connected);
   const active = Boolean(state.recordingActive);
-  button.textContent = active ? "Stop Saving Robot Motion" : "Save Real Robot Motion";
+  button.innerHTML = active
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><rect x="8.6" y="8.6" width="6.8" height="6.8" rx="1" fill="currentColor" stroke="none"/></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/></svg>';
+  button.setAttribute("aria-label", active ? "Stop Saving Robot Motion" : "Save Real Robot Motion");
   button.disabled = !active && !connected;
   button.classList.toggle("emergency-button", active);
   button.classList.toggle("ghost-button", !active);
@@ -2100,7 +2103,6 @@ function chillMotors() {
   if (!els.chillMotors) return;
   els.chillMotors.disabled = true;
   els.chillMotors.classList.add("pending");
-  els.chillMotors.textContent = "Releasing";
   fetch("/api/robot/chill", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2126,7 +2128,6 @@ function chillMotors() {
     .finally(() => {
       els.chillMotors.disabled = false;
       els.chillMotors.classList.remove("pending");
-      els.chillMotors.textContent = "Release";
       loadWristStatus();
     });
 }
@@ -2135,7 +2136,6 @@ function sendRobotHome() {
   if (!els.homeRobot) return;
   els.homeRobot.disabled = true;
   els.homeRobot.classList.add("pending");
-  els.homeRobot.textContent = "Homing";
   fetch("/api/robot/home", { method: "POST" })
     .then((response) =>
       response.json().then((data) => {
@@ -2155,7 +2155,6 @@ function sendRobotHome() {
     .finally(() => {
       els.homeRobot.disabled = false;
       els.homeRobot.classList.remove("pending");
-      els.homeRobot.textContent = "Home";
       loadWristStatus();
       loadLocoStatus();
     });
@@ -2167,7 +2166,6 @@ function sendRobotStraight() {
   if (!els.straightRobot) return;
   els.straightRobot.disabled = true;
   els.straightRobot.classList.add("pending");
-  els.straightRobot.textContent = "Standing";
   fetch("/api/loco/command", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2192,7 +2190,6 @@ function sendRobotStraight() {
     .finally(() => {
       els.straightRobot.disabled = false;
       els.straightRobot.classList.remove("pending");
-      els.straightRobot.textContent = "Stand Up";
       loadWristStatus();
       loadLocoStatus();
     });

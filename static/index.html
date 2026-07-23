@@ -78,9 +78,9 @@
             <span id="networkType" class="metric signal-chip">Detecting network</span>
             <span id="rate" class="metric success">-- Hz</span>
             <span id="connection" class="pill bad">Disconnected</span>
-            <button id="chillMotors" class="emergency-button" type="button" title="Release: damp all motors — the arms go limp">Release</button>
-            <button id="straightRobot" class="chill-button" type="button" title="Recover after Release: lock stand — the RC left+up combo in software">Stand Up</button>
-            <button id="homeRobot" class="chill-button" type="button" title="Move the arms to the saved 'home' pose (closed-loop arm_sdk)">Home</button>
+            <button id="chillMotors" class="emergency-button icon-button" type="button" title="Release: damp all motors — the arms go limp" aria-label="Release"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7.3 7.3 0 0 0-7.3 7.3c0 2.5 1.2 4.3 2.9 5.5v3a1.9 1.9 0 0 0 1.9 1.9h5a1.9 1.9 0 0 0 1.9-1.9v-3c1.7-1.2 2.9-3 2.9-5.5A7.3 7.3 0 0 0 12 3z"/><circle cx="9.2" cy="10.8" r="1.5" fill="currentColor" stroke="none"/><circle cx="14.8" cy="10.8" r="1.5" fill="currentColor" stroke="none"/><path d="M10.3 20.6v-1.8M13.7 20.6v-1.8"/></svg></button>
+            <button id="straightRobot" class="chill-button icon-button" type="button" title="Recover after Release: lock stand — the RC left+up combo in software" aria-label="Stand Up"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.8" r="2"/><path d="M12 6.8v6.7"/><path d="M12 9L8.2 5.9M12 9l3.8-3.1"/><path d="M12 13.5l-3.1 5.6M12 13.5l3.1 5.6"/><path d="M4.5 21h15"/></svg></button>
+            <button id="homeRobot" class="chill-button icon-button" type="button" title="Move the arms to the saved 'home' pose (closed-loop arm_sdk)" aria-label="Home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 9.6V20h12V9.6"/><path d="M10 20v-5.5h4V20"/></svg></button>
           </div>
         </header>
 
@@ -221,7 +221,7 @@
                 <span id="recordingState" class="pill bad">Idle</span>
                 <label class="inline-toggle toggle-button sequence-debug-toggle" title="Bounds"><input id="collisionDebugToggle" type="checkbox"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/></svg><span class="visually-hidden">Bounds</span></label>
                 <button id="recordingSequenceToggle" class="ghost-button icon-button" type="button" title="Create Sequence" aria-label="Create Sequence"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M18 14v6M15 17h6"/></svg></button>
-                <button id="recordingRobotMotionToggle" class="ghost-button compact" type="button" disabled>Save Real Robot Motion</button>
+                <button id="recordingRobotMotionToggle" class="ghost-button compact icon-button" type="button" title="Save Real Robot Motion" aria-label="Save Real Robot Motion" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/></svg></button>
                 <button id="recordingCapturePose" class="ghost-button icon-button" type="button" title="Save Pose" aria-label="Save Pose"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4.2L6 21z"/></svg></button>
               </div>
             </div>

@@ -187,6 +187,8 @@ class RobotViewer {
     this.linkGroups = null;
     this.referenceJointGroups = new Map();
     this.trajectoryJointGroups = new Map();
+    this.proposalJointGroups = new Map();
+    this.proposalRoot = null;
     this.gridHelper = null;
     this.jointGroups = new Map();
     this.latestState = null;
@@ -292,6 +294,23 @@ class RobotViewer {
         const urdfJoints = HAND_JOINTS[hand.name] || [];
         for (const jointConfig of urdfJoints) {
           this.setJointValue(jointConfig.joint, handValueToUrdfAngle(hand.q, jointConfig));
+        }
+      }
+    }
+
+    if (this.live && this.proposalRoot) {
+      const proposal = snapshot.arm_proposal;
+      const active = Boolean(proposal && Array.isArray(proposal.targets) && proposal.targets.length);
+      this.proposalRoot.visible = active;
+      if (active) {
+        // The ghost mirrors the live body first, then the proposed arm targets override.
+        for (const motor of snapshot.motors || []) {
+          const urdfJoint = BODY_JOINTS[motor.name];
+          if (urdfJoint) this.setJointValueIn(this.proposalJointGroups, urdfJoint, motor.q);
+        }
+        for (const target of proposal.targets) {
+          const urdfJoint = BODY_JOINTS[target.name];
+          if (urdfJoint) this.setJointValueIn(this.proposalJointGroups, urdfJoint, target.q);
         }
       }
     }
@@ -1219,6 +1238,15 @@ class RobotViewer {
       this.setCollisionDebugVisible(this.collisionDebugVisible);
     } else {
       this.robotRoot = this.buildRobot(xml, { name: "h1_2", tone: "default", targetGroups: this.jointGroups });
+      if (this.live) {
+        // LLM pose proposals: green simulated twin, hidden until a proposal is staged.
+        this.proposalRoot = this.buildRobot(xml, {
+          name: "h1_2_proposal",
+          tone: "trajectory",
+          targetGroups: this.proposalJointGroups,
+        });
+        this.proposalRoot.visible = false;
+      }
     }
     this.modelReady = true;
     // Apply the operator's hands on/off preference to the freshly built models.

@@ -1,7 +1,7 @@
 # Sentry Mode Phase 3 — permanent closed-loop pointing at the locked person
 
 **Date:** 2026-07-22
-**Status:** Approved design (operator decisions recorded below). Builds on
+**Status:** Implemented 2026-07-23 (operator decisions recorded below). Builds on
 Phase 1 (`/api/sentry/detect`) and Phase 2 (head-lock buttons).
 
 ## Operator decisions (2026-07-22)
@@ -44,10 +44,18 @@ Phase 1 (`/api/sentry/detect`) and Phase 2 (head-lock buttons).
     `TRACKING_CAMERA` env branch; env stays as the default camera).
   - Webcam sessions build the mapper from new env-tunable calibration
     constants (defined next to the other `TRACKING_*` constants):
-    `SENTRY_FOV_YAW` (default **-1.25** — negative mirrors yaw because the
-    webcam faces the robot), `SENTRY_FOV_PITCH` (0.9), `SENTRY_YAW_OFFSET`
-    (0.0), `SENTRY_PITCH_OFFSET` (0.35). Head sessions keep
+    `SENTRY_FOV_YAW` (default **1.25**, verified against the deployed webcam's
+    robot-relative image orientation), `SENTRY_FOV_PITCH` (0.9), `SENTRY_YAW_OFFSET`
+    (0.11), `SENTRY_PITCH_OFFSET` (-1.52). Head sessions keep
     `PointingMapper()` defaults.
+  - Webcam/Sentry targets keep the right-hand endpoint at the calibrated
+    center pose's pelvis-frame Z. Each horizontal pose is run through the
+    URDF FK model and shoulder pitch is solved inside the conservative
+    tracking limits; image Y therefore cannot make the hand drift vertically.
+  - Sentry uses an independently tunable response of 1.25 and target velocity
+    bound of 0.65 rad/s (`SENTRY_REPLAY_RESPONSE`,
+    `SENTRY_MAX_STEP_RAD_S`). General replay/head tracking keeps its existing
+    balanced tuning.
   - Target seeding: when the payload carries `target`, pre-set
     `state.target` to a synthetic person box at that cx/cy so the first
     association latches onto the clicked person, not the largest one.
@@ -66,7 +74,8 @@ Phase 1 (`/api/sentry/detect`) and Phase 2 (head-lock buttons).
 - Lock click (while Sentry on) → `POST /api/track/start` with
   `{armed: true, i_understand_risk: true, source: "sentry-lock",
   camera: "webcam", permanent: true, closed_loop: true,
-  target: {cx, cy}}` (center of the clicked track's smoothed box).
+  target: {cx, cy}, target_id}` (center and persistent detector identity of
+  the clicked track's smoothed box).
 - Unlock → `POST /api/track/stop`. Switching person → stop, then start with
   the new seed. Toggle off / floating cam close / locked track aged out →
   stop (fire-and-forget; `clearAllTracks` is the chokepoint).

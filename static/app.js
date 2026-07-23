@@ -3150,11 +3150,18 @@ connectEvents();
   let pendingLock = null;     // {serviceId, until}
   let count = null;           // persons in last good detection, or null
   let lastError = null;
+  let pointing = false;       // physical tracker confirmed active by server
+  let trackingRequested = false;
+  let trackRequestGeneration = 0;
+  let trackError = null;
+  let trackActionQueue = Promise.resolve();
+  const queueTrackAction = (action) => {
+    trackActionQueue = trackActionQueue.then(action, action);
+    return trackActionQueue;
+  };
 
-  // The SERVER owns Sentry Mode (operator invariant 2026-07-23: on = a
-  // tracking session runs, off = none). The toggle only renders the server
-  // flag and requests changes — no localStorage truth, so a reload, server
-  // restart, or second browser can never silently flip the master switch.
+  // The server owns the Sentry arming flag. Sentry ON enables prediction;
+  // physical motion begins only after an explicit person-lock request.
   let serverOn = false;
   const isOn = () => serverOn;
   const renderToggle = () => {
@@ -3167,18 +3174,100 @@ connectEvents();
       renderToggle();
     }
   };
+  const stopPointing = () => {
+    trackRequestGeneration += 1;
+    if (!pointing && !trackingRequested) return Promise.resolve();
+    pointing = false;
+    trackingRequested = false;
+    return fetch("/api/track/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    }).then((resp) => resp.json())
+      .then((data) => {
+        pointing = !!(data.tracking && data.tracking.active);
+        if (!pointing) trackError = null;
+        renderCounter();
+      })
+      .catch(() => {
+        trackError = "Tracking stop request failed.";
+        renderCounter();
+      });
+  };
+  const startPointing = async (track) => {
+    trackError = null;
+    if (track.serviceId === null) {
+      trackError = "Waiting for a stable person identity; tap the lock again.";
+      renderCounter();
+      return;
+    }
+    if (pointing || trackingRequested) await stopPointing();
+    const generation = ++trackRequestGeneration;
+    trackingRequested = true;
+    const target = center(track);
+    try {
+      const resp = await fetch("/api/track/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          armed: true,
+          i_understand_risk: true,
+          source: "sentry-lock",
+          camera: "webcam",
+          permanent: true,
+          closed_loop: true,
+          target,
+          target_id: track.serviceId,
+        }),
+      });
+      const data = await resp.json();
+      if (generation !== trackRequestGeneration) return;
+      trackingRequested = false;
+      pointing = !!(resp.ok && data.ok && data.tracking && data.tracking.active);
+      if (!pointing) trackError = data.error || "Physical tracking did not start.";
+    } catch {
+      if (generation !== trackRequestGeneration) return;
+      trackingRequested = false;
+      pointing = false;
+      trackError = "Physical tracking start request failed.";
+    }
+    renderCounter();
+  };
   const pushMode = (on) => fetch("/api/sentry/mode", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ on }),
   }).then((resp) => resp.json())
-    .then((data) => applyServerFlag(data.sentry_mode))
+    .then((data) => {
+      applyServerFlag(data.sentry_mode);
+      trackingRequested = false;
+      pointing = !!(data.tracking && data.tracking.active);
+      if (!data.sentry_mode) {
+        lockedId = null;
+        pendingLock = null;
+      }
+      renderCounter();
+    })
     .catch(() => {});
   const syncMode = () => fetch("/api/track/status")
     .then((resp) => resp.json())
-    .then((data) => applyServerFlag(data.tracking && data.tracking.sentry_mode))
+    .then((data) => {
+      const status = data.tracking || {};
+      applyServerFlag(status.sentry_mode);
+      if (status.active) trackingRequested = false;
+      pointing = !!status.active;
+      renderCounter();
+    })
     .catch(() => {});
-  toggle.addEventListener("click", () => pushMode(!isOn()));
+  toggle.addEventListener("click", () => {
+    const on = !isOn();
+    if (!on) {
+      lockedId = null;
+      pendingLock = null;
+      void queueTrackAction(stopPointing);
+    }
+    void pushMode(on);
+  });
   renderToggle();
   syncMode();
   window.setInterval(syncMode, 2000);
@@ -3224,6 +3313,7 @@ connectEvents();
   };
 
   const clearAllTracks = () => {
+    if (pointing || trackingRequested) void queueTrackAction(stopPointing);
     tracks.forEach(removeTrack);
     tracks = [];
     lockedId = null;
@@ -3309,7 +3399,10 @@ connectEvents();
       }
       return true;
     });
-    if (pendingLock && now > pendingLock.until) pendingLock = null;
+    if (pendingLock && now > pendingLock.until) {
+      pendingLock = null;
+      if (pointing || trackingRequested) void queueTrackAction(stopPointing);
+    }
   };
 
   const buttonFor = (track) => {
@@ -3323,7 +3416,17 @@ connectEvents();
     btn.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
       event.preventDefault();
-      lockedId = lockedId === track.id ? null : track.id;
+      if (lockedId === track.id) {
+        lockedId = null;
+        pendingLock = null;
+        void queueTrackAction(stopPointing);
+      } else {
+        lockedId = track.id;
+        pendingLock = null;
+        void queueTrackAction(() => (
+          lockedId === track.id ? startPointing(track) : Promise.resolve()
+        ));
+      }
       renderButtons();
       renderCounter();
     });
@@ -3401,9 +3504,10 @@ connectEvents();
     }
     counter.classList.remove("hidden");
     if (count !== null) {
-      const lockState = lockedId !== null ? " • LOCKED" : (pendingLock ? " • RE-LOCK…" : "");
+      const lockState = pointing ? " • POINTING"
+        : (lockedId !== null ? " • LOCKED" : (pendingLock ? " • RE-LOCK…" : ""));
       counter.textContent = `Sentry: ${count}${lockState}`;
-      counter.title = lastError || "People detected on the webcam feed";
+      counter.title = trackError || lastError || "People detected on the webcam feed";
     } else {
       counter.textContent = "Sentry: —";
       counter.title = lastError;

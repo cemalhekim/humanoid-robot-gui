@@ -113,25 +113,139 @@ class ArmKinematics:
                 chain.reverse()
                 self._chains[f"{side}:{part}"] = chain
 
-    def landmarks(self, angles_rad: dict[str, float]) -> dict[str, dict[str, dict[str, float]]]:
+    @staticmethod
+    def _joint_angles_by_urdf(angles_rad: dict[str, float]) -> dict[str, float]:
         unknown = set(angles_rad) - set(TELEMETRY_TO_URDF_JOINT)
         if unknown:
             raise ValueError(f"Unknown arm joints: {', '.join(sorted(unknown))}")
-        by_urdf = {TELEMETRY_TO_URDF_JOINT[name]: float(value) for name, value in angles_rad.items()}
+        return {TELEMETRY_TO_URDF_JOINT[name]: float(value) for name, value in angles_rad.items()}
+
+    def _landmark_position(
+        self,
+        by_urdf: dict[str, float],
+        side: str,
+        part: str,
+    ) -> dict[str, float]:
+        rotation, position = _IDENTITY, [0.0, 0.0, 0.0]
+        for joint in self._chains[f"{side}:{part}"]:
+            position = [p + o for p, o in zip(position, _mat_vec(rotation, joint["xyz"]))]
+            rotation = _mat_mul(rotation, _rot_rpy(*joint["rpy"]))
+            if joint["type"] in ("revolute", "continuous"):
+                rotation = _mat_mul(
+                    rotation,
+                    _rot_axis(joint["axis"], by_urdf.get(joint["name"], 0.0)),
+                )
+        return {"x": position[0], "y": position[1], "z": position[2]}
+
+    @staticmethod
+    def _rounded_position(position: dict[str, float], digits: int | None) -> dict[str, float]:
+        if digits is None:
+            return position
+        return {axis: round(value, digits) for axis, value in position.items()}
+
+    def landmark(
+        self,
+        angles_rad: dict[str, float],
+        side: str,
+        part: str,
+        *,
+        round_digits: int | None = 3,
+    ) -> dict[str, float]:
+        """Return one FK landmark, optionally without display rounding."""
+        if side not in ("left", "right") or part not in _LANDMARK_LINKS:
+            raise ValueError(f"Unknown landmark: {side}:{part}")
+        by_urdf = self._joint_angles_by_urdf(angles_rad)
+        return self._rounded_position(
+            self._landmark_position(by_urdf, side, part),
+            round_digits,
+        )
+
+    def landmarks(
+        self,
+        angles_rad: dict[str, float],
+        *,
+        round_digits: int | None = 3,
+    ) -> dict[str, dict[str, dict[str, float]]]:
+        by_urdf = self._joint_angles_by_urdf(angles_rad)
         result: dict[str, dict[str, dict[str, float]]] = {}
         for side in ("left", "right"):
             result[side] = {}
             for part in _LANDMARK_LINKS:
-                rotation, position = _IDENTITY, [0.0, 0.0, 0.0]
-                for joint in self._chains[f"{side}:{part}"]:
-                    position = [p + o for p, o in zip(position, _mat_vec(rotation, joint["xyz"]))]
-                    rotation = _mat_mul(rotation, _rot_rpy(*joint["rpy"]))
-                    if joint["type"] in ("revolute", "continuous"):
-                        rotation = _mat_mul(rotation, _rot_axis(joint["axis"], by_urdf.get(joint["name"], 0.0)))
-                result[side][part] = {
-                    "x": round(position[0], 3), "y": round(position[1], 3), "z": round(position[2], 3),
-                }
+                result[side][part] = self._rounded_position(
+                    self._landmark_position(by_urdf, side, part),
+                    round_digits,
+                )
         return result
+
+    def solve_hand_z(
+        self,
+        angles_rad: dict[str, float],
+        side: str,
+        target_z: float,
+        pitch_limits: tuple[float, float],
+        *,
+        samples: int = 24,
+        iterations: int = 18,
+    ) -> float:
+        """Solve shoulder pitch so the selected hand stays at ``target_z``.
+
+        A coarse bracket scan followed by bisection is robust to the arm
+        chain's trigonometric shape and keeps the real-time solve dependency
+        free. If the requested height is unreachable, the closest safe pitch
+        sample is returned.
+        """
+        if side not in ("left", "right"):
+            raise ValueError(f"Unknown arm side: {side}")
+        if not math.isfinite(float(target_z)):
+            raise ValueError("target_z must be finite")
+        lo, hi = sorted((float(pitch_limits[0]), float(pitch_limits[1])))
+        if not math.isfinite(lo) or not math.isfinite(hi) or lo == hi:
+            raise ValueError("pitch_limits must contain two distinct finite values")
+        samples = max(2, int(samples))
+        iterations = max(1, int(iterations))
+
+        pitch_name = f"{side.capitalize()}ShoulderPitch"
+        pitch_urdf = TELEMETRY_TO_URDF_JOINT[pitch_name]
+        by_urdf = self._joint_angles_by_urdf(angles_rad)
+        preferred = max(lo, min(hi, float(angles_rad.get(pitch_name, (lo + hi) * 0.5))))
+
+        def error_at(pitch: float) -> tuple[float, float]:
+            by_urdf[pitch_urdf] = pitch
+            z = self._landmark_position(by_urdf, side, "hand")["z"]
+            return z - target_z, z
+
+        points: list[tuple[float, float]] = []
+        best = (math.inf, math.inf, preferred)
+        for index in range(samples + 1):
+            pitch = lo + (hi - lo) * index / samples
+            error, _ = error_at(pitch)
+            points.append((pitch, error))
+            candidate = (abs(error), abs(pitch - preferred), pitch)
+            if candidate < best:
+                best = candidate
+
+        roots: list[tuple[float, float, float]] = []
+        for (left, left_error), (right, right_error) in zip(points, points[1:]):
+            if left_error == 0.0:
+                roots.append((0.0, abs(left - preferred), left))
+                continue
+            if left_error * right_error > 0.0:
+                continue
+            for _ in range(iterations):
+                mid = (left + right) * 0.5
+                mid_error, _ = error_at(mid)
+                candidate = (abs(mid_error), abs(mid - preferred), mid)
+                if candidate < best:
+                    best = candidate
+                if left_error * mid_error <= 0.0:
+                    right, right_error = mid, mid_error
+                else:
+                    left, left_error = mid, mid_error
+            pitch = (left + right) * 0.5
+            error, _ = error_at(pitch)
+            roots.append((abs(error), abs(pitch - preferred), pitch))
+
+        return min(roots, default=best)[2]
 
 
 def arm_pose_guide(kin: ArmKinematics, limits_by_name: dict[str, tuple[float, float]]) -> str:

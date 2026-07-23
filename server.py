@@ -446,12 +446,127 @@ TRACKING_RATE_HZ = max(1.0, min(15.0, float(os.environ.get("TRACKING_RATE_HZ", "
 # Target rate of the sentry push-stream detect loop (the real rate is capped
 # by the AI-host roundtrip; the loop never overlaps requests).
 SENTRY_STREAM_HZ = max(1.0, min(30.0, float(os.environ.get("SENTRY_STREAM_HZ", "15") or 15)))
+# The deployed USB camera already presents robot-relative left/right (verified
+# during supervised bring-up 2026-07-23), so its mapping must not be mirrored.
+SENTRY_FOV_YAW = float(os.environ.get("SENTRY_FOV_YAW", "1.25") or 1.25)
+SENTRY_FOV_PITCH = float(os.environ.get("SENTRY_FOV_PITCH", "0.9") or 0.9)
+SENTRY_YAW_OFFSET = float(os.environ.get("SENTRY_YAW_OFFSET", "0.11") or 0.11)
+SENTRY_PITCH_OFFSET = float(os.environ.get("SENTRY_PITCH_OFFSET", "-1.52") or -1.52)
+# Sentry is intentionally quicker than general pose replay while remaining
+# below the controller's legacy "responsive" ceiling. The velocity bound is
+# still applied before every publish, so detector jumps cannot become steps.
+SENTRY_REPLAY_RESPONSE = max(
+    0.0,
+    min(2.5, float(os.environ.get("SENTRY_REPLAY_RESPONSE", "1.25") or 1.25)),
+)
+SENTRY_MAX_STEP_RAD_S = max(
+    0.1,
+    min(1.0, float(os.environ.get("SENTRY_MAX_STEP_RAD_S", "0.65") or 0.65)),
+)
 TRACKING_MAX_SESSION_S = max(30.0, float(os.environ.get("TRACKING_MAX_SESSION_S", "600") or 600))
 LLM_TOOL_TRACK_ENABLED = os.environ.get("LLM_TOOL_TRACK_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
 LLM_MAX_TOOL_ROUNDS = int(os.environ.get("LLM_MAX_TOOL_ROUNDS", "4"))
 LLM_MAX_TOOL_CALLS_PER_ROUND = int(os.environ.get("LLM_MAX_TOOL_CALLS_PER_ROUND", "5"))
 LLM_TOOL_OUTPUT_CHARS = int(os.environ.get("LLM_TOOL_OUTPUT_CHARS", "6000"))
 ROS2_TOOL_TIMEOUT = float(os.environ.get("ROS2_TOOL_TIMEOUT", "6"))
+
+
+def _named_arm_targets(targets: dict[int, float]) -> dict[str, float]:
+    return {
+        JOINT_NAMES[index]: float(value)
+        for index, value in targets.items()
+        if index in JOINT_NAMES and 13 <= index <= 26
+    }
+
+
+def sentry_right_hand_z(targets: dict[int, float]) -> float | None:
+    """Unrounded pelvis-frame Z for a right-arm target, when FK is available."""
+    if ARM_KINEMATICS is None:
+        return None
+    return ARM_KINEMATICS.landmark(
+        _named_arm_targets(targets),
+        "right",
+        "hand",
+        round_digits=None,
+    )["z"]
+
+
+def sentry_constant_hand_z_goal(
+    targets: dict[int, float],
+    target_z: float | None,
+) -> dict[int, float]:
+    """Compensate shoulder pitch so Sentry's right hand keeps one height."""
+    out = dict(targets)
+    if ARM_KINEMATICS is None or target_z is None:
+        return out
+    pitch = ARM_KINEMATICS.solve_hand_z(
+        _named_arm_targets(out),
+        "right",
+        target_z,
+        tracking.TRACK_LIMITS[tracking.R_SHOULDER_PITCH],
+    )
+    out[tracking.R_SHOULDER_PITCH] = pitch
+    return out
+
+
+def sentry_constant_hand_z_step(
+    previous: dict[int, float],
+    stepped: dict[int, float],
+    target_z: float | None,
+    max_pitch_step: float,
+) -> dict[int, float]:
+    """Enforce fixed Z after smoothing without bypassing the velocity limit."""
+    out = sentry_constant_hand_z_goal(stepped, target_z)
+    joint = tracking.R_SHOULDER_PITCH
+    if joint not in previous or joint not in out:
+        return out
+    lo = previous[joint] - max(0.0, max_pitch_step)
+    hi = previous[joint] + max(0.0, max_pitch_step)
+    out[joint] = max(lo, min(hi, out[joint]))
+    return out
+
+
+def parse_track_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate one tracking-session configuration."""
+    camera = payload.get("camera", TRACKING_CAMERA)
+    if not isinstance(camera, str) or camera.lower() not in {"head", "webcam"}:
+        raise ValueError('camera must be "head" or "webcam".')
+    camera = camera.lower()
+
+    permanent = payload.get("permanent", False)
+    closed_loop = payload.get("closed_loop", True)
+    if not isinstance(permanent, bool):
+        raise ValueError("permanent must be a boolean.")
+    if not isinstance(closed_loop, bool):
+        raise ValueError("closed_loop must be a boolean.")
+
+    target = payload.get("target")
+    parsed_target: dict[str, float] | None = None
+    if target is not None:
+        if not isinstance(target, dict):
+            raise ValueError("target must contain normalized cx/cy coordinates.")
+        try:
+            cx = float(target["cx"])
+            cy = float(target["cy"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("target must contain numeric cx/cy coordinates.") from exc
+        if not math.isfinite(cx) or not math.isfinite(cy) or not (0.0 <= cx <= 1.0 and 0.0 <= cy <= 1.0):
+            raise ValueError("target cx/cy must be between 0 and 1.")
+        parsed_target = {"cx": cx, "cy": cy}
+
+    target_id = payload.get("target_id")
+    if target_id is not None and not isinstance(target_id, (int, str)):
+        raise ValueError("target_id must be an integer or string.")
+    if isinstance(target_id, str) and not target_id.strip():
+        raise ValueError("target_id must not be empty.")
+
+    return {
+        "camera": camera,
+        "permanent": permanent,
+        "closed_loop": closed_loop,
+        "target": parsed_target,
+        "target_id": target_id,
+    }
 
 # MCP (Model Context Protocol): exposes the SAME chat tools — same specs, same
 # dispatch, same guards (chill confirm gate, ros2 name validation, feature
@@ -2528,11 +2643,23 @@ class TelemetryStore:
         # Person-tracking session (guarded, mutually exclusive with replay).
         self.track_cancel: threading.Event | None = None
         self.track_thread: threading.Thread | None = None
+        self.track_config: dict[str, Any] = {
+            "camera": TRACKING_CAMERA,
+            "permanent": False,
+            "closed_loop": True,
+            "target": None,
+            "target_id": None,
+        }
         self.track_status: dict[str, Any] = {
             "enabled": TRACKING_ENABLED,
             "active": False,
             "phase": "idle",
             "target": None,
+            "target_id": None,
+            "camera": TRACKING_CAMERA,
+            "permanent": False,
+            "closed_loop": True,
+            "loop_hz": 0.0,
             "detection_age_s": None,
             "failures": 0,
             "message": "Tracking has not been started.",
@@ -4763,189 +4890,284 @@ class TelemetryStore:
         return snap
 
     def set_sentry_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        """Flip the master follow switch. Operator invariant (2026-07-23):
-        Sentry on must mean a running tracking session, off must mean none —
-        so on also starts the session (cancelling any arm replay that would
-        block it) and off always stops it."""
+        """Arm/disarm Sentry detection.
+
+        Enabling Sentry is deliberately motion-free. A physical tracking
+        session starts only from an explicit person-lock action carrying the
+        selected target identity. Disabling Sentry always stops motion.
+        """
         on = payload.get("on")
         if not isinstance(on, bool):
             return 400, {"ok": False, "error": 'Body must be {"on": true|false}.'}
         with self.command_lock:
             self.sentry_mode_on = on
-        start: dict[str, Any] | None = None
-        if on:
-            start = self._start_tracking_for_sentry()
-        else:
+        if not on:
             self.request_track_stop()
-        self.record_command_event("sentry_mode", {"on": on, "start": start})
-        response = {"ok": True, "sentry_mode": on, "tracking": self.track_snapshot()}
-        if start is not None:
-            response["start"] = start
-        return 200, response
-
-    def _start_tracking_for_sentry(self) -> dict[str, Any]:
-        """Sentry-on's half of the invariant: ensure a session is running.
-        A held arm replay is cancelled first — the master switch outranks a
-        pose hold, which otherwise blocks request_track_start."""
-        with self.command_lock:
-            track_alive = self.track_thread is not None and self.track_thread.is_alive()
-            replay_thread = self.replay_thread
-            replay_cancel = self.replay_cancel
-        if track_alive:
-            return {"ok": True, "status": 200, "already_running": True}
-        if replay_thread is not None and replay_thread.is_alive():
-            if replay_cancel is not None:
-                replay_cancel.set()
-            replay_thread.join(timeout=3.0)
-        status, result = self.request_track_start(
-            {"armed": True, "i_understand_risk": True, "source": "sentry_mode"}
-        )
-        start = {"ok": status == 200 and bool(result.get("ok")), "status": status}
-        if not start["ok"]:
-            start["error"] = result.get("error")
-        return start
+        self.record_command_event("sentry_mode", {"on": on})
+        return 200, {"ok": True, "sentry_mode": on, "tracking": self.track_snapshot()}
 
     def _set_track_status(self, **fields: Any) -> None:
         with self.command_lock:
             self.track_status.update(fields, updated_at=time.time())
 
     def request_track_stop(self) -> tuple[int, dict[str, Any]]:
-        # Stopping also drops Sentry Mode: sentry on must always mean a
-        # running session, so an explicit stop may not leave it claiming one.
         with self.command_lock:
             cancel = self.track_cancel
-            self.sentry_mode_on = False
+            thread = self.track_thread
         if cancel is not None:
             cancel.set()
-        self._set_track_status(active=False, phase="idle", message="Tracking stopped by operator.")
+        if thread is not None and thread is not threading.current_thread() and thread.is_alive():
+            thread.join(timeout=3.0)
+        still_stopping = bool(thread is not None and thread.is_alive())
+        self._set_track_status(
+            active=still_stopping,
+            phase="stopping" if still_stopping else "idle",
+            message="Tracking is stopping." if still_stopping else "Tracking stopped by operator.",
+        )
         return 200, {"ok": True, "tracking": self.track_snapshot()}
 
     def request_track_start(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if not has_risk_ack(payload):
             return 403, {"ok": False, "error": "Set armed=true and i_understand_risk=true to start tracking."}
+        try:
+            config = parse_track_payload(payload)
+        except ValueError as exc:
+            return 400, {"ok": False, "error": str(exc)}
         if not TRACKING_ENABLED:
             return 409, {"ok": False, "error": "Tracking is disabled (TRACKING_ENABLED=0)."}
         with self.command_lock:
             sentry_on = self.sentry_mode_on
         if not sentry_on:
             return 409, {"ok": False, "error": "Sentry mode is off — it is the master switch; turn it on before starting tracking."}
+        if payload.get("source") == "sentry-lock" and (
+            config["camera"] != "webcam" or config["target"] is None
+        ):
+            return 400, {"ok": False, "error": "Sentry lock tracking requires a webcam target."}
         with self.command_lock:
             if self.track_thread is not None and self.track_thread.is_alive():
                 return 409, {"ok": False, "error": "A tracking session is already running."}
-            if self.replay_thread is not None and self.replay_thread.is_alive():
-                return 409, {"ok": False, "error": "An arm replay is running; stop it first."}
+            replay_thread = self.replay_thread
+            replay_cancel = self.replay_cancel
             if self.wrist_publisher is None:
                 return 503, {"ok": False, "error": "DDS arm_sdk publisher is not available."}
+            if self.lowstate_msg is None:
+                return 503, {"ok": False, "error": "No rt/lowstate sample is available yet."}
+            if self.lowcmd_factory is None or self.crc is None:
+                return 503, {"ok": False, "error": "DDS command factory is not available."}
+        # A new operator lock may safely replace the asynchronous home replay
+        # launched when the previous lock was released.
+        if replay_thread is not None and replay_thread.is_alive():
+            if payload.get("source") != "sentry-lock":
+                return 409, {"ok": False, "error": "An arm replay is running; stop it first."}
+            if replay_cancel is not None:
+                replay_cancel.set()
+            replay_thread.join(timeout=3.0)
+            if replay_thread.is_alive():
+                return 409, {"ok": False, "error": "The previous arm replay is still stopping."}
         suspend = self._suspend_xr_motion_publishers()
         if not suspend.get("ok"):
             return 503, {"ok": False, "error": f"Could not suspend XR publishers: {suspend}"}
         cancel = threading.Event()
         thread = threading.Thread(target=self._run_tracking, args=(cancel,), name="person-tracking", daemon=True)
         with self.command_lock:
+            self.track_config = config
             self.track_cancel = cancel
             self.track_thread = thread
-        self._set_track_status(active=True, phase="starting", failures=0, message="Tracking session starting.")
-        self.record_command_event("track_start", {"source": payload.get("source", "http")})
+        self._set_track_status(
+            active=True,
+            phase="starting",
+            failures=0,
+            target_id=config["target_id"],
+            camera=config["camera"],
+            permanent=config["permanent"],
+            closed_loop=config["closed_loop"],
+            message="Tracking session starting from the selected lock.",
+        )
+        self.record_command_event(
+            "track_start",
+            {"source": payload.get("source", "http"), "config": config},
+        )
         thread.start()
         return 200, {"ok": True, "tracking": self.track_snapshot()}
 
     def _run_tracking(self, cancel: threading.Event) -> None:
-        # Faster limiter/smoother per operator request 2026-07-22 — the
-        # closed-loop arm_sdk gains (the "PID") are untouched; only the
-        # setpoint is allowed to move quicker.
-        mapper = tracking.PointingMapper()
-        limiter = tracking.RateLimiter(max_step_rad_s=0.9)
-        smoother = tracking.Smoother(alpha=0.6)
-        state = tracking.TrackState(stale_after_s=1.5, hold_s=2.0, max_failures=10)
+        with self.command_lock:
+            config = dict(self.track_config)
+            initial_msg = self.lowstate_msg
+        camera = config["camera"]
+        mapper = (
+            tracking.PointingMapper(
+                fov_yaw_rad=SENTRY_FOV_YAW,
+                fov_pitch_rad=SENTRY_FOV_PITCH,
+                yaw_offset=SENTRY_YAW_OFFSET,
+                pitch_offset=SENTRY_PITCH_OFFSET,
+            )
+            if camera == "webcam"
+            else tracking.PointingMapper()
+        )
+        # Horizontal pose interpolation changes elbow/roll as well as yaw, so
+        # a fixed camera Y alone cannot keep the endpoint level. Use the
+        # calibrated center pose's FK height as the invariant and solve
+        # shoulder pitch for every Sentry target.
+        sentry_hand_z = None
+        if camera == "webcam":
+            reference_mapper = tracking.PointingMapper(
+                fov_yaw_rad=SENTRY_FOV_YAW,
+                fov_pitch_rad=SENTRY_FOV_PITCH,
+                yaw_offset=SENTRY_YAW_OFFSET,
+                pitch_offset=SENTRY_PITCH_OFFSET,
+            )
+            sentry_hand_z = sentry_right_hand_z(reference_mapper.targets(0.5, 0.5))
+        # Stability-focused control: filter image coordinates first, then
+        # joint targets, and finally apply a bounded but responsive velocity.
+        aim_smoother = tracking.AimSmoother(alpha=0.25)
+        limiter = tracking.RateLimiter(
+            max_step_rad_s=SENTRY_MAX_STEP_RAD_S if camera == "webcam" else 0.45
+        )
+        smoother = tracking.Smoother(alpha=0.35)
+        seed = None
+        if config["target"] is not None:
+            cx, cy = config["target"]["cx"], config["target"]["cy"]
+            seed = {
+                "id": config["target_id"],
+                "cx": cx,
+                "cy": cy,
+                "x1": max(0.0, cx - 0.05),
+                "x2": min(1.0, cx + 0.05),
+                "y1": max(0.0, cy - 0.1),
+                "y2": min(1.0, cy + 0.1),
+                "conf": 1.0,
+            }
+        state = tracking.TrackState(
+            stale_after_s=1.5,
+            hold_s=2.0,
+            max_failures=10,
+            target_id=config["target_id"],
+            seed_target=seed,
+        )
         period = 1.0 / TRACKING_RATE_HZ
-        started = time.time()
-        current: dict[int, float] = dict(tracking.NEUTRAL_TEMPLATE)
-        # Only the four right-arm joints tracking.py commands are published;
-        # gains come from the shared arm_sdk gain table.
-        gains = {j: ARM_SDK_GAIN_BY_INDEX[j] for j in current if j in ARM_SDK_GAIN_BY_INDEX}
+        started = time.monotonic()
+        last_tick = started
+        current: dict[int, float] = {
+            joint: float(initial_msg.motor_state[joint].q)
+            if initial_msg is not None else neutral
+            for joint, neutral in tracking.NEUTRAL_TEMPLATE.items()
+        }
+        tuning = self._arm_replay_tuning(
+            {"replay_response": SENTRY_REPLAY_RESPONSE}
+            if camera == "webcam" else None
+        )
+        raw_gains = {j: ARM_SDK_GAIN_BY_INDEX[j] for j in current if j in ARM_SDK_GAIN_BY_INDEX}
+        gains = {
+            joint: (
+                kp * tuning["inner_kp_scale"],
+                kd * tuning["inner_kd_scale"],
+            ) if config["closed_loop"] else (kp, kd)
+            for joint, (kp, kd) in raw_gains.items()
+        }
+        pid_state: dict[int, dict[str, float]] = {}
+        stream_subscribed = False
+        last_seq = 0
+        if camera == "webcam":
+            with self.sentry_stream_lock:
+                last_seq = self.sentry_stream_seq
+            self.sentry_stream_subscribe()
+            stream_subscribed = True
         try:
             while not cancel.is_set():
-                tick = time.time()
-                if tick - started > TRACKING_MAX_SESSION_S:
+                tick = time.monotonic()
+                dt = max(1.0 / 120.0, min(0.25, tick - last_tick))
+                last_tick = tick
+                if not config["permanent"] and tick - started > TRACKING_MAX_SESSION_S:
                     self._set_track_status(message="Session ceiling reached; stopping.")
                     break
-                if TRACKING_CAMERA == "head":
-                    frame = self.get_camera_frame()
+                result: dict[str, Any] | None
+                if camera == "webcam":
+                    result, last_seq = self.wait_sentry_result(
+                        last_seq,
+                        timeout=max(0.5, period * 2.0),
+                    )
                 else:
-                    with self.camera_lock:
-                        frame = self.webcam_frame
-                persons: list[dict[str, Any]] | None = None
-                if frame:
-                    try:
-                        # Shrink before upload: full head frames (~150 KB) push
-                        # the round-trip toward the timeout; shrunk (~34 KB)
-                        # measured 40-300 ms robot->AI host on 2026-07-22.
-                        req = urllib.request.Request(
-                            TRACKING_DETECT_URL, data=shrink_jpeg_for_detection(frame),
-                            headers={"Content-Type": "image/jpeg"}, method="POST",
-                        )
-                        with urllib.request.urlopen(req, timeout=0.8) as resp:
-                            persons = json.loads(resp.read()).get("persons", [])
-                    except Exception:
-                        persons = None
+                    result = self.sentry_detect("head")
                 now = time.time()
-                if persons is None:
+                if result is None or not result.get("ok"):
                     state.on_failure(now)
                 else:
-                    state.on_detection(persons, now)
+                    state.on_detection(result.get("persons") or [], now)
 
                 if state.phase == "aborted":
                     self._set_track_status(message="Detection service failing repeatedly; aborting.")
                     break
                 if state.phase == "tracking" and state.target is not None:
-                    # Aim at the head (detector anchor, else top-of-box).
                     aim_cx, aim_cy = tracking.aim_point(state.target)
+                    aim_cx, aim_cy = aim_smoother.update(aim_cx, aim_cy)
                     goal = mapper.targets(aim_cx, aim_cy)
+                    if camera == "webcam":
+                        goal = sentry_constant_hand_z_goal(goal, sentry_hand_z)
                 elif state.phase == "hold":
                     goal = dict(current)
                 else:  # stale
                     goal = dict(tracking.NEUTRAL_TEMPLATE)
 
                 goal = smoother.update(goal)
-                current = limiter.step(current, goal, dt=period)
+                previous = current
+                current = limiter.step(previous, goal, dt=dt)
+                if camera == "webcam" and state.phase == "tracking":
+                    current = sentry_constant_hand_z_step(
+                        previous,
+                        current,
+                        sentry_hand_z,
+                        limiter.max_step_rad_s * dt,
+                    )
 
                 with self.command_lock:
                     msg = self.lowstate_msg
                     publisher = self.wrist_publisher
-                # Mirror run_replay's guard: never publish without a live
-                # lowstate + arm_sdk publisher. Precise DDS-age gating is a
-                # Task 7 on-robot bring-up item (no lowstate timestamp field
-                # is exposed here yet).
                 if msg is not None and publisher is not None:
-                    cmd = self._build_arm_sdk_trajectory_cmd(msg, dict(current), gains, {}, weight=1.0)
+                    publish_targets = dict(current)
+                    feedforward: dict[int, float] = {}
+                    if config["closed_loop"]:
+                        publish_targets, _, feedforward = self._closed_loop_arm_targets(
+                            msg,
+                            publish_targets,
+                            pid_state,
+                            dt,
+                            tuning,
+                        )
+                    cmd = self._build_arm_sdk_trajectory_cmd(
+                        msg,
+                        publish_targets,
+                        gains,
+                        feedforward,
+                        weight=1.0,
+                    )
                     publisher.Write(cmd)
 
                 age = None if state.last_seen is None else round(now - state.last_seen, 2)
                 self._set_track_status(
                     phase=state.phase, failures=state.failures, detection_age_s=age,
-                    target=state.target, message=f"Tracking loop running ({state.phase}).",
+                    target=state.target,
+                    target_id=config["target_id"],
+                    loop_hz=round(1.0 / dt, 1),
+                    hand_z_m=None if sentry_hand_z is None else round(sentry_hand_z, 3),
+                    response=tuning["response"],
+                    max_step_rad_s=limiter.max_step_rad_s,
+                    message=f"Locked {camera} tracking running ({state.phase}).",
                 )
-                cancel.wait(max(0.0, period - (time.time() - tick)))
+                cancel.wait(max(0.0, period - (time.monotonic() - tick)))
         finally:
-            # A natural end (ceiling, detector abort, crash) must also drop
-            # Sentry Mode — it may never claim a session that is not running.
-            ended_by_operator = cancel.is_set()
-            if not ended_by_operator:
-                with self.command_lock:
-                    self.sentry_mode_on = False
+            if stream_subscribed:
+                self.sentry_stream_unsubscribe()
             self._set_track_status(
                 active=False, phase="idle",
-                message="Tracking session ended." if ended_by_operator
-                else "Tracking session ended; Sentry Mode switched off — re-arm to follow again.",
+                loop_hz=0.0,
+                message="Tracking session ended; Sentry remains armed for another lock.",
             )
             with self.command_lock:
                 if self.track_cancel is cancel:
                     self.track_thread = None
                     self.track_cancel = None
-            # Every session end also means Sentry Mode is now off — return the
-            # arms to the saved home pose so the robot never stays frozen
-            # mid-point (operator request 2026-07-23). Refs above are already
-            # cleared, so the replay start guards see no live session.
+            # Releasing a lock always returns the arm to the saved home pose.
             try:
                 home_status, home_result = self.request_home()
                 self.record_command_event(

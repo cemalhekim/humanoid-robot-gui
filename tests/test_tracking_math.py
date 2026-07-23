@@ -39,12 +39,19 @@ class MapperTests(unittest.TestCase):
         right = self.mapper.targets(1.0, 0.5)[tracking.R_ELBOW]
         self.assertLess(right, center)
 
-    def test_wrist_keeps_aiming_at_person(self):
-        # Operator request 2026-07-22: the hand end of the arm must keep
-        # turning toward the person on top of the coarse shoulder sweep.
+    def test_wrist_fine_aim_is_disabled_by_default(self):
+        # Head-keypoint noise should not be amplified at the end effector.
         center = self.mapper.targets(0.5, 0.5)
         right = self.mapper.targets(0.9, 0.5)
         high = self.mapper.targets(0.5, 0.2)
+        self.assertEqual(right[tracking.R_WRIST_YAW], center[tracking.R_WRIST_YAW])
+        self.assertEqual(high[tracking.R_WRIST_PITCH], center[tracking.R_WRIST_PITCH])
+
+    def test_wrist_fine_aim_remains_opt_in(self):
+        mapper = tracking.PointingMapper(wrist_yaw_gain=-0.5, wrist_pitch_gain=0.5)
+        center = mapper.targets(0.5, 0.5)
+        right = mapper.targets(0.9, 0.5)
+        high = mapper.targets(0.5, 0.2)
         self.assertLess(right[tracking.R_WRIST_YAW], center[tracking.R_WRIST_YAW])
         self.assertLess(high[tracking.R_WRIST_PITCH], center[tracking.R_WRIST_PITCH])
 
@@ -75,14 +82,24 @@ class MapperTests(unittest.TestCase):
                 self.assertGreaterEqual(value, lo, f"joint {joint} cx={cx} cy={cy}")
                 self.assertLessEqual(value, hi, f"joint {joint} cx={cx} cy={cy}")
 
-    def test_dead_band_only_swallows_subpixel_jitter(self):
+    def test_dead_band_swallows_pose_keypoint_jitter(self):
         a = self.mapper.targets(0.500, 0.500)
-        b = self.mapper.targets(0.503, 0.502)  # inside the +-0.005 band
+        b = self.mapper.targets(0.515, 0.510)  # inside the +-0.02 band
         self.assertEqual(a, b)
-        # Small-but-real target motion must move the arm (operator request
-        # 2026-07-22: much less tolerance for small target changes).
-        c = self.mapper.targets(0.515, 0.510)
+        c = self.mapper.targets(0.525, 0.525)
         self.assertNotEqual(a, c)
+
+    def test_negative_yaw_fov_mirrors_external_webcam(self):
+        head = tracking.PointingMapper(fov_yaw_rad=1.25)
+        webcam = tracking.PointingMapper(fov_yaw_rad=-1.25)
+        self.assertLess(
+            head.targets(0.8, 0.5)[tracking.R_SHOULDER_ROLL],
+            head.targets(0.2, 0.5)[tracking.R_SHOULDER_ROLL],
+        )
+        self.assertGreater(
+            webcam.targets(0.8, 0.5)[tracking.R_SHOULDER_ROLL],
+            webcam.targets(0.2, 0.5)[tracking.R_SHOULDER_ROLL],
+        )
 
 
 class AimPointTests(unittest.TestCase):
@@ -109,6 +126,15 @@ class RateLimiterTests(unittest.TestCase):
         limiter = tracking.RateLimiter(max_step_rad_s=0.35)
         stepped = limiter.step({20: 0.99}, {20: 1.0}, dt=1.0)
         self.assertAlmostEqual(stepped[20], 1.0, places=6)
+
+
+class AimSmootherTests(unittest.TestCase):
+    def test_filters_and_clamps_image_coordinates(self):
+        smoother = tracking.AimSmoother(alpha=0.25)
+        self.assertEqual(smoother.update(0.4, 0.4), (0.4, 0.4))
+        cx, cy = smoother.update(0.8, 2.0)
+        self.assertAlmostEqual(cx, 0.5)
+        self.assertAlmostEqual(cy, 0.55)
 
 
 def _person(cx, cy, area, head=True):
@@ -147,6 +173,23 @@ class HeadGateTests(unittest.TestCase):
         self.assertEqual(state.phase, "hold")
         state.on_detection([_person(0.5, 0.6, 0.2, head=False)], 2.0)
         self.assertEqual(state.phase, "stale")
+
+    def test_locked_identity_survives_temporary_head_keypoint_loss(self):
+        person = _person(0.5, 0.4, 0.1, head=False)
+        person["id"] = 17
+        self.assertEqual(
+            tracking.associate([person], 0.5, 0.4, target_id=17),
+            person,
+        )
+
+    def test_locked_identity_cannot_switch_to_another_person(self):
+        locked = _person(0.5, 0.4, 0.1)
+        locked["id"] = 17
+        other = _person(0.51, 0.4, 0.2)
+        other["id"] = 18
+        self.assertIsNone(
+            tracking.associate([other], locked["cx"], locked["cy"], target_id=17)
+        )
 
 
 class AssociateTests(unittest.TestCase):

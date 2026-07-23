@@ -60,6 +60,47 @@ class ArmKinematicsTest(unittest.TestCase):
         turned = self.kin.landmarks({"WaistYaw": 0.6})
         self.assertGreater(dist(base["left"]["hand"], turned["left"]["hand"]), 0.05)
 
+    def test_shoulder_pitch_solver_keeps_right_hand_z_constant(self) -> None:
+        center = {
+            "RightShoulderPitch": -1.52,
+            "RightShoulderRoll": -0.05,
+            "RightShoulderYaw": 0.11,
+            "RightElbow": 1.35,
+            "RightWristRoll": -0.01,
+            "RightWristPitch": -0.34,
+            "RightWristYaw": -0.39,
+        }
+        target_z = self.kin.landmark(
+            center, "right", "hand", round_digits=None
+        )["z"]
+        for roll, yaw, elbow in (
+            (0.30, 0.41, 1.60),
+            (-0.48, -0.04, 1.20),
+            (-0.90, -0.19, 1.00),
+        ):
+            pose = dict(center)
+            pose.update({
+                "RightShoulderRoll": roll,
+                "RightShoulderYaw": yaw,
+                "RightElbow": elbow,
+            })
+            pose["RightShoulderPitch"] = self.kin.solve_hand_z(
+                pose, "right", target_z, (-2.0, -0.8)
+            )
+            solved_z = self.kin.landmark(
+                pose, "right", "hand", round_digits=None
+            )["z"]
+            self.assertAlmostEqual(solved_z, target_z, delta=1e-5)
+
+    def test_unrounded_single_landmark_matches_landmark_collection(self) -> None:
+        angles = {"RightShoulderPitch": -1.2, "RightElbow": 1.0}
+        single = self.kin.landmark(
+            angles, "right", "hand", round_digits=None
+        )
+        all_marks = self.kin.landmarks(angles, round_digits=None)
+        for axis in ("x", "y", "z"):
+            self.assertAlmostEqual(single[axis], all_marks["right"]["hand"][axis])
+
 
 class ArmPoseGuideTest(unittest.TestCase):
     @classmethod

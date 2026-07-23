@@ -92,14 +92,14 @@ class PointingMapper:
         fov_pitch_rad: float = 0.9,
         yaw_offset: float = 0.11,
         pitch_offset: float = -1.52,
-        # Operator wants the arm to answer small target motion; the band only
-        # swallows sub-pixel detector jitter, the Smoother handles the rest.
-        dead_band: float = 0.005,
-        # Wrist fine-aim: the hand keeps turning toward the person on top of
-        # the coarse shoulder sweep, so the "hand end" of the arm stays aimed
-        # even where the shoulder clamps (cross-chest left side).
-        wrist_yaw_gain: float = -0.5,
-        wrist_pitch_gain: float = 0.5,
+        # A 2% image-space band rejects pose-keypoint flicker while preserving
+        # deliberate person motion. The old 0.5% band made the arm chase
+        # detector noise frame-by-frame.
+        dead_band: float = 0.02,
+        # Wrist fine-aim amplified head-keypoint jitter at the end effector.
+        # Keep it opt-in until the coarse shoulder/elbow tracking is stable.
+        wrist_yaw_gain: float = 0.0,
+        wrist_pitch_gain: float = 0.0,
     ) -> None:
         self.fov_yaw_rad = fov_yaw_rad
         self.fov_pitch_rad = fov_pitch_rad
@@ -125,11 +125,16 @@ class PointingMapper:
         # anchor pose. s=+1 at the image's right edge (person on the robot's
         # right, non-mirrored camera), s=-1 mirrors the sweep to the left,
         # where TRACK_LIMITS caps the cross-chest reach of the right arm.
-        s = (cx - 0.5) * 2.0
+        # The FOV sign selects camera orientation. A negative yaw FOV mirrors
+        # horizontal motion for an external webcam facing the robot; magnitude
+        # scales the calibrated edge delta around the 1.25-rad baseline.
+        yaw_scale = self.fov_yaw_rad / 1.25
+        s = (cx - 0.5) * 2.0 * yaw_scale
         out = {
             joint: value + s * RIGHT_EDGE_DELTA.get(joint, 0.0)
             for joint, value in POINTING_TEMPLATE.items()
         }
+        out[R_SHOULDER_YAW] += self.yaw_offset - POINTING_TEMPLATE[R_SHOULDER_YAW]
         # Vertical: shoulder pitch raises the arm with NEGATIVE values
         # (verified live 2026-07-22), so a higher person (smaller cy) must
         # drive pitch more negative.
@@ -183,6 +188,27 @@ class Smoother:
         return dict(self._value)
 
 
+class AimSmoother:
+    """Low-pass noisy image-space aim points before joint mapping."""
+
+    def __init__(self, alpha: float = 0.25) -> None:
+        self.alpha = alpha
+        self._value: tuple[float, float] | None = None
+
+    def update(self, cx: float, cy: float) -> tuple[float, float]:
+        cx = _clamp(float(cx), 0.0, 1.0)
+        cy = _clamp(float(cy), 0.0, 1.0)
+        if self._value is None:
+            self._value = (cx, cy)
+        else:
+            px, py = self._value
+            self._value = (
+                px + self.alpha * (cx - px),
+                py + self.alpha * (cy - py),
+            )
+        return self._value
+
+
 def aim_point(target: dict[str, Any]) -> tuple[float, float]:
     """Where to aim on a person: the detector's head anchor (nose, else ear
     midpoint) when present, else near the top of the box as a head-height
@@ -213,9 +239,21 @@ def associate(
     persons: list[dict[str, Any]],
     prev_cx: float | None,
     prev_cy: float | None,
+    target_id: Any | None = None,
 ) -> dict[str, Any] | None:
-    """Pick the person to track among detections WITH a head anchor:
-    nearest to previous target, else largest."""
+    """Pick a stable target.
+
+    A UI lock is authoritative: when ``target_id`` is set, only that
+    detector/ByteTrack identity can be selected, even on frames where its
+    face keypoints disappear. Without an explicit lock we still prefer
+    head-anchored people so a head-camera view of the robot's own arm cannot
+    become the initial target.
+    """
+    if target_id is not None:
+        return next((person for person in persons if person.get("id") == target_id), None)
+    # Unlocked/manual head-camera starts retain the defensive head gate. The
+    # important regression fix is that an explicit identity lock above can
+    # survive temporary loss of face keypoints.
     persons = [person for person in persons if has_head(person)]
     if not persons:
         return None
@@ -240,13 +278,16 @@ class TrackState:
         stale_after_s: float = 1.5,
         hold_s: float = 2.0,
         max_failures: int = 10,
+        target_id: Any | None = None,
+        seed_target: dict[str, Any] | None = None,
     ) -> None:
         self.stale_after_s = stale_after_s
         self.hold_s = hold_s
         self.max_failures = max_failures
         self.phase = "stale"
         self.failures = 0
-        self.target: dict[str, Any] | None = None
+        self.target_id = target_id
+        self.target: dict[str, Any] | None = dict(seed_target) if seed_target else None
         self.last_seen: float | None = None
 
     def on_detection(self, persons: list[dict[str, Any]], now: float) -> None:
@@ -255,7 +296,7 @@ class TrackState:
         self.failures = 0
         prev_cx = self.target["cx"] if self.target else None
         prev_cy = self.target["cy"] if self.target else None
-        picked = associate(persons, prev_cx, prev_cy)
+        picked = associate(persons, prev_cx, prev_cy, self.target_id)
         if picked is not None:
             self.target = picked
             self.last_seen = now

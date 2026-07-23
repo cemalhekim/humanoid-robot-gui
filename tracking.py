@@ -198,12 +198,25 @@ def _area(person: dict[str, Any]) -> float:
     return max(0.0, person["x2"] - person["x1"]) * max(0.0, person["y2"] - person["y1"])
 
 
+def has_head(person: dict[str, Any]) -> bool:
+    """True when the detector anchored a head (nose/eye/ear keypoints).
+
+    The robot's own raised arm reads as a 'person' box to the detector but
+    never gets face keypoints — requiring a head makes it invisible to
+    tracking (operator, 2026-07-23). The detect service also drops headless
+    boxes at the source; this is the robot-side defense in depth."""
+    head = person.get("head")
+    return isinstance(head, dict) and "x" in head and "y" in head
+
+
 def associate(
     persons: list[dict[str, Any]],
     prev_cx: float | None,
     prev_cy: float | None,
 ) -> dict[str, Any] | None:
-    """Pick the person to track: nearest to previous target, else largest."""
+    """Pick the person to track among detections WITH a head anchor:
+    nearest to previous target, else largest."""
+    persons = [person for person in persons if has_head(person)]
     if not persons:
         return None
     if prev_cx is None or prev_cy is None:

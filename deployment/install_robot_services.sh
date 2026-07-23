@@ -49,16 +49,16 @@ for attempt in $(seq 1 60); do
 done
 
 systemctl --user daemon-reload
+# The dashboard is the one service this script must deliver — keep it strict.
 systemctl --user enable --now robot-telemetry-web.service
 systemctl --user enable --now robot-telemetry-web-autoupdate.timer
-systemctl --user enable --now teleimager.service
-systemctl --user enable --now inspire-hands.service
-systemctl --user enable --now xr-teleop.service
-systemctl --user enable --now xr-home-watchdog.service
 systemctl --user restart robot-telemetry-web.service
-systemctl --user restart teleimager.service
-systemctl --user restart inspire-hands.service
-systemctl --user restart xr-teleop.service
-systemctl --user restart xr-home-watchdog.service
+# Auxiliary services are best-effort: a canceled/hanging xr-teleop restart used
+# to abort the whole install (set -e) BEFORE the installed-commit marker was
+# written, so every later tick reinstalled and re-restarted the dashboard.
+for unit in teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service; do
+  systemctl --user enable --now "$unit" || echo "warn: enable $unit failed"
+  systemctl --user restart "$unit" || echo "warn: restart $unit failed"
+done
 
-systemctl --user --no-pager --full status robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service
+systemctl --user --no-pager --full status robot-telemetry-web.service teleimager.service inspire-hands.service xr-teleop.service xr-home-watchdog.service || true

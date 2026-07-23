@@ -160,7 +160,14 @@ def run_claude(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | Non
     model = CLAUDE_MODEL
     usage = decoded.get("modelUsage")
     if isinstance(usage, dict) and usage:
-        model = next(iter(usage))
+        # Claude Code lists every model it touched (haiku handles background
+        # chores); the MAIN model is the one that produced the most output.
+        def output_tokens(item: tuple[str, Any]) -> int:
+            stats = item[1] if isinstance(item[1], dict) else {}
+            value = stats.get("outputTokens")
+            return value if isinstance(value, int) else 0
+
+        model = max(usage.items(), key=output_tokens)[0]
     return openai_response_from_result(str(decoded.get("result") or ""), model)
 
 

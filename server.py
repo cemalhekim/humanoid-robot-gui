@@ -443,6 +443,12 @@ LLM_TWIN_VISION_ENABLED = os.environ.get("LLM_TWIN_VISION_ENABLED", "0") not in 
 LLM_TWIN_IMAGE_MAX_BYTES = 650_000
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
+# Optional second chat backend: a Claude Code bridge (tools/claude_bridge.py)
+# running on the operator's machine. Unset/empty = the Claude toggle reports
+# "not configured". Example: CLAUDE_BRIDGE_URL=http://10.2.100.50:8399
+CLAUDE_BRIDGE_URL = os.environ.get("CLAUDE_BRIDGE_URL", "").rstrip("/")
+CLAUDE_BRIDGE_MODEL = os.environ.get("CLAUDE_BRIDGE_MODEL", "claude")
+CHAT_BACKENDS = ("default", "claude")
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1024"))
 # 0 keeps action commands deterministic: at 0.3 qwen3-30b intermittently skipped
 # the move tool call on short Turkish imperatives and narrated motion instead.
@@ -1343,17 +1349,20 @@ def build_telemetry_context(snapshot: dict[str, Any], ros_graph: dict[str, Any] 
 
 
 def call_llm(
-    messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
+    messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
+    base_url: str | None = None, model: str | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """POST an OpenAI-compatible chat completion to the configured LLM.
 
+    base_url/model default to the configured qwen backend; the Claude bridge
+    passes overrides so the IDENTICAL prompt+tools reach a different engine.
     Returns (http_status, response_dict). Never raises for network/LLM errors —
     they are mapped to a JSON error payload so the endpoint stays well-behaved.
     When the model requests tool calls, the response dict carries them under
     "tool_calls" and "reply" may be empty.
     """
     payload: dict[str, Any] = {
-        "model": LLM_MODEL,
+        "model": model or LLM_MODEL,
         "messages": messages,
         "stream": False,
         "temperature": LLM_TEMPERATURE,
@@ -1362,7 +1371,7 @@ def call_llm(
     if tools:
         payload["tools"] = tools
     body = json.dumps(payload).encode("utf-8")
-    url = f"{LLM_BASE_URL}/v1/chat/completions"
+    url = f"{(base_url or LLM_BASE_URL).rstrip('/')}/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
     if LLM_API_KEY:
         headers["Authorization"] = f"Bearer {LLM_API_KEY}"
@@ -1394,7 +1403,7 @@ def call_llm(
             return 502, {"ok": False, "error": "LLM response missing choices[0].message.content"}
         reply = ""
     usage = decoded.get("usage") if isinstance(decoded, dict) else None
-    result = {"ok": True, "reply": reply, "model": decoded.get("model", LLM_MODEL), "usage": usage}
+    result = {"ok": True, "reply": reply, "model": decoded.get("model", model or LLM_MODEL), "usage": usage}
     if isinstance(tool_calls, list) and tool_calls:
         result["tool_calls"] = tool_calls
     return 200, result
@@ -4614,6 +4623,18 @@ class TelemetryStore:
         if len(raw_messages) > LLM_MAX_MESSAGES:
             return 400, {"ok": False, "error": f"Too many messages (max {LLM_MAX_MESSAGES})."}
 
+        backend = str(payload.get("backend") or "default")
+        if backend not in CHAT_BACKENDS:
+            return 400, {"ok": False, "error": f"Unknown backend '{backend}'. Use one of: {', '.join(CHAT_BACKENDS)}."}
+        if backend == "claude" and not CLAUDE_BRIDGE_URL:
+            return 503, {
+                "ok": False,
+                "error": "Claude backend is not configured: set CLAUDE_BRIDGE_URL to the "
+                         "operator machine running tools/claude_bridge.py.",
+            }
+        base_url = CLAUDE_BRIDGE_URL if backend == "claude" else None
+        model = CLAUDE_BRIDGE_MODEL if backend == "claude" else None
+
         cleaned: list[dict[str, Any]] = []
         for item in raw_messages:
             if not isinstance(item, dict):
@@ -4704,9 +4725,14 @@ class TelemetryStore:
                 {"type": "image_url", "image_url": {"url": twin_image}},
             ]
         messages = [{"role": "system", "content": system}, *cleaned]
+        overrides = {"base_url": base_url, "model": model} if base_url else {}
         if not LLM_TOOLS_ENABLED:
-            return call_llm(messages)
-        return self._chat_tool_loop(messages)
+            status, response = call_llm(messages, **overrides)
+        else:
+            status, response = self._chat_tool_loop(messages, **overrides)
+        if status == 200 and isinstance(response, dict):
+            response["backend"] = backend
+        return status, response
 
     def chat_tool_specs(self) -> list[dict[str, Any]]:
         specs = list(CHAT_TOOL_SPECS)
@@ -4719,7 +4745,10 @@ class TelemetryStore:
             specs.append(track_tool_spec())
         return specs
 
-    def _chat_tool_loop(self, messages: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
+    def _chat_tool_loop(
+        self, messages: list[dict[str, Any]],
+        base_url: str | None = None, model: str | None = None,
+    ) -> tuple[int, dict[str, Any]]:
         """Chat completion loop that executes model-requested tool calls.
 
         Each round forwards the conversation with the tool specs; requested
@@ -4730,7 +4759,7 @@ class TelemetryStore:
         tools = self.chat_tool_specs()
         tools_used: list[dict[str, Any]] = []
         for _ in range(LLM_MAX_TOOL_ROUNDS):
-            status, response = call_llm(messages, tools=tools)
+            status, response = call_llm(messages, tools=tools, **({"base_url": base_url, "model": model} if base_url else {}))
             if status != 200:
                 return status, response
             calls = response.pop("tool_calls", None)
@@ -4770,7 +4799,7 @@ class TelemetryStore:
                         "content": json.dumps(result, default=str)[:LLM_TOOL_OUTPUT_CHARS],
                     }
                 )
-        status, response = call_llm(messages)
+        status, response = call_llm(messages, **({"base_url": base_url, "model": model} if base_url else {}))
         if status == 200:
             response.pop("tool_calls", None)
             response["tools_used"] = tools_used
@@ -6694,6 +6723,10 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                     "endpoint": LLM_BASE_URL,
                     "twin_spatial_evidence": True,
                     "twin_vision": LLM_TWIN_VISION_ENABLED,
+                    "claude_bridge": {
+                        "configured": bool(CLAUDE_BRIDGE_URL),
+                        "url": CLAUDE_BRIDGE_URL or None,
+                    },
                     "voice_input": LLM_STT_ENABLED,
                     "voice_output": LLM_TTS_ENABLED,
                     "tools_enabled": LLM_TOOLS_ENABLED,

@@ -845,5 +845,81 @@ class PoseFeedbackTest(unittest.TestCase):
         self.assertTrue(any(t["name"] == "RightElbow" for t in response["proposal"]["targets"]))
 
 
+class BackendRoutingTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+
+    def _chat(self, payload):
+        with mock.patch.object(self.store, "snapshot", return_value=SNAPSHOT), mock.patch.object(
+            server, "LLM_INCLUDE_ROS_GRAPH", False
+        ):
+            return self.store.chat(payload)
+
+    def test_default_backend_uses_configured_llm(self) -> None:
+        captured = {}
+
+        def fake_call_llm(messages, tools=None, base_url=None, model=None):
+            captured.update(base_url=base_url, model=model)
+            return 200, {"ok": True, "reply": "hi"}
+
+        with mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            status, response = self._chat({"messages": [{"role": "user", "content": "selam"}]})
+        self.assertEqual(status, 200)
+        self.assertIsNone(captured.get("base_url"))  # default = module globals
+        self.assertEqual(response.get("backend"), "default")
+
+    def test_claude_backend_routes_to_bridge_url(self) -> None:
+        captured = {}
+
+        def fake_call_llm(messages, tools=None, base_url=None, model=None):
+            captured.update(base_url=base_url, model=model)
+            return 200, {"ok": True, "reply": "hello from claude"}
+
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", "http://192.0.2.9:8399"), mock.patch.object(
+            server, "call_llm", side_effect=fake_call_llm
+        ):
+            status, response = self._chat(
+                {"messages": [{"role": "user", "content": "selam"}], "backend": "claude"}
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(captured["base_url"], "http://192.0.2.9:8399")
+        self.assertEqual(response.get("backend"), "claude")
+
+    def test_claude_backend_unconfigured_fails_closed(self) -> None:
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", ""):
+            status, response = self._chat(
+                {"messages": [{"role": "user", "content": "selam"}], "backend": "claude"}
+            )
+        self.assertEqual(status, 503)
+        self.assertIn("CLAUDE_BRIDGE_URL", response["error"])
+
+    def test_unknown_backend_rejected(self) -> None:
+        status, response = self._chat(
+            {"messages": [{"role": "user", "content": "selam"}], "backend": "gpt9"}
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("backend", response["error"])
+
+    def test_tool_loop_keeps_backend_for_every_round(self) -> None:
+        urls = []
+
+        def fake_call_llm(messages, tools=None, base_url=None, model=None):
+            urls.append(base_url)
+            if tools and len(urls) == 1:
+                return 200, {"ok": True, "reply": "", "tool_calls": [
+                    {"id": "c1", "function": {"name": "get_loco_status", "arguments": "{}"}}]}
+            return 200, {"ok": True, "reply": "done"}
+
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", "http://192.0.2.9:8399"), mock.patch.object(
+            server, "call_llm", side_effect=fake_call_llm
+        ), mock.patch.object(server, "LLM_TOOLS_ENABLED", True):
+            status, _ = self._chat(
+                {"messages": [{"role": "user", "content": "durum"}], "backend": "claude"}
+            )
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(len(urls), 2)
+        self.assertTrue(all(u == "http://192.0.2.9:8399" for u in urls), urls)
+
+
 if __name__ == "__main__":
     unittest.main()

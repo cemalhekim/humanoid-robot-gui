@@ -5,6 +5,7 @@ import json
 import base64
 import unittest
 from unittest import mock
+from tempfile import TemporaryDirectory
 
 import server
 
@@ -619,6 +620,124 @@ class MoveProposedTest(unittest.TestCase):
         self.assertIn("move", specs)  # offered even with zero saved positions now
         enum = specs["move"]["function"]["parameters"]["properties"]["position"]["enum"]
         self.assertEqual(enum, ["proposed", "home"])
+
+
+class PoseFeedbackTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir_patch = mock.patch.object(server, "FEEDBACK_DIR", server.Path(self.tmp.name))
+        self.csv_patch = mock.patch.object(
+            server, "POSE_FEEDBACK_CSV", server.Path(self.tmp.name) / "pose_feedback.csv"
+        )
+        self.dir_patch.start()
+        self.csv_patch.start()
+        self.addCleanup(self.dir_patch.stop)
+        self.addCleanup(self.csv_patch.stop)
+
+    def _rows(self) -> list[dict]:
+        import csv as csv_module
+        path = server.POSE_FEEDBACK_CSV
+        if not path.exists():
+            return []
+        with path.open(newline="", encoding="utf-8") as handle:
+            return list(csv_module.DictReader(handle))
+
+    def _propose(self, request_text: str = "iki elini havaya kaldir") -> str:
+        self.store.last_chat_user_text = request_text
+        result = self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightShoulderPitch": -2.2, "RightShoulderRoll": -0.35}}
+        )
+        self.assertTrue(result["ok"], result)
+        return result["proposal_id"]
+
+    def test_verdict_row_records_request_joints_and_comment(self) -> None:
+        proposal_id = self._propose()
+        status, response = self.store.record_pose_feedback(
+            {"proposal_id": proposal_id, "verdict": "disliked", "comment": "cok one gitti"}
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(response["ok"])
+        rows = self._rows()
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["event"], "disliked")
+        self.assertEqual(row["proposal_id"], proposal_id)
+        self.assertEqual(row["request_text"], "iki elini havaya kaldir")
+        self.assertEqual(row["comment"], "cok one gitti")
+        joints = json.loads(row["joints_json"])
+        self.assertEqual(joints["RightShoulderPitch"], -2.2)
+        self.assertIn("arms", json.loads(row["semantics_json"]))
+
+    def test_feedback_validation_fails_closed(self) -> None:
+        proposal_id = self._propose()
+        self.assertEqual(self.store.record_pose_feedback({"proposal_id": proposal_id, "verdict": "meh"})[0], 400)
+        self.assertEqual(self.store.record_pose_feedback({"proposal_id": "pose-nope", "verdict": "liked"})[0], 404)
+        self.assertEqual(self.store.record_pose_feedback({"verdict": "liked"})[0], 400)
+        self.assertEqual(self._rows(), [])
+
+    def test_move_proposed_success_appends_executed_row(self) -> None:
+        proposal_id = self._propose()
+        with mock.patch.object(self.store, "request_robot_replay", return_value=(200, {"ok": True})):
+            result = self.store.run_chat_tool("move", {"position": "proposed", "confirm": True})
+        self.assertTrue(result["ok"])
+        rows = self._rows()
+        self.assertEqual([r["event"] for r in rows], ["executed"])
+        self.assertEqual(rows[0]["proposal_id"], proposal_id)
+
+    def test_learned_examples_reach_the_system_prompt(self) -> None:
+        liked_id = self._propose("iki elini havaya kaldir")
+        self.store.record_pose_feedback({"proposal_id": liked_id, "verdict": "liked"})
+        bad_id = self._propose("kollarini kavustur")
+        self.store.record_pose_feedback(
+            {"proposal_id": bad_id, "verdict": "disliked", "comment": "tam tersi oldu"}
+        )
+        captured: dict = {}
+
+        def fake_call_llm(messages, tools=None):
+            captured["system"] = messages[0]["content"]
+            return 200, {"ok": True, "reply": "ok"}
+
+        with mock.patch.object(self.store, "snapshot", return_value=SNAPSHOT), mock.patch.object(
+            server, "LLM_INCLUDE_ROS_GRAPH", False
+        ), mock.patch.object(server, "call_llm", side_effect=fake_call_llm), mock.patch.object(
+            server, "LLM_TOOLS_ENABLED", True
+        ):
+            self.store.chat({"messages": [{"role": "user", "content": "merhaba"}]})
+        system = captured["system"]
+        self.assertIn("LEARNED FROM OPERATOR FEEDBACK", system)
+        self.assertIn("iki elini havaya kaldir", system)
+        self.assertIn("DISLIKED", system)
+        self.assertIn("tam tersi oldu", system)
+
+    def test_chat_response_carries_active_proposal(self) -> None:
+        def fake_call_llm(messages, tools=None):
+            if tools:
+                return 200, {
+                    "ok": True,
+                    "reply": "",
+                    "tool_calls": [{
+                        "id": "c1",
+                        "function": {
+                            "name": "propose_arm_pose",
+                            "arguments": json.dumps({"joints": {"RightElbow": 1.5}}),
+                        },
+                    }],
+                }
+            return 200, {"ok": True, "reply": "Yesil onizlemeye bak."}
+
+        with mock.patch.object(self.store, "snapshot", return_value=SNAPSHOT), mock.patch.object(
+            server, "LLM_INCLUDE_ROS_GRAPH", False
+        ), mock.patch.object(server, "call_llm", side_effect=fake_call_llm), mock.patch.object(
+            server, "LLM_TOOLS_ENABLED", True
+        ):
+            status, response = self.store.chat(
+                {"messages": [{"role": "user", "content": "dirsegini buk"}]}
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(response["proposal"]["id"].startswith("pose-"))
+        self.assertTrue(any(t["name"] == "RightElbow" for t in response["proposal"]["targets"]))
 
 
 if __name__ == "__main__":

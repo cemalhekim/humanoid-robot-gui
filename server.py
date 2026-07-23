@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import csv
 import json
 import math
 import mimetypes
@@ -56,6 +57,17 @@ RECORDINGS_DIR = APP_DIR / "recordings"
 # same validated pipeline as saved recordings, then deleted. A subdirectory keeps
 # them out of the recordings file list (which globs RECORDINGS_DIR non-recursively).
 EPHEMERAL_REPLAY_DIR = RECORDINGS_DIR / ".ephemeral"
+# Operator feedback on LLM pose proposals (liked/disliked/executed events).
+# Untracked runtime data; fed back into the LLM prompt as learned examples.
+FEEDBACK_DIR = APP_DIR / "feedback"
+POSE_FEEDBACK_CSV = FEEDBACK_DIR / "pose_feedback.csv"
+POSE_FEEDBACK_FIELDS = [
+    "timestamp_iso", "proposal_id", "event", "request_text",
+    "joints_json", "semantics_json", "comment",
+]
+POSE_FEEDBACK_COMMENT_MAX = 500
+LEARNED_FEEDBACK_LIKED_MAX = 8
+LEARNED_FEEDBACK_DISLIKED_MAX = 4
 # The always-on welcome/onboarding page (GitHub Pages). The robot only
 # redirects here; it never serves its own copy.
 WELCOME_PAGE_URL = "https://cemalhekim.github.io/humanoid-robot-gui/"
@@ -1142,6 +1154,39 @@ def semantic_arm_pose(hands: dict[str, Any]) -> dict[str, Any] | None:
             bilateral.append("hands held together")
 
     return {"arms": arms, "proximity": proximity, "whole_body_concepts": bilateral}
+
+
+def learned_pose_feedback_text() -> str:
+    """Operator verdicts from the feedback CSV, rendered for the system prompt.
+
+    Liked proposals become imitable examples; disliked ones become explicit
+    anti-examples (with the operator's comment when given). Bounded so a long
+    feedback history can't blow up the prompt.
+    """
+    try:
+        with POSE_FEEDBACK_CSV.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+    except OSError:
+        return ""
+    liked: list[str] = []
+    disliked: list[str] = []
+    for row in rows:
+        joints = (row.get("joints_json") or "").strip()
+        request = (row.get("request_text") or "").strip()
+        if not joints or joints == "{}" or not request:
+            continue
+        comment = (row.get("comment") or "").strip()
+        suffix = f" (operator: {comment})" if comment else ""
+        if row.get("event") == "liked":
+            liked.append(f"- LIKED '{request}': {joints}{suffix}")
+        elif row.get("event") == "disliked":
+            disliked.append(f"- DISLIKED '{request}': {joints}{suffix} — do NOT repeat this mapping")
+    if not liked and not disliked:
+        return ""
+    lines = ["LEARNED FROM OPERATOR FEEDBACK (this operator, this robot — trust these over guesses):"]
+    lines += liked[-LEARNED_FEEDBACK_LIKED_MAX:]
+    lines += disliked[-LEARNED_FEEDBACK_DISLIKED_MAX:]
+    return "\n".join(lines)
 
 
 def build_telemetry_context(snapshot: dict[str, Any], ros_graph: dict[str, Any] | None = None) -> str:
@@ -2602,6 +2647,8 @@ class TelemetryStore:
         self.spatial_pose: dict[str, Any] | None = None
         self.spatial_pose_updated_at: float | None = None
         self.proposal_lock = threading.Lock()
+        self.proposal_meta: dict[str, dict[str, Any]] = {}
+        self.last_chat_user_text = ""
         self.arm_proposal: dict[str, Any] | None = None
         self.camera_process: subprocess.Popen[bytes] | None = None
         self.camera_backend = os.environ.get("CAMERA_BACKEND", "auto")
@@ -2812,6 +2859,14 @@ class TelemetryStore:
         }
         with self.proposal_lock:
             self.arm_proposal = proposal
+            # Meta survives execution/clear so late feedback can still be filed.
+            self.proposal_meta[proposal["id"]] = {
+                "request_text": self.last_chat_user_text,
+                "requested": dict(targets),
+                "semantics": semantic,
+            }
+            while len(self.proposal_meta) > 20:
+                self.proposal_meta.pop(next(iter(self.proposal_meta)))
         result: dict[str, Any] = {
             "ok": True,
             "moved_nothing": True,
@@ -2828,6 +2883,50 @@ class TelemetryStore:
         if no_live_telemetry:
             result["note"] = "No live joint telemetry; unspecified joints were assumed 0 rad."
         return result
+
+    def _append_pose_feedback_row(self, proposal_id: str, event: str, comment: str = "") -> None:
+        with self.proposal_lock:
+            meta = dict(self.proposal_meta.get(proposal_id) or {})
+        FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
+        is_new = not POSE_FEEDBACK_CSV.exists()
+        with POSE_FEEDBACK_CSV.open("a", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=POSE_FEEDBACK_FIELDS)
+            if is_new:
+                writer.writeheader()
+            writer.writerow({
+                "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "proposal_id": proposal_id,
+                "event": event,
+                "request_text": meta.get("request_text", ""),
+                "joints_json": json.dumps(meta.get("requested", {}), ensure_ascii=False, sort_keys=True),
+                "semantics_json": json.dumps(meta.get("semantics", {}), ensure_ascii=False,
+                                             separators=(",", ":")),
+                "comment": comment,
+            })
+
+    def record_pose_feedback(self, payload: Any) -> tuple[int, dict[str, Any]]:
+        """Operator verdict on a staged/recent proposal: liked or disliked + comment.
+
+        Independent of execution — a disliked pose can still be executed, and
+        the verdict lands in the learning CSV either way.
+        """
+        if not isinstance(payload, dict):
+            return 400, {"ok": False, "error": "Body must be a JSON object."}
+        proposal_id = payload.get("proposal_id")
+        verdict = payload.get("verdict")
+        comment = payload.get("comment", "")
+        if not isinstance(proposal_id, str) or not proposal_id:
+            return 400, {"ok": False, "error": "proposal_id is required."}
+        if verdict not in ("liked", "disliked"):
+            return 400, {"ok": False, "error": "verdict must be 'liked' or 'disliked'."}
+        if not isinstance(comment, str) or len(comment) > POSE_FEEDBACK_COMMENT_MAX:
+            return 400, {"ok": False, "error": f"comment must be a string of at most {POSE_FEEDBACK_COMMENT_MAX} chars."}
+        with self.proposal_lock:
+            known = proposal_id in self.proposal_meta
+        if not known:
+            return 404, {"ok": False, "error": "Unknown or expired proposal_id."}
+        self._append_pose_feedback_row(proposal_id, verdict, comment.strip())
+        return 200, {"ok": True, "recorded": verdict}
 
     def arm_proposal_public(self) -> dict[str, Any] | None:
         """Proposal summary for /api/state and the browser ghost; expires by TTL."""
@@ -4490,7 +4589,12 @@ class TelemetryStore:
             cached_pose = self.spatial_pose_snapshot()
             if cached_pose.get("available"):
                 twin_text = json.dumps(cached_pose["actual"], ensure_ascii=False, separators=(",", ":"))
+        self.last_chat_user_text = cleaned[-1]["content"] if isinstance(cleaned[-1]["content"], str) else ""
         behavior = (LLM_TOOLS_PROMPT + "\n\n" + LLM_ARM_GUIDE) if LLM_TOOLS_ENABLED else LLM_READONLY_PROMPT
+        if LLM_TOOLS_ENABLED:
+            learned = learned_pose_feedback_text()
+            if learned:
+                behavior += "\n\n" + learned
         system = f"{LLM_SYSTEM_PROMPT}{behavior}\n\nTELEMETRY SNAPSHOT (updated live):\n{context}"
         if LLM_TOOLS_ENABLED:
             # Recency beats the workflow text above: without this reminder AFTER the
@@ -4551,6 +4655,7 @@ class TelemetryStore:
                 fallback = extract_textual_tool_call(response.get("reply") or "", tools)
                 if fallback is None:
                     response["tools_used"] = tools_used
+                    self._attach_active_proposal(response, tools_used)
                     return 200, response
                 calls = [fallback]
             messages.append({"role": "assistant", "content": response.get("reply") or "", "tool_calls": calls})
@@ -4586,7 +4691,15 @@ class TelemetryStore:
         if status == 200:
             response.pop("tool_calls", None)
             response["tools_used"] = tools_used
+            self._attach_active_proposal(response, tools_used)
         return status, response
+
+    def _attach_active_proposal(self, response: dict[str, Any], tools_used: list[dict[str, Any]]) -> None:
+        """Let the chat UI show the feedback card for a pose staged this turn."""
+        if any(t.get("name") == "propose_arm_pose" and t.get("ok") for t in tools_used):
+            proposal = self.arm_proposal_public()
+            if proposal:
+                response["proposal"] = proposal
 
     def run_chat_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute one chat tool locally and return a JSON-serializable result.
@@ -4756,6 +4869,7 @@ class TelemetryStore:
             with self.proposal_lock:
                 if self.arm_proposal is proposal:
                     self.arm_proposal = None
+            self._append_pose_feedback_row(proposal["id"], "executed")
         self.record_command_event(
             "chat_move",
             {"source": "chat", "position": "proposed", "proposal_id": proposal["id"], "status": status},
@@ -6533,6 +6647,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/xr/mode",
             "/api/chat",
             "/api/spatial/pose",
+            "/api/pose/feedback",
             "/api/stt",
             "/api/tts",
             "/api/recording/start",
@@ -6567,6 +6682,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/xr/mode",
             "/api/chat",
             "/api/spatial/pose",
+            "/api/pose/feedback",
             "/api/tts",
             "/api/recording/start",
             "/api/recording/pose",
@@ -6646,6 +6762,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/spatial/pose":
             status, response = self.store.update_spatial_pose(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/pose/feedback":
+            status, response = self.store.record_pose_feedback(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

@@ -219,7 +219,7 @@
               </div>
               <div class="wrist-actions">
                 <span id="recordingState" class="pill bad">Idle</span>
-                <label class="inline-toggle sequence-debug-toggle"><input id="collisionDebugToggle" type="checkbox"> Bounds</label>
+                <label class="inline-toggle toggle-button sequence-debug-toggle"><input id="collisionDebugToggle" type="checkbox"> Bounds</label>
                 <button id="recordingSequenceToggle" class="ghost-button icon-button" type="button" title="Create Sequence" aria-label="Create Sequence"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M18 14v6M15 17h6"/></svg></button>
                 <button id="recordingRobotMotionToggle" class="ghost-button compact" type="button" disabled>Save Real Robot Motion</button>
                 <button id="recordingCapturePose" class="ghost-button icon-button" type="button" title="Save Pose" aria-label="Save Pose"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4.2L6 21z"/></svg></button>
@@ -247,10 +247,10 @@
                     <span>Arm replay response <strong id="recordingReplayResponseValue">Balanced 50%</strong></span>
                     <input id="recordingReplayResponse" type="range" min="0" max="5" value="2.5" step="0.05" aria-label="Arm replay response">
                   </label>
-                  <label class="inline-toggle"><input id="recordingReplayPid" type="checkbox" checked> Closed-loop PID</label>
-                  <label class="inline-toggle"><input id="recordingMirrorArms" type="checkbox"> Mirror arms</label>
-                  <button id="recordingPlay" class="chill-button compact" type="button">Simulate Trajectory</button>
-                  <button id="recordingRobotPlay" class="emergency-button compact" type="button" disabled>Move</button>
+                  <label class="inline-toggle toggle-button"><input id="recordingReplayPid" type="checkbox" checked> Closed-loop PID</label>
+                  <label class="inline-toggle toggle-button"><input id="recordingMirrorArms" type="checkbox"> Mirror arms</label>
+                  <button id="recordingPlay" class="chill-button compact icon-button" type="button" title="Simulate Trajectory" aria-label="Simulate Trajectory"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5l11 6.5-11 6.5z"/></svg></button>
+                  <button id="recordingRobotPlay" class="emergency-button compact icon-button" type="button" title="Move" aria-label="Move" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L22 20H2z"/><path d="M12 10v5"/><path d="M12 17.6v.1"/></svg></button>
                 </div>
                 <div id="recordingReplayCanvas" class="recording-replay-canvas"></div>
                 <div class="recording-legend">

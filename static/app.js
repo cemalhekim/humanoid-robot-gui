@@ -978,14 +978,12 @@ function updateReplayUi() {
     els.recordingReplayTime.textContent = timestamp ? new Date(timestamp * 1000).toLocaleTimeString() : "--";
   }
   if (els.recordingPlay) {
-    els.recordingPlay.textContent = "Simulate Trajectory";
     els.recordingPlay.disabled = (total === 0 && builderPointCount === 0) || state.replay.playing;
   }
   if (els.recordingRobotPlay) {
     const moveTarget = pendingMoveTarget();
     const canMoveArms = Boolean(state.latest?.connected) && moveTarget !== null;
     els.recordingRobotPlay.disabled = !canMoveArms;
-    els.recordingRobotPlay.textContent = "Move";
     els.recordingRobotPlay.title = robotReplayLockReason({ canMoveArms, moveTarget });
   }
 }

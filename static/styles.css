@@ -427,6 +427,57 @@ h1 {
   stroke-linejoin: round;
 }
 
+.chill-button.icon-button,
+.emergency-button.icon-button {
+  width: 42px;
+  min-width: 42px;
+  padding: 0;
+}
+
+.chill-button.icon-button svg,
+.emergency-button.icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.emergency-button.icon-button::before {
+  content: none;
+}
+
+/* Checkbox toggles rendered as pill buttons: red when off, green when on. */
+.inline-toggle.toggle-button {
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(230, 0, 0, 0.45);
+  border-radius: 999px;
+  background: rgba(230, 0, 0, 0.08);
+  color: #ff5555;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.inline-toggle.toggle-button::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 14px currentColor;
+}
+
+.inline-toggle.toggle-button input {
+  display: none;
+}
+
+.inline-toggle.toggle-button:has(input:checked) {
+  border-color: rgba(50, 240, 93, 0.5);
+  background: rgba(50, 240, 93, 0.1);
+  color: var(--good);
+}
+
 .dashboard {
   display: grid;
   grid-template-columns: minmax(360px, 0.82fr) minmax(430px, 0.9fr) minmax(500px, 1.12fr);

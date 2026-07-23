@@ -92,7 +92,6 @@ const els = {
   rosMap: document.getElementById("rosMap"),
   rosEdges: document.getElementById("rosEdges"),
   refreshRosGraph: document.getElementById("refreshRosGraph"),
-  recordingState: document.getElementById("recordingState"),
   recordingPage: document.getElementById("recordingPage"),
   recordingLayout: document.querySelector("#recordingPage .recording-layout"),
   sequenceBuilder: document.getElementById("sequenceBuilder"),
@@ -594,9 +593,9 @@ function updateRobotMotionToggle() {
     : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/></svg>';
   button.setAttribute("aria-label", active ? "Stop Saving Robot Motion" : "Save Real Robot Motion");
   button.disabled = !active && !connected;
-  button.classList.toggle("emergency-button", active);
+  button.classList.remove("emergency-button");
   button.classList.toggle("ghost-button", !active);
-  button.classList.toggle("chill-button", !active && connected);
+  button.classList.toggle("chill-button", active);
   button.title = active
     ? "Stop recording live robot telemetry."
     : connected
@@ -605,11 +604,8 @@ function updateRobotMotionToggle() {
 }
 
 function renderRecordingStatus(status) {
-  if (!els.recordingState) return;
   const active = Boolean(status?.active);
   state.recordingActive = active;
-  els.recordingState.textContent = active ? "Recording" : "Idle";
-  els.recordingState.className = `pill ${active ? "good" : "bad"}`;
   if (els.recordingSamples) els.recordingSamples.textContent = fmt(status?.samples ?? 0);
   if (els.recordingEvents) els.recordingEvents.textContent = fmt(status?.events ?? 0);
   if (els.recordingElapsed) els.recordingElapsed.textContent = `${Number(status?.elapsed_seconds || 0).toFixed(1)} s`;
@@ -1232,13 +1228,10 @@ async function loadRecordingSnapshots(name) {
 }
 
 async function loadRecordingStatus() {
-  if (!els.recordingState) return;
   try {
     const response = await fetch("/api/recording/status");
     renderRecordingStatus(await response.json());
   } catch (error) {
-    els.recordingState.textContent = "Unavailable";
-    els.recordingState.className = "pill bad";
     if (els.recordingError) {
       els.recordingError.textContent = error instanceof Error ? error.message : "Status request failed.";
     }

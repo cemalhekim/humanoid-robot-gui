@@ -46,8 +46,16 @@ Phase 1 (`/api/sentry/detect`) and Phase 2 (head-lock buttons).
     constants (defined next to the other `TRACKING_*` constants):
     `SENTRY_FOV_YAW` (default **1.25**, verified against the deployed webcam's
     robot-relative image orientation), `SENTRY_FOV_PITCH` (0.9), `SENTRY_YAW_OFFSET`
-    (0.0), `SENTRY_PITCH_OFFSET` (0.35). Head sessions keep
+    (0.11), `SENTRY_PITCH_OFFSET` (-1.52). Head sessions keep
     `PointingMapper()` defaults.
+  - Webcam/Sentry targets keep the right-hand endpoint at the calibrated
+    center pose's pelvis-frame Z. Each horizontal pose is run through the
+    URDF FK model and shoulder pitch is solved inside the conservative
+    tracking limits; image Y therefore cannot make the hand drift vertically.
+  - Sentry uses an independently tunable response of 1.25 and target velocity
+    bound of 0.65 rad/s (`SENTRY_REPLAY_RESPONSE`,
+    `SENTRY_MAX_STEP_RAD_S`). General replay/head tracking keeps its existing
+    balanced tuning.
   - Target seeding: when the payload carries `target`, pre-set
     `state.target` to a synthetic person box at that cx/cy so the first
     association latches onto the clicked person, not the largest one.

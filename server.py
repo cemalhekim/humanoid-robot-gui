@@ -452,12 +452,78 @@ SENTRY_FOV_YAW = float(os.environ.get("SENTRY_FOV_YAW", "1.25") or 1.25)
 SENTRY_FOV_PITCH = float(os.environ.get("SENTRY_FOV_PITCH", "0.9") or 0.9)
 SENTRY_YAW_OFFSET = float(os.environ.get("SENTRY_YAW_OFFSET", "0.11") or 0.11)
 SENTRY_PITCH_OFFSET = float(os.environ.get("SENTRY_PITCH_OFFSET", "-1.52") or -1.52)
+# Sentry is intentionally quicker than general pose replay while remaining
+# below the controller's legacy "responsive" ceiling. The velocity bound is
+# still applied before every publish, so detector jumps cannot become steps.
+SENTRY_REPLAY_RESPONSE = max(
+    0.0,
+    min(2.5, float(os.environ.get("SENTRY_REPLAY_RESPONSE", "1.25") or 1.25)),
+)
+SENTRY_MAX_STEP_RAD_S = max(
+    0.1,
+    min(1.0, float(os.environ.get("SENTRY_MAX_STEP_RAD_S", "0.65") or 0.65)),
+)
 TRACKING_MAX_SESSION_S = max(30.0, float(os.environ.get("TRACKING_MAX_SESSION_S", "600") or 600))
 LLM_TOOL_TRACK_ENABLED = os.environ.get("LLM_TOOL_TRACK_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
 LLM_MAX_TOOL_ROUNDS = int(os.environ.get("LLM_MAX_TOOL_ROUNDS", "4"))
 LLM_MAX_TOOL_CALLS_PER_ROUND = int(os.environ.get("LLM_MAX_TOOL_CALLS_PER_ROUND", "5"))
 LLM_TOOL_OUTPUT_CHARS = int(os.environ.get("LLM_TOOL_OUTPUT_CHARS", "6000"))
 ROS2_TOOL_TIMEOUT = float(os.environ.get("ROS2_TOOL_TIMEOUT", "6"))
+
+
+def _named_arm_targets(targets: dict[int, float]) -> dict[str, float]:
+    return {
+        JOINT_NAMES[index]: float(value)
+        for index, value in targets.items()
+        if index in JOINT_NAMES and 13 <= index <= 26
+    }
+
+
+def sentry_right_hand_z(targets: dict[int, float]) -> float | None:
+    """Unrounded pelvis-frame Z for a right-arm target, when FK is available."""
+    if ARM_KINEMATICS is None:
+        return None
+    return ARM_KINEMATICS.landmark(
+        _named_arm_targets(targets),
+        "right",
+        "hand",
+        round_digits=None,
+    )["z"]
+
+
+def sentry_constant_hand_z_goal(
+    targets: dict[int, float],
+    target_z: float | None,
+) -> dict[int, float]:
+    """Compensate shoulder pitch so Sentry's right hand keeps one height."""
+    out = dict(targets)
+    if ARM_KINEMATICS is None or target_z is None:
+        return out
+    pitch = ARM_KINEMATICS.solve_hand_z(
+        _named_arm_targets(out),
+        "right",
+        target_z,
+        tracking.TRACK_LIMITS[tracking.R_SHOULDER_PITCH],
+    )
+    out[tracking.R_SHOULDER_PITCH] = pitch
+    return out
+
+
+def sentry_constant_hand_z_step(
+    previous: dict[int, float],
+    stepped: dict[int, float],
+    target_z: float | None,
+    max_pitch_step: float,
+) -> dict[int, float]:
+    """Enforce fixed Z after smoothing without bypassing the velocity limit."""
+    out = sentry_constant_hand_z_goal(stepped, target_z)
+    joint = tracking.R_SHOULDER_PITCH
+    if joint not in previous or joint not in out:
+        return out
+    lo = previous[joint] - max(0.0, max_pitch_step)
+    hi = previous[joint] + max(0.0, max_pitch_step)
+    out[joint] = max(lo, min(hi, out[joint]))
+    return out
 
 
 def parse_track_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -4934,10 +5000,25 @@ class TelemetryStore:
             if camera == "webcam"
             else tracking.PointingMapper()
         )
+        # Horizontal pose interpolation changes elbow/roll as well as yaw, so
+        # a fixed camera Y alone cannot keep the endpoint level. Use the
+        # calibrated center pose's FK height as the invariant and solve
+        # shoulder pitch for every Sentry target.
+        sentry_hand_z = None
+        if camera == "webcam":
+            reference_mapper = tracking.PointingMapper(
+                fov_yaw_rad=SENTRY_FOV_YAW,
+                fov_pitch_rad=SENTRY_FOV_PITCH,
+                yaw_offset=SENTRY_YAW_OFFSET,
+                pitch_offset=SENTRY_PITCH_OFFSET,
+            )
+            sentry_hand_z = sentry_right_hand_z(reference_mapper.targets(0.5, 0.5))
         # Stability-focused control: filter image coordinates first, then
-        # joint targets, and finally apply a conservative velocity bound.
+        # joint targets, and finally apply a bounded but responsive velocity.
         aim_smoother = tracking.AimSmoother(alpha=0.25)
-        limiter = tracking.RateLimiter(max_step_rad_s=0.45)
+        limiter = tracking.RateLimiter(
+            max_step_rad_s=SENTRY_MAX_STEP_RAD_S if camera == "webcam" else 0.45
+        )
         smoother = tracking.Smoother(alpha=0.35)
         seed = None
         if config["target"] is not None:
@@ -4967,7 +5048,10 @@ class TelemetryStore:
             if initial_msg is not None else neutral
             for joint, neutral in tracking.NEUTRAL_TEMPLATE.items()
         }
-        tuning = self._arm_replay_tuning()
+        tuning = self._arm_replay_tuning(
+            {"replay_response": SENTRY_REPLAY_RESPONSE}
+            if camera == "webcam" else None
+        )
         raw_gains = {j: ARM_SDK_GAIN_BY_INDEX[j] for j in current if j in ARM_SDK_GAIN_BY_INDEX}
         gains = {
             joint: (
@@ -5013,13 +5097,23 @@ class TelemetryStore:
                     aim_cx, aim_cy = tracking.aim_point(state.target)
                     aim_cx, aim_cy = aim_smoother.update(aim_cx, aim_cy)
                     goal = mapper.targets(aim_cx, aim_cy)
+                    if camera == "webcam":
+                        goal = sentry_constant_hand_z_goal(goal, sentry_hand_z)
                 elif state.phase == "hold":
                     goal = dict(current)
                 else:  # stale
                     goal = dict(tracking.NEUTRAL_TEMPLATE)
 
                 goal = smoother.update(goal)
-                current = limiter.step(current, goal, dt=dt)
+                previous = current
+                current = limiter.step(previous, goal, dt=dt)
+                if camera == "webcam" and state.phase == "tracking":
+                    current = sentry_constant_hand_z_step(
+                        previous,
+                        current,
+                        sentry_hand_z,
+                        limiter.max_step_rad_s * dt,
+                    )
 
                 with self.command_lock:
                     msg = self.lowstate_msg
@@ -5050,6 +5144,9 @@ class TelemetryStore:
                     target=state.target,
                     target_id=config["target_id"],
                     loop_hz=round(1.0 / dt, 1),
+                    hand_z_m=None if sentry_hand_z is None else round(sentry_hand_z, 3),
+                    response=tuning["response"],
+                    max_step_rad_s=limiter.max_step_rad_s,
                     message=f"Locked {camera} tracking running ({state.phase}).",
                 )
                 cancel.wait(max(0.0, period - (time.monotonic() - tick)))

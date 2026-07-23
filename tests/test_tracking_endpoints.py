@@ -201,6 +201,18 @@ class TrackPayloadTests(unittest.TestCase):
     def test_deployed_webcam_uses_robot_relative_horizontal_orientation(self):
         self.assertGreater(server.SENTRY_FOV_YAW, 0.0)
 
+    def test_sentry_response_is_faster_but_still_bounded(self):
+        self.assertGreater(
+            server.SENTRY_REPLAY_RESPONSE,
+            server.ARM_REPLAY_RESPONSE_DEFAULT,
+        )
+        self.assertLessEqual(
+            server.SENTRY_REPLAY_RESPONSE,
+            server.ARM_REPLAY_RESPONSE_LEGACY_MAX,
+        )
+        self.assertGreater(server.SENTRY_MAX_STEP_RAD_S, 0.45)
+        self.assertLessEqual(server.SENTRY_MAX_STEP_RAD_S, 1.0)
+
     def test_parses_locked_webcam_session(self):
         parsed = server.parse_track_payload({
             "camera": "webcam",
@@ -226,6 +238,78 @@ class TrackPayloadTests(unittest.TestCase):
             server.parse_track_payload({"permanent": "yes"})
         with self.assertRaises(ValueError):
             server.parse_track_payload({"closed_loop": 1})
+
+
+class SentryConstantHeightTests(unittest.TestCase):
+    def test_horizontal_targets_share_center_hand_z(self):
+        mapper = server.tracking.PointingMapper(
+            fov_yaw_rad=server.SENTRY_FOV_YAW,
+            fov_pitch_rad=server.SENTRY_FOV_PITCH,
+            yaw_offset=server.SENTRY_YAW_OFFSET,
+            pitch_offset=server.SENTRY_PITCH_OFFSET,
+            dead_band=0.0,
+        )
+        target_z = server.sentry_right_hand_z(mapper.targets(0.5, 0.5))
+        self.assertIsNotNone(target_z)
+
+        for cx, cy in ((0.0, 0.1), (0.2, 0.8), (0.5, 0.5), (0.8, 0.2), (1.0, 0.9)):
+            goal = server.sentry_constant_hand_z_goal(mapper.targets(cx, cy), target_z)
+            self.assertAlmostEqual(
+                server.sentry_right_hand_z(goal),
+                target_z,
+                delta=1e-5,
+            )
+            pitch = goal[server.tracking.R_SHOULDER_PITCH]
+            lo, hi = server.tracking.TRACK_LIMITS[server.tracking.R_SHOULDER_PITCH]
+            self.assertGreaterEqual(pitch, lo)
+            self.assertLessEqual(pitch, hi)
+
+    def test_rate_limited_horizontal_sweep_remains_level(self):
+        mapper = server.tracking.PointingMapper(dead_band=0.0)
+        target_z = server.sentry_right_hand_z(mapper.targets(0.5, 0.5))
+        previous = server.sentry_constant_hand_z_goal(
+            mapper.targets(0.5, 0.5), target_z
+        )
+        limiter = server.tracking.RateLimiter(max_step_rad_s=0.65)
+        dt = 0.125
+
+        for cx in (0.7, 0.9, 1.0, 0.6, 0.2, 0.0):
+            goal = server.sentry_constant_hand_z_goal(
+                mapper.targets(cx, 0.1), target_z
+            )
+            stepped = limiter.step(previous, goal, dt)
+            current = server.sentry_constant_hand_z_step(
+                previous, stepped, target_z, limiter.max_step_rad_s * dt
+            )
+            self.assertLessEqual(
+                abs(
+                    current[server.tracking.R_SHOULDER_PITCH]
+                    - previous[server.tracking.R_SHOULDER_PITCH]
+                ),
+                limiter.max_step_rad_s * dt + 1e-12,
+            )
+            self.assertAlmostEqual(
+                server.sentry_right_hand_z(current),
+                target_z,
+                delta=1e-5,
+            )
+            previous = current
+
+    def test_height_correction_cannot_jump_past_pitch_rate_limit(self):
+        previous = dict(server.tracking.NEUTRAL_TEMPLATE)
+        stepped = dict(previous)
+        target_z = server.sentry_right_hand_z(server.tracking.POINTING_TEMPLATE)
+        max_step = 0.05
+        corrected = server.sentry_constant_hand_z_step(
+            previous, stepped, target_z, max_step
+        )
+        self.assertLessEqual(
+            abs(
+                corrected[server.tracking.R_SHOULDER_PITCH]
+                - previous[server.tracking.R_SHOULDER_PITCH]
+            ),
+            max_step,
+        )
 
 
 class SentryArmingTests(unittest.TestCase):
@@ -387,6 +471,8 @@ class TrackingLoopTests(unittest.TestCase):
         subscribe.assert_called_once()
         unsubscribe.assert_called_once()
         closed_loop.assert_called()
+        tuning = closed_loop.call_args.args[4]
+        self.assertEqual(tuning["response"], server.SENTRY_REPLAY_RESPONSE)
         publisher.Write.assert_called_once()
 
 

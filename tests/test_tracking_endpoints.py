@@ -198,6 +198,9 @@ class TrackingRouteTests(unittest.TestCase):
 
 
 class TrackPayloadTests(unittest.TestCase):
+    def test_deployed_webcam_uses_robot_relative_horizontal_orientation(self):
+        self.assertGreater(server.SENTRY_FOV_YAW, 0.0)
+
     def test_parses_locked_webcam_session(self):
         parsed = server.parse_track_payload({
             "camera": "webcam",

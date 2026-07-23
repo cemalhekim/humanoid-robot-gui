@@ -446,7 +446,9 @@ TRACKING_RATE_HZ = max(1.0, min(15.0, float(os.environ.get("TRACKING_RATE_HZ", "
 # Target rate of the sentry push-stream detect loop (the real rate is capped
 # by the AI-host roundtrip; the loop never overlaps requests).
 SENTRY_STREAM_HZ = max(1.0, min(30.0, float(os.environ.get("SENTRY_STREAM_HZ", "15") or 15)))
-SENTRY_FOV_YAW = float(os.environ.get("SENTRY_FOV_YAW", "-1.25") or -1.25)
+# The deployed USB camera already presents robot-relative left/right (verified
+# during supervised bring-up 2026-07-23), so its mapping must not be mirrored.
+SENTRY_FOV_YAW = float(os.environ.get("SENTRY_FOV_YAW", "1.25") or 1.25)
 SENTRY_FOV_PITCH = float(os.environ.get("SENTRY_FOV_PITCH", "0.9") or 0.9)
 SENTRY_YAW_OFFSET = float(os.environ.get("SENTRY_YAW_OFFSET", "0.11") or 0.11)
 SENTRY_PITCH_OFFSET = float(os.environ.get("SENTRY_PITCH_OFFSET", "-1.52") or -1.52)

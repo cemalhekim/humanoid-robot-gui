@@ -44,8 +44,8 @@ Phase 1 (`/api/sentry/detect`) and Phase 2 (head-lock buttons).
     `TRACKING_CAMERA` env branch; env stays as the default camera).
   - Webcam sessions build the mapper from new env-tunable calibration
     constants (defined next to the other `TRACKING_*` constants):
-    `SENTRY_FOV_YAW` (default **-1.25** — negative mirrors yaw because the
-    webcam faces the robot), `SENTRY_FOV_PITCH` (0.9), `SENTRY_YAW_OFFSET`
+    `SENTRY_FOV_YAW` (default **1.25**, verified against the deployed webcam's
+    robot-relative image orientation), `SENTRY_FOV_PITCH` (0.9), `SENTRY_YAW_OFFSET`
     (0.0), `SENTRY_PITCH_OFFSET` (0.35). Head sessions keep
     `PointingMapper()` defaults.
   - Target seeding: when the payload carries `target`, pre-set

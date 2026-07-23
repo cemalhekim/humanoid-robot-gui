@@ -84,9 +84,6 @@ const els = {
   batteryFields: document.getElementById("batteryFields"),
   handFields: document.getElementById("handFields"),
   forceFields: document.getElementById("forceFields"),
-  smartplugState: document.getElementById("smartplugState"),
-  smartplugToggle: document.getElementById("smartplugToggle"),
-  smartplugMessage: document.getElementById("smartplugMessage"),
   motorRows: document.getElementById("motorRows"),
   rawJson: document.getElementById("rawJson"),
   cameraStream: document.getElementById("cameraStream"),
@@ -592,7 +589,10 @@ function updateRobotMotionToggle() {
   if (!button) return;
   const connected = Boolean(state.latest?.connected);
   const active = Boolean(state.recordingActive);
-  button.textContent = active ? "Stop Saving Robot Motion" : "Save Real Robot Motion";
+  button.innerHTML = active
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><rect x="8.6" y="8.6" width="6.8" height="6.8" rx="1" fill="currentColor" stroke="none"/></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/></svg>';
+  button.setAttribute("aria-label", active ? "Stop Saving Robot Motion" : "Save Real Robot Motion");
   button.disabled = !active && !connected;
   button.classList.toggle("emergency-button", active);
   button.classList.toggle("ghost-button", !active);
@@ -981,14 +981,12 @@ function updateReplayUi() {
     els.recordingReplayTime.textContent = timestamp ? new Date(timestamp * 1000).toLocaleTimeString() : "--";
   }
   if (els.recordingPlay) {
-    els.recordingPlay.textContent = "Simulate Trajectory";
     els.recordingPlay.disabled = (total === 0 && builderPointCount === 0) || state.replay.playing;
   }
   if (els.recordingRobotPlay) {
     const moveTarget = pendingMoveTarget();
     const canMoveArms = Boolean(state.latest?.connected) && moveTarget !== null;
     els.recordingRobotPlay.disabled = !canMoveArms;
-    els.recordingRobotPlay.textContent = "Move";
     els.recordingRobotPlay.title = robotReplayLockReason({ canMoveArms, moveTarget });
   }
 }
@@ -1247,62 +1245,6 @@ async function loadRecordingStatus() {
   }
 }
 
-function renderSmartplugStatus(status) {
-  if (!els.smartplugToggle || !els.smartplugState) return;
-  const enabled = Boolean(status?.enabled);
-  const plugState = String(status?.state || "unavailable");
-  const known = plugState === "on" || plugState === "off";
-  const on = plugState === "on";
-  els.smartplugState.textContent = enabled && known ? (on ? "ON" : "OFF") : "N/A";
-  els.smartplugToggle.disabled = !enabled || !known;
-  els.smartplugToggle.classList.toggle("is-on", enabled && known && on);
-  els.smartplugToggle.classList.toggle("is-off", enabled && known && !on);
-  els.smartplugToggle.classList.toggle("is-unavailable", !enabled || !known);
-  els.smartplugToggle.setAttribute("aria-pressed", String(enabled && known && on));
-  els.smartplugToggle.setAttribute(
-    "aria-label",
-    enabled && known ? `Turn robot power ${on ? "off" : "on"}` : "Robot power unavailable",
-  );
-  els.smartplugToggle.title = status?.error || status?.friendly_name || (known ? `Robot power is ${plugState}` : "Robot power unavailable");
-  if (els.smartplugMessage) {
-    els.smartplugMessage.textContent = status?.error || status?.friendly_name || "--";
-  }
-}
-
-async function loadSmartplugStatus() {
-  if (!els.smartplugToggle) return;
-  try {
-    const response = await fetch("/api/smartplug/status");
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    renderSmartplugStatus(data);
-  } catch (error) {
-    renderSmartplugStatus({
-      ok: false,
-      enabled: false,
-      state: "unavailable",
-      error: error instanceof Error ? error.message : "Status request failed.",
-    });
-  }
-}
-
-async function sendSmartplugToggle() {
-  if (!els.smartplugToggle) return;
-  els.smartplugToggle.disabled = true;
-  if (els.smartplugMessage) els.smartplugMessage.textContent = "Switching…";
-  try {
-    const response = await fetch("/api/smartplug/toggle", { method: "POST" });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    renderSmartplugStatus(data);
-  } catch (error) {
-    if (els.smartplugMessage) {
-      els.smartplugMessage.textContent = error instanceof Error ? error.message : "Toggle failed.";
-    }
-    loadSmartplugStatus();
-  }
-}
-
 async function startRecording() {
   if (!els.recordingRobotMotionToggle || !state.latest?.connected) return;
   els.recordingRobotMotionToggle.disabled = true;
@@ -1375,13 +1317,23 @@ function renderSequenceBuilder() {
   els.sequenceBuilder?.classList.toggle("is-hidden", !state.sequenceBuilder.active);
   els.recordingSequenceToggle?.classList.toggle("active", state.sequenceBuilder.active);
   if (els.recordingSequenceToggle) {
-    els.recordingSequenceToggle.textContent = state.sequenceBuilder.active ? "Close Sequence" : "Create Sequence";
+    const label = state.sequenceBuilder.active ? "Close Sequence" : "Create Sequence";
+    els.recordingSequenceToggle.innerHTML = state.sequenceBuilder.active
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M18 14v6M15 17h6"/></svg>';
+    els.recordingSequenceToggle.title = label;
+    els.recordingSequenceToggle.setAttribute("aria-label", label);
   }
   if (els.recordingSaveSequence) {
     els.recordingSaveSequence.disabled = state.sequenceBuilder.points.length === 0;
   }
   if (els.recordingCapturePose) {
-    els.recordingCapturePose.textContent = state.sequenceBuilder.active ? "Add Point" : "Save Pose";
+    const label = state.sequenceBuilder.active ? "Add Point" : "Save Pose";
+    els.recordingCapturePose.innerHTML = state.sequenceBuilder.active
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4.2L6 21z"/></svg>';
+    els.recordingCapturePose.title = label;
+    els.recordingCapturePose.setAttribute("aria-label", label);
   }
   if (!state.sequenceBuilder.active) {
     els.endEffectorStatus?.classList.add("is-hidden");
@@ -2151,7 +2103,6 @@ function chillMotors() {
   if (!els.chillMotors) return;
   els.chillMotors.disabled = true;
   els.chillMotors.classList.add("pending");
-  els.chillMotors.textContent = "Releasing";
   fetch("/api/robot/chill", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2177,7 +2128,6 @@ function chillMotors() {
     .finally(() => {
       els.chillMotors.disabled = false;
       els.chillMotors.classList.remove("pending");
-      els.chillMotors.textContent = "Release";
       loadWristStatus();
     });
 }
@@ -2186,7 +2136,6 @@ function sendRobotHome() {
   if (!els.homeRobot) return;
   els.homeRobot.disabled = true;
   els.homeRobot.classList.add("pending");
-  els.homeRobot.textContent = "Homing";
   fetch("/api/robot/home", { method: "POST" })
     .then((response) =>
       response.json().then((data) => {
@@ -2206,7 +2155,6 @@ function sendRobotHome() {
     .finally(() => {
       els.homeRobot.disabled = false;
       els.homeRobot.classList.remove("pending");
-      els.homeRobot.textContent = "Home";
       loadWristStatus();
       loadLocoStatus();
     });
@@ -2218,7 +2166,6 @@ function sendRobotStraight() {
   if (!els.straightRobot) return;
   els.straightRobot.disabled = true;
   els.straightRobot.classList.add("pending");
-  els.straightRobot.textContent = "Standing";
   fetch("/api/loco/command", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2243,7 +2190,6 @@ function sendRobotStraight() {
     .finally(() => {
       els.straightRobot.disabled = false;
       els.straightRobot.classList.remove("pending");
-      els.straightRobot.textContent = "Stand Up";
       loadWristStatus();
       loadLocoStatus();
     });
@@ -2978,9 +2924,6 @@ updateReplayResponseLabel();
 updateReplayUi();
 window.setInterval(loadRecordingStatus, 2000);
 window.setInterval(loadRecordingFiles, 5000);
-els.smartplugToggle?.addEventListener("click", sendSmartplugToggle);
-loadSmartplugStatus();
-window.setInterval(loadSmartplugStatus, 5000);
 setupLocoControls();
 setupWristControls();
 connectEvents();
@@ -3182,7 +3125,6 @@ connectEvents();
 
 // ---- Sentry Mode: head-tracked glowing lock buttons on the webcam feed ----
 (function setupSentry() {
-  const KEY = "h1_sentry_mode";
   const toggle = document.getElementById("sentryToggle");
   const panel = document.getElementById("floatCam");
   const counter = document.getElementById("floatCamSentry");
@@ -3211,28 +3153,37 @@ connectEvents();
   let count = null;           // persons in last good detection, or null
   let lastError = null;
 
-  const isOn = () => localStorage.getItem(KEY) === "1";
+  // The SERVER owns Sentry Mode (operator invariant 2026-07-23: on = a
+  // tracking session runs, off = none). The toggle only renders the server
+  // flag and requests changes — no localStorage truth, so a reload, server
+  // restart, or second browser can never silently flip the master switch.
+  let serverOn = false;
+  const isOn = () => serverOn;
   const renderToggle = () => {
     toggle.classList.toggle("on", isOn());
     toggle.setAttribute("aria-pressed", isOn() ? "true" : "false");
   };
-  // Sentry is the MASTER switch for person-following: the server refuses
-  // track starts while it is off and kills any running session on off.
+  const applyServerFlag = (flag) => {
+    if (typeof flag === "boolean" && flag !== serverOn) {
+      serverOn = flag;
+      renderToggle();
+    }
+  };
   const pushMode = (on) => fetch("/api/sentry/mode", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ on }),
-  }).catch(() => {});
-  toggle.addEventListener("click", () => {
-    const turningOff = isOn();
-    try { localStorage.setItem(KEY, turningOff ? "0" : "1"); } catch {}
-    renderToggle();
-    pushMode(!turningOff);
-  });
+  }).then((resp) => resp.json())
+    .then((data) => applyServerFlag(data.sentry_mode))
+    .catch(() => {});
+  const syncMode = () => fetch("/api/track/status")
+    .then((resp) => resp.json())
+    .then((data) => applyServerFlag(data.tracking && data.tracking.sentry_mode))
+    .catch(() => {});
+  toggle.addEventListener("click", () => pushMode(!isOn()));
   renderToggle();
-  // Re-arm the server gate to match the persisted switch on every page load,
-  // so a dashboard reload or server restart can't leave them out of sync.
-  pushMode(isOn());
+  syncMode();
+  window.setInterval(syncMode, 2000);
 
   const renderBoxesToggle = () => {
     if (!boxesToggle) return;

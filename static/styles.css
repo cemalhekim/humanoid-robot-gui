@@ -406,6 +406,103 @@ h1 {
   font-size: 12px;
 }
 
+/* Square toolbar buttons that show an icon instead of a text label. */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chill-button.icon-button,
+.emergency-button.icon-button {
+  width: 42px;
+  min-width: 42px;
+  padding: 0;
+}
+
+.chill-button.icon-button svg,
+.emergency-button.icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.emergency-button.icon-button::before {
+  content: none;
+}
+
+/* Full-size topbar action buttons (48px tall) get a matching square width. */
+.status-strip .icon-button {
+  width: 48px;
+  min-width: 48px;
+}
+
+.status-strip .icon-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Checkbox toggles rendered as icon pill buttons: red when off, green when on. */
+.inline-toggle.toggle-button {
+  justify-content: center;
+  width: 40px;
+  min-width: 40px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid rgba(230, 0, 0, 0.45);
+  border-radius: 999px;
+  background: rgba(230, 0, 0, 0.08);
+  color: #ff5555;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.inline-toggle.toggle-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.inline-toggle.toggle-button input {
+  display: none;
+}
+
+/* The PID block-diagram icon has fine detail — render it larger. */
+.inline-toggle.toggle-button.pid-toggle {
+  width: 48px;
+  min-width: 48px;
+}
+
+.inline-toggle.toggle-button.pid-toggle svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 1.5;
+}
+
+.inline-toggle.toggle-button:has(input:checked) {
+  border-color: rgba(50, 240, 93, 0.5);
+  background: rgba(50, 240, 93, 0.1);
+  color: var(--good);
+}
+
 .dashboard {
   display: grid;
   grid-template-columns: minmax(360px, 0.82fr) minmax(430px, 0.9fr) minmax(500px, 1.12fr);
@@ -3403,105 +3500,6 @@ button:not(:disabled):active { transform: scale(0.96); }
   gap: 10px;
 }
 
-/* ---- robot power (smart plug) toggle in the topbar ---- */
-.robot-power {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 3px 6px 3px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.robot-power-label {
-  font-size: 0.85rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  color: var(--text);
-}
-
-.robot-power-switch {
-  position: relative;
-  width: 112px;
-  height: 42px;
-  padding: 0;
-  overflow: hidden;
-  border: 2px solid rgba(255, 255, 255, 0.34);
-  border-radius: 999px;
-  color: #fff;
-  background: #ef1b2d;
-  box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.18),
-    0 7px 18px rgba(0, 0, 0, 0.24);
-  cursor: pointer;
-  transition: background 180ms ease, border-color 180ms ease, opacity 180ms ease, transform 180ms ease;
-}
-
-.robot-power-switch:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-.robot-power-switch-state {
-  position: absolute;
-  top: 50%;
-  right: 17px;
-  z-index: 1;
-  transform: translateY(-50%);
-  font-size: 0.86rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  transition: left 180ms ease, right 180ms ease;
-}
-
-.robot-power-switch-knob {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.34);
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.robot-power-switch.is-on {
-  background: #21b84b;
-  border-color: rgba(115, 255, 154, 0.82);
-}
-
-.robot-power-switch.is-on .robot-power-switch-state {
-  right: auto;
-  left: 17px;
-}
-
-.robot-power-switch.is-on .robot-power-switch-knob {
-  transform: translateX(70px);
-}
-
-.robot-power-switch.is-off {
-  background: #ef1b2d;
-  border-color: rgba(255, 88, 102, 0.84);
-}
-
-.robot-power-switch.is-unavailable {
-  border-color: rgba(255, 255, 255, 0.16);
-  color: rgba(255, 255, 255, 0.55);
-  background: #343434;
-}
-
-.robot-power-switch.is-unavailable .robot-power-switch-knob {
-  background: #8d8d8d;
-}
-
-.robot-power-switch:disabled {
-  cursor: not-allowed;
-  opacity: 0.72;
-}
-
 .visually-hidden {
   position: absolute !important;
   width: 1px !important;
@@ -4227,6 +4225,9 @@ button:not(:disabled):active { transform: scale(0.96); }
 
 /* ---- Sentry Mode: passive person-detection overlay ---- */
 .sentry-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid rgba(230, 0, 0, 0.55);
   background: transparent;
   color: var(--muted);
@@ -4234,9 +4235,17 @@ button:not(:disabled):active { transform: scale(0.96); }
   font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.04em;
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-radius: 999px;
   cursor: pointer;
+}
+.sentry-toggle svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
 }
 .sentry-toggle.on {
   background: #e60000;
@@ -4273,7 +4282,7 @@ button:not(:disabled):active { transform: scale(0.96); }
   height: 38px;
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.85);
-  background: rgba(230, 0, 0, 0.78);
+  background: rgba(18, 178, 82, 0.78);
   color: #fff;
   font-size: 14px;
   line-height: 1;
@@ -4304,14 +4313,14 @@ button:not(:disabled):active { transform: scale(0.96); }
 }
 .target-lock-btn.hidden { display: none; }
 .target-lock-btn.locked {
-  background: rgba(18, 178, 82, 0.9);
+  background: rgba(230, 0, 0, 0.9);
   animation: target-pulse-locked 1.6s ease-in-out infinite;
 }
 @keyframes target-pulse {
-  0%, 100% { box-shadow: 0 0 6px 2px rgba(230, 0, 0, 0.55); }
-  50% { box-shadow: 0 0 18px 7px rgba(230, 0, 0, 0.85); }
+  0%, 100% { box-shadow: 0 0 6px 2px rgba(18, 178, 82, 0.55); }
+  50% { box-shadow: 0 0 18px 7px rgba(18, 178, 82, 0.85); }
 }
 @keyframes target-pulse-locked {
-  0%, 100% { box-shadow: 0 0 6px 2px rgba(18, 178, 82, 0.6); }
-  50% { box-shadow: 0 0 18px 7px rgba(18, 178, 82, 0.9); }
+  0%, 100% { box-shadow: 0 0 6px 2px rgba(230, 0, 0, 0.6); }
+  50% { box-shadow: 0 0 18px 7px rgba(230, 0, 0, 0.9); }
 }

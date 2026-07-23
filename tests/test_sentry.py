@@ -147,7 +147,11 @@ class SentryFrontendContractTests(unittest.TestCase):
         with open("static/app.js") as fh:
             js = fh.read()
         self.assertIn("/api/sentry/stream", js)
-        self.assertIn("h1_sentry_mode", js)
+        # The server owns the sentry flag (2026-07-23): the toggle must sync
+        # from /api/track/status, never from a localStorage copy.
+        self.assertIn("/api/sentry/mode", js)
+        self.assertIn("/api/track/status", js)
+        self.assertNotIn("h1_sentry_mode", js)
 
     def test_lock_button_wiring_present(self):
         with open("static/index.html") as fh:

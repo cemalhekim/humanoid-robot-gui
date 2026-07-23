@@ -74,21 +74,13 @@
             <p id="subtitle">Waiting for rt/lowstate</p>
           </div>
           <div class="status-strip">
-            <span class="robot-power" title="Robot power — the showcase smart plug via Home Assistant">
-              <span class="robot-power-label">Robot</span>
-              <button id="smartplugToggle" class="robot-power-switch is-unavailable" type="button" aria-pressed="false" aria-label="Robot power unavailable" disabled>
-                <span id="smartplugState" class="robot-power-switch-state">N/A</span>
-                <span class="robot-power-switch-knob" aria-hidden="true"></span>
-              </button>
-              <span id="smartplugMessage" class="visually-hidden" aria-live="polite"></span>
-            </span>
-            <button id="sentryToggle" class="sentry-toggle" type="button" aria-pressed="false" title="Sentry Mode — draw person-detection boxes on the floating camera (no robot motion)">Sentry Mode</button>
+            <button id="sentryToggle" class="sentry-toggle" type="button" aria-pressed="false" title="Sentry Mode — draw person-detection boxes on the floating camera (no robot motion)" aria-label="Sentry Mode"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.8"/><circle cx="12" cy="12" r="1.2"/></svg></button>
             <span id="networkType" class="metric signal-chip">Detecting network</span>
             <span id="rate" class="metric success">-- Hz</span>
             <span id="connection" class="pill bad">Disconnected</span>
-            <button id="chillMotors" class="emergency-button" type="button" title="Release: damp all motors — the arms go limp">Release</button>
-            <button id="straightRobot" class="chill-button" type="button" title="Recover after Release: lock stand — the RC left+up combo in software">Stand Up</button>
-            <button id="homeRobot" class="chill-button" type="button" title="Hold the arms at their current position (arm_sdk hold)">Home</button>
+            <button id="chillMotors" class="emergency-button icon-button" type="button" title="Release: damp all motors — the arms go limp" aria-label="Release"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7.3 7.3 0 0 0-7.3 7.3c0 2.5 1.2 4.3 2.9 5.5v3a1.9 1.9 0 0 0 1.9 1.9h5a1.9 1.9 0 0 0 1.9-1.9v-3c1.7-1.2 2.9-3 2.9-5.5A7.3 7.3 0 0 0 12 3z"/><circle cx="9.2" cy="10.8" r="1.5" fill="currentColor" stroke="none"/><circle cx="14.8" cy="10.8" r="1.5" fill="currentColor" stroke="none"/><path d="M10.3 20.6v-1.8M13.7 20.6v-1.8"/></svg></button>
+            <button id="straightRobot" class="chill-button icon-button" type="button" title="Recover after Release: lock stand — the RC left+up combo in software" aria-label="Stand Up"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.8" r="2"/><path d="M12 6.8v6.7"/><path d="M12 9L8.2 5.9M12 9l3.8-3.1"/><path d="M12 13.5l-3.1 5.6M12 13.5l3.1 5.6"/><path d="M4.5 21h15"/></svg></button>
+            <button id="homeRobot" class="chill-button icon-button" type="button" title="Move the arms to the saved 'home' pose (closed-loop arm_sdk)" aria-label="Home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 9.6V20h12V9.6"/><path d="M10 20v-5.5h4V20"/></svg></button>
           </div>
         </header>
 
@@ -227,10 +219,10 @@
               </div>
               <div class="wrist-actions">
                 <span id="recordingState" class="pill bad">Idle</span>
-                <label class="inline-toggle sequence-debug-toggle"><input id="collisionDebugToggle" type="checkbox"> Bounds</label>
-                <button id="recordingSequenceToggle" class="ghost-button" type="button">Create Sequence</button>
-                <button id="recordingRobotMotionToggle" class="ghost-button compact" type="button" disabled>Save Real Robot Motion</button>
-                <button id="recordingCapturePose" class="ghost-button" type="button">Save Pose</button>
+                <label class="inline-toggle toggle-button sequence-debug-toggle" title="Bounds"><input id="collisionDebugToggle" type="checkbox"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/></svg><span class="visually-hidden">Bounds</span></label>
+                <button id="recordingSequenceToggle" class="ghost-button icon-button" type="button" title="Create Sequence" aria-label="Create Sequence"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M18 14v6M15 17h6"/></svg></button>
+                <button id="recordingRobotMotionToggle" class="ghost-button compact icon-button" type="button" title="Save Real Robot Motion" aria-label="Save Real Robot Motion" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/></svg></button>
+                <button id="recordingCapturePose" class="ghost-button icon-button" type="button" title="Save Pose" aria-label="Save Pose"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4.2L6 21z"/></svg></button>
               </div>
             </div>
             <div class="recording-layout">
@@ -249,16 +241,16 @@
               <section class="recording-replay">
                 <div class="recording-replay-toolbar">
                   <select id="recordingFileSelect" aria-label="Recording file"></select>
-                  <button id="recordingRename" class="ghost-button compact" type="button" disabled>Rename</button>
+                  <button id="recordingRename" class="ghost-button compact icon-button" type="button" title="Rename" aria-label="Rename" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.6 3.9a2.05 2.05 0 0 1 2.9 2.9L7.4 18.9 3 20l1.1-4.4z"/><path d="M14.5 6l3 3"/></svg></button>
                   <span id="endEffectorStatus" class="ik-status is-hidden">IK idle</span>
                   <label class="slider-row recording-response-row">
                     <span>Arm replay response <strong id="recordingReplayResponseValue">Balanced 50%</strong></span>
                     <input id="recordingReplayResponse" type="range" min="0" max="5" value="2.5" step="0.05" aria-label="Arm replay response">
                   </label>
-                  <label class="inline-toggle"><input id="recordingReplayPid" type="checkbox" checked> Closed-loop PID</label>
-                  <label class="inline-toggle"><input id="recordingMirrorArms" type="checkbox"> Mirror arms</label>
-                  <button id="recordingPlay" class="chill-button compact" type="button">Simulate Trajectory</button>
-                  <button id="recordingRobotPlay" class="emergency-button compact" type="button" disabled>Move</button>
+                  <label class="inline-toggle toggle-button pid-toggle" title="Closed-loop PID"><input id="recordingReplayPid" type="checkbox" checked><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8.5h3"/><circle cx="6.8" cy="8.5" r="1.8"/><path d="M8.6 8.5H11"/><rect x="11" y="5.3" width="6.5" height="6.4"/><path d="M17.5 8.5H22"/><path d="M19.9 6.3L22 8.5l-2.1 2.2"/><path d="M19.5 8.5v8.5H6.8v-6.2"/><path d="M5.1 12.5l1.7-1.7 1.7 1.7"/></svg><span class="visually-hidden">Closed-loop PID</span></label>
+                  <label class="inline-toggle toggle-button" title="Mirror arms"><input id="recordingMirrorArms" type="checkbox"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v17" stroke-dasharray="2.5 2.5"/><path d="M8 8l-4 4 4 4"/><path d="M16 8l4 4-4 4"/></svg><span class="visually-hidden">Mirror arms</span></label>
+                  <button id="recordingPlay" class="chill-button compact icon-button" type="button" title="Simulate Trajectory" aria-label="Simulate Trajectory"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="18.5" r="1.6"/><path d="M7.5 16.5C10 10.5 14 6.5 20 4.5" stroke-dasharray="3 2.4"/><path d="M15.8 3.4L20 4.5l-1.2 4.1"/></svg></button>
+                  <button id="recordingRobotPlay" class="emergency-button compact icon-button" type="button" title="Move" aria-label="Move" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/><path d="M9.5 6.5L12 4l2.5 2.5M9.5 17.5L12 20l2.5-2.5M6.5 9.5L4 12l2.5 2.5M17.5 9.5L20 12l-2.5 2.5"/></svg></button>
                 </div>
                 <div id="recordingReplayCanvas" class="recording-replay-canvas"></div>
                 <div class="recording-legend">

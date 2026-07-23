@@ -852,54 +852,29 @@ class TelemetryContractsTest(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
-class HomeHoldTest(unittest.TestCase):
+class HomeMoveContractTest(unittest.TestCase):
+    """Home = closed-loop move to the saved 'home' pose (2026-07-23; the old
+    hold-current-position behavior is gone)."""
+
     def setUp(self) -> None:
         self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
 
     def test_home_without_dds_falls_back_and_reports_unavailable(self) -> None:
-        with mock.patch.object(
-            self.store, "_request_xr_ipc", return_value=(502, {"ok": False, "error": "xr down"})
-        ) as xr_ipc:
-            status, response = self.store.request_home()
+        with TemporaryDirectory() as directory:
+            (server.Path(directory) / "20260714-111543-home.pose.json").write_text(
+                "{}", encoding="utf-8")
+            with mock.patch.object(server, "RECORDINGS_DIR", server.Path(directory)), \
+                 mock.patch.object(
+                     self.store, "request_robot_replay",
+                     return_value=(503, {"ok": False, "error": "DDS arm_sdk publisher is not available."}),
+                 ), \
+                 mock.patch.object(
+                     self.store, "_request_xr_ipc",
+                     return_value=(502, {"ok": False, "error": "xr down"}),
+                 ) as xr_ipc:
+                status, response = self.store.request_home()
         self.assertEqual(status, 503)
         self.assertFalse(response["ok"])
         self.assertIn("arm_sdk", response["error"])
         self.assertEqual(response["xr_fallback_error"], "xr down")
         xr_ipc.assert_called_once()
-
-    def test_home_holds_the_position_measured_at_press_time(self) -> None:
-        msg = FakeLowState()
-        for index, motor in enumerate(msg.motor_state):
-            motor.q = index * 0.01
-        writes: list = []
-        publisher = mock.Mock()
-        publisher.Write = writes.append
-        captured: dict = {}
-
-        def fake_build(latest, targets, gains, feedforward_tau_by_index=None, weight=1.0):
-            captured["targets"] = dict(targets)
-            return "CMD"
-
-        self.store.wrist_publisher = publisher
-        self.store.lowstate_msg = msg
-        self.store.lowcmd_factory = lambda: None
-        self.store.crc = object()
-        with mock.patch.object(
-            self.store, "_suspend_xr_motion_publishers", return_value={"ok": True}
-        ), mock.patch.object(self.store, "_build_arm_sdk_trajectory_cmd", side_effect=fake_build):
-            status, response = self.store.request_home()
-            time.sleep(0.08)
-            cancel = self.store.replay_cancel
-            self.assertIsNotNone(cancel)
-            cancel.set()
-            time.sleep(0.06)
-
-        self.assertEqual(status, 202)
-        self.assertTrue(response["ok"])
-        self.assertGreater(len(writes), 0)
-        # The waist cannot be driven over arm_sdk; every arm target must equal
-        # the position measured when Home was pressed.
-        self.assertNotIn(server.WAIST_YAW_JOINT, captured["targets"])
-        self.assertEqual(set(captured["targets"]), set(server.ARM_SDK_JOINTS) - {server.WAIST_YAW_JOINT})
-        for joint, value in captured["targets"].items():
-            self.assertAlmostEqual(value, joint * 0.01)

@@ -292,9 +292,6 @@ ARM_SDK_KD = [2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1
 # gravity just like the arm_sdk path.
 ARM_SDK_GAIN_BY_INDEX = {joint: (ARM_SDK_KP[k], ARM_SDK_KD[k]) for k, joint in enumerate(ARM_SDK_JOINTS)}
 
-# Home button: hold the arms at their press-time pose with the closed-loop
-# (PID + gravity feed-forward) corrector instead of raw position targets.
-HOME_HOLD_CLOSED_LOOP = os.environ.get("HOME_HOLD_CLOSED_LOOP", "1") not in ("0", "false", "False", "")
 REPLAY_COMMAND_SCOPES = {
     "all": list(JOINT_NAMES),
     "arms": JOINT_GROUPS["left_arm"] + JOINT_GROUPS["right_arm"] + JOINT_GROUPS["waist"],
@@ -497,18 +494,6 @@ LLM_TTS_VOICE = os.environ.get("LLM_TTS_VOICE", "alloy")
 VOICE_TIMEOUT_SECONDS = float(os.environ.get("VOICE_TIMEOUT_SECONDS", "60"))
 MAX_AUDIO_BYTES = int(os.environ.get("MAX_AUDIO_BYTES", str(15_000_000)))
 MAX_TTS_TEXT_CHARS = int(os.environ.get("MAX_TTS_TEXT_CHARS", "2000"))
-
-# ---------------------------------------------------------------------------
-# Smart plug (Home Assistant): dashboard toggle for the showcase Sonoff switch
-# on the lab Home Assistant instance. Calls are proxied through this server so
-# the browser never sees the HA token. Requires a long-lived access token in
-# HA_TOKEN (set it in the robot-telemetry-web service environment); without a
-# token the endpoints answer normally but report the plug as not configured.
-# ---------------------------------------------------------------------------
-HA_BASE_URL = os.environ.get("HA_BASE_URL", "http://10.2.200.100").rstrip("/")
-HA_TOKEN = os.environ.get("HA_TOKEN", "")
-HA_SWITCH_ENTITY = os.environ.get("HA_SWITCH_ENTITY", "switch.somoffswitch2408")
-HA_TIMEOUT_SECONDS = float(os.environ.get("HA_TIMEOUT_SECONDS", "6"))
 
 # Optional HTTPS. Set both to a cert/key PEM to serve over TLS — required so the
 # browser mic (getUserMedia) works when the dashboard is opened over a LAN IP
@@ -1327,75 +1312,6 @@ def synthesize_speech(text: str) -> tuple[int, dict[str, Any] | bytes, str]:
     except Exception as exc:  # pragma: no cover - defensive
         return 502, {"ok": False, "error": f"TTS request failed: {exc}"}, ""
     return 200, audio, content_type
-
-
-def _ha_request(path: str, payload: dict[str, Any] | None = None) -> tuple[int, Any]:
-    """Call the Home Assistant REST API (GET without payload, POST with one).
-
-    Returns (http_status, decoded_json). Never raises for network errors —
-    they are mapped to a JSON error payload, mirroring call_llm().
-    """
-    url = f"{HA_BASE_URL}{path}"
-    headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
-    body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    request = urllib.request.Request(url, data=body, headers=headers, method="POST" if payload is not None else "GET")
-    try:
-        with urllib.request.urlopen(request, timeout=HA_TIMEOUT_SECONDS) as response:
-            raw = response.read()
-        return 200, json.loads(raw.decode("utf-8")) if raw else {}
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:300]
-        return 502, {"ok": False, "error": f"Home Assistant returned HTTP {exc.code}: {detail}"}
-    except urllib.error.URLError as exc:
-        return 503, {"ok": False, "error": f"Cannot reach Home Assistant at {HA_BASE_URL}: {exc.reason}"}
-    except socket.timeout:
-        return 504, {"ok": False, "error": f"Home Assistant timed out after {HA_TIMEOUT_SECONDS:g}s"}
-    except Exception as exc:  # pragma: no cover - defensive
-        return 502, {"ok": False, "error": f"Home Assistant request failed: {exc}"}
-
-
-def smartplug_snapshot(state_object: Any) -> dict[str, Any]:
-    """Shape a HA state object into the /api/smartplug payload the UI renders."""
-    state = "unavailable"
-    friendly_name = HA_SWITCH_ENTITY
-    if isinstance(state_object, dict):
-        state = str(state_object.get("state") or "unavailable")
-        attributes = state_object.get("attributes")
-        if isinstance(attributes, dict) and attributes.get("friendly_name"):
-            friendly_name = str(attributes["friendly_name"])
-    return {"ok": True, "enabled": True, "entity": HA_SWITCH_ENTITY, "state": state, "friendly_name": friendly_name}
-
-
-def smartplug_status() -> tuple[int, dict[str, Any]]:
-    """(status, payload) for GET /api/smartplug/status."""
-    if not HA_TOKEN:
-        return 200, {
-            "ok": True,
-            "enabled": False,
-            "entity": HA_SWITCH_ENTITY,
-            "state": "unavailable",
-            "error": "Smart plug is not configured (set HA_TOKEN).",
-        }
-    status, decoded = _ha_request(f"/api/states/{HA_SWITCH_ENTITY}")
-    if status != 200:
-        return status, decoded
-    return 200, smartplug_snapshot(decoded)
-
-
-def smartplug_toggle() -> tuple[int, dict[str, Any]]:
-    """(status, payload) for POST /api/smartplug/toggle."""
-    if not HA_TOKEN:
-        return 503, {"ok": False, "error": "Smart plug is not configured (set HA_TOKEN)."}
-    status, decoded = _ha_request("/api/services/switch/toggle", {"entity_id": HA_SWITCH_ENTITY})
-    if status != 200:
-        return status, decoded
-    # The service call answers with the list of states it changed; if our
-    # entity is not in it (e.g. HA answered but skipped it), re-query.
-    if isinstance(decoded, list):
-        for item in decoded:
-            if isinstance(item, dict) and item.get("entity_id") == HA_SWITCH_ENTITY:
-                return 200, smartplug_snapshot(item)
-    return smartplug_status()
 
 
 def recording_timestamp() -> str:
@@ -4842,25 +4758,58 @@ class TelemetryStore:
         return snap
 
     def set_sentry_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        """Flip the master follow switch. Off always also stops any running
-        tracking session — sentry off must mean no following, ever."""
+        """Flip the master follow switch. Operator invariant (2026-07-23):
+        Sentry on must mean a running tracking session, off must mean none —
+        so on also starts the session (cancelling any arm replay that would
+        block it) and off always stops it."""
         on = payload.get("on")
         if not isinstance(on, bool):
             return 400, {"ok": False, "error": 'Body must be {"on": true|false}.'}
         with self.command_lock:
             self.sentry_mode_on = on
-        if not on:
+        start: dict[str, Any] | None = None
+        if on:
+            start = self._start_tracking_for_sentry()
+        else:
             self.request_track_stop()
-        self.record_command_event("sentry_mode", {"on": on})
-        return 200, {"ok": True, "sentry_mode": on, "tracking": self.track_snapshot()}
+        self.record_command_event("sentry_mode", {"on": on, "start": start})
+        response = {"ok": True, "sentry_mode": on, "tracking": self.track_snapshot()}
+        if start is not None:
+            response["start"] = start
+        return 200, response
+
+    def _start_tracking_for_sentry(self) -> dict[str, Any]:
+        """Sentry-on's half of the invariant: ensure a session is running.
+        A held arm replay is cancelled first — the master switch outranks a
+        pose hold, which otherwise blocks request_track_start."""
+        with self.command_lock:
+            track_alive = self.track_thread is not None and self.track_thread.is_alive()
+            replay_thread = self.replay_thread
+            replay_cancel = self.replay_cancel
+        if track_alive:
+            return {"ok": True, "status": 200, "already_running": True}
+        if replay_thread is not None and replay_thread.is_alive():
+            if replay_cancel is not None:
+                replay_cancel.set()
+            replay_thread.join(timeout=3.0)
+        status, result = self.request_track_start(
+            {"armed": True, "i_understand_risk": True, "source": "sentry_mode"}
+        )
+        start = {"ok": status == 200 and bool(result.get("ok")), "status": status}
+        if not start["ok"]:
+            start["error"] = result.get("error")
+        return start
 
     def _set_track_status(self, **fields: Any) -> None:
         with self.command_lock:
             self.track_status.update(fields, updated_at=time.time())
 
     def request_track_stop(self) -> tuple[int, dict[str, Any]]:
+        # Stopping also drops Sentry Mode: sentry on must always mean a
+        # running session, so an explicit stop may not leave it claiming one.
         with self.command_lock:
             cancel = self.track_cancel
+            self.sentry_mode_on = False
         if cancel is not None:
             cancel.set()
         self._set_track_status(active=False, phase="idle", message="Tracking stopped by operator.")
@@ -4973,11 +4922,33 @@ class TelemetryStore:
                 )
                 cancel.wait(max(0.0, period - (time.time() - tick)))
         finally:
-            self._set_track_status(active=False, phase="idle", message="Tracking session ended.")
+            # A natural end (ceiling, detector abort, crash) must also drop
+            # Sentry Mode — it may never claim a session that is not running.
+            ended_by_operator = cancel.is_set()
+            if not ended_by_operator:
+                with self.command_lock:
+                    self.sentry_mode_on = False
+            self._set_track_status(
+                active=False, phase="idle",
+                message="Tracking session ended." if ended_by_operator
+                else "Tracking session ended; Sentry Mode switched off — re-arm to follow again.",
+            )
             with self.command_lock:
                 if self.track_cancel is cancel:
                     self.track_thread = None
                     self.track_cancel = None
+            # Every session end also means Sentry Mode is now off — return the
+            # arms to the saved home pose so the robot never stays frozen
+            # mid-point (operator request 2026-07-23). Refs above are already
+            # cleared, so the replay start guards see no live session.
+            try:
+                home_status, home_result = self.request_home()
+                self.record_command_event(
+                    "track_end_home",
+                    {"status": home_status, "ok": bool(home_result.get("ok"))},
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                self.record_command_event("track_end_home", {"error": str(exc)})
 
     def record_command_event(self, name: str, payload: dict[str, Any]) -> None:
         self.recorder.write_event(name, payload)
@@ -5490,14 +5461,30 @@ class TelemetryStore:
         return self.request_chill({"armed": True, "i_understand_risk": True})
 
     def request_home(self) -> tuple[int, dict[str, Any]]:
-        """Home: hold the arms at their CURRENT position via arm_sdk.
-
-        The hold target is always the measured pose at the moment the button is
-        pressed, so engaging never commands motion — it only stiffens the arms
-        where they are. Falls back to the legacy XR teleop home command when the
-        DDS arm_sdk path is unavailable.
+        """Home: closed-loop move of the arms to the saved 'home' pose — the
+        identical request body the dashboard Move button / chat move tool
+        sends, so every arm_sdk safety gate applies unchanged (operator,
+        2026-07-23; previously this held the current pose instead). Falls back
+        to the legacy XR teleop home command when the DDS path is unavailable.
         """
-        status, result = self.hold_current_pose()
+        filename = self.named_positions().get("home")
+        if not filename:
+            return 404, {
+                "ok": False,
+                "error": "No saved position named 'home' — rename a saved pose "
+                         "in the dashboard to 'home' to create one.",
+            }
+        status, result = self.request_robot_replay(
+            {
+                "filename": filename,
+                "execute_arm_sdk": True,
+                "command_scope": "arms",
+                "closed_loop": True,
+                "hold_after_convergence": True,
+                "position_tolerance_rad": 0.01,
+                "replay_response": 2.5,
+            }
+        )
         if status == 503:
             xr_status, xr_result = self._request_xr_ipc(
                 "CMD_STOP", "XR teleop stop requested. Arms should move home during clean shutdown."
@@ -5506,99 +5493,6 @@ class TelemetryStore:
                 return xr_status, xr_result
             result["xr_fallback_error"] = xr_result.get("error")
         return status, result
-
-    def hold_current_pose(self) -> tuple[int, dict[str, Any]]:
-        with self.command_lock:
-            publisher = self.wrist_publisher
-            msg = self.lowstate_msg
-            previous_cancel = self.replay_cancel
-        if publisher is None or msg is None or self.lowcmd_factory is None or self.crc is None:
-            return 503, {"ok": False, "error": "DDS arm_sdk publisher or lowstate is not available."}
-
-        targets: dict[int, float] = {}
-        try:
-            for joint in ARM_SDK_JOINTS:
-                if joint == WAIST_YAW_JOINT:
-                    continue
-                value = float(msg.motor_state[joint].q)
-                if not math.isfinite(value):
-                    return 503, {"ok": False, "error": f"Joint {joint} has no finite position in lowstate."}
-                targets[joint] = value
-        except (AttributeError, IndexError, TypeError) as exc:
-            return 503, {"ok": False, "error": f"Could not read current joint positions: {exc}"}
-
-        xr_suspend = self._suspend_xr_motion_publishers()
-        if not xr_suspend.get("ok"):
-            return 409, {
-                "ok": False,
-                "error": "XR teleop motion publisher is still active; the hold would be overwritten.",
-                "xr_suspend": xr_suspend,
-            }
-        if previous_cancel is not None:
-            previous_cancel.set()
-
-        gain_by_index = {
-            joint: (kp * ARM_REPLAY_HOLD_KP_SCALE, kd * ARM_REPLAY_HOLD_KD_SCALE)
-            for joint, (kp, kd) in ARM_SDK_GAIN_BY_INDEX.items()
-            if joint in targets
-        }
-        cancel = threading.Event()
-        ramp_seconds = 1.2
-        dt = 0.02
-        closed_loop = HOME_HOLD_CLOSED_LOOP
-        tuning = self._arm_replay_tuning()
-        pid_state: dict[int, dict[str, float]] = {}
-
-        def run_hold() -> None:
-            writes = 0
-            try:
-                start = time.monotonic()
-                while not cancel.is_set():
-                    weight = min(1.0, (time.monotonic() - start) / ramp_seconds)
-                    with self.command_lock:
-                        latest_msg = self.lowstate_msg or msg
-                    if closed_loop:
-                        # Same PID + gravity feed-forward loop as arm replay:
-                        # corrects the commanded q from measured error so the
-                        # arms hold the press-time pose instead of sagging.
-                        commanded, _metrics, tau_ff = self._closed_loop_arm_targets(
-                            latest_msg, targets, pid_state, dt, tuning
-                        )
-                    else:
-                        commanded, tau_ff = targets, None
-                    publisher.Write(
-                        self._build_arm_sdk_trajectory_cmd(
-                            latest_msg, commanded, gain_by_index,
-                            feedforward_tau_by_index=tau_ff, weight=weight,
-                        )
-                    )
-                    writes += 1
-                    time.sleep(dt)
-            except Exception as exc:  # pragma: no cover - DDS runtime failure
-                self._set_wrist_status(active=False, message=f"Home hold failed: {exc}")
-                return
-            finally:
-                with self.command_lock:
-                    if self.replay_cancel is cancel:
-                        self.replay_cancel = None
-            self._set_wrist_status(active=False, message=f"Home hold released ({writes} writes).")
-
-        thread = threading.Thread(target=run_hold, name="arm-sdk-home-hold", daemon=True)
-        with self.command_lock:
-            self.replay_cancel = cancel
-        self._set_wrist_status(
-            active=True,
-            message="Home: holding arms at their current position (arm_sdk"
-            + (", closed-loop PID)." if closed_loop else ")."),
-            last_command={"mode": "home_hold", "joints": len(targets)},
-        )
-        thread.start()
-        self.record_command_event("home_hold", {"targets": targets})
-        return 202, {
-            "ok": True,
-            "message": "Holding arms at their current position. Release or a new command stops the hold.",
-            "joints": len(targets),
-        }
 
     def request_straight(self) -> tuple[int, dict[str, Any]]:
         return self._request_xr_ipc("CMD_STRAIGHT", "Straight arm hold requested. XR arm tracking is paused.")
@@ -6368,9 +6262,6 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.wrist_snapshot())
         elif request_path == "/api/loco/status":
             self._send_json(self.store.loco_snapshot())
-        elif request_path == "/api/smartplug/status":
-            status, response = smartplug_status()
-            self._send_json_status(response, HTTPStatus(status))
         elif request_path == "/api/chat/status":
             self._send_json(
                 {
@@ -6423,7 +6314,6 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/sequence",
             "/api/recording/rename",
             "/api/recording/replay/robot",
-            "/api/smartplug/toggle",
             "/api/track/start",
             "/api/track/stop",
             "/api/sentry/mode",
@@ -6538,11 +6428,6 @@ class TelemetryHandler(BaseHTTPRequestHandler):
                 self._send_bytes(result, content_type)
             else:
                 self._send_json_status(result, HTTPStatus(status))
-            return
-
-        if request_path == "/api/smartplug/toggle":
-            status, response = smartplug_toggle()
-            self._send_json_status(response, HTTPStatus(status))
             return
 
         self.store.record_command_event(request_path, payload)

@@ -494,6 +494,17 @@ class SentryUiSourceTests(unittest.TestCase):
         self.assertIn("rgba(18, 178, 82", unlocked)
         self.assertIn("rgba(230, 0, 0", locked)
 
+    def test_detection_border_matches_lock_button_state(self):
+        # Both the bounding-box border and confidence label follow the same
+        # unlocked-green / locked-red convention as the lock button.
+        with open("static/app.js") as fh:
+            src = fh.read()
+        render_boxes = src.split("const renderBoxes =", 1)[1].split(
+            "const renderCounter =", 1
+        )[0]
+        color_rule = 'locked ? "#e60000" : "#12b252"'
+        self.assertEqual(render_boxes.count(color_rule), 2)
+
 
 class TrackToolTests(unittest.TestCase):
     def make_store(self):

@@ -5,6 +5,14 @@ import { STLLoader } from "three/addons/loaders/STLLoader.js";
 const MODEL_BASE = "/models/h1_2_description/";
 const URDF_PATH = `${MODEL_BASE}h1_2.urdf`;
 const FLOOR_Y = -1.52;
+// Render-on-demand: only redraw when something changed. This backstop bounds
+// worst-case staleness if a render trigger is ever missed, so the viewer can
+// never permanently freeze — at most it lags this many ms.
+const RENDER_BACKSTOP_MS = 400;
+const JOINT_EPSILON = 1e-4;
+// Reused across every joint update so live telemetry doesn't allocate ~100
+// short-lived quaternions per tick (steady GC churn otherwise).
+const _JOINT_QUAT = new THREE.Quaternion();
 
 const BODY_JOINTS = {
   LeftHipYaw: "left_hip_yaw_joint",
@@ -189,6 +197,8 @@ class RobotViewer {
     this.trajectoryJointGroups = new Map();
     this.proposalJointGroups = new Map();
     this.proposalRoot = null;
+    this._needsRender = true;   // render at least the first frame
+    this._lastRenderAt = 0;
     this.gridHelper = null;
     this.jointGroups = new Map();
     this.latestState = null;
@@ -236,9 +246,14 @@ class RobotViewer {
   setJointValueIn(groups, jointName, value) {
     const joint = groups.get(jointName);
     if (!joint || !Number.isFinite(value)) return;
-    joint.value = Math.max(joint.lower, Math.min(joint.upper, value));
-    joint.group.quaternion.copy(joint.baseQuaternion);
-    joint.group.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(joint.axis, joint.value));
+    const clamped = Math.max(joint.lower, Math.min(joint.upper, value));
+    // Idle/held joints repeat the same value every tick — skip the quaternion
+    // math (and the render request) when nothing actually moved.
+    if (Math.abs(clamped - joint.value) < JOINT_EPSILON) return;
+    joint.value = clamped;
+    joint.group.quaternion.copy(joint.baseQuaternion)
+      .multiply(_JOINT_QUAT.setFromAxisAngle(joint.axis, clamped));
+    this._needsRender = true;
   }
 
   setCamera(position, target = [0, 0.15, 0]) {
@@ -303,6 +318,7 @@ class RobotViewer {
       const active = Boolean(proposal && Array.isArray(proposal.targets) && proposal.targets.length);
       if (active) this.ensureProposalGhost();
       if (this.proposalRoot) {
+        if (this.proposalRoot.visible !== active) this._needsRender = true;
         this.proposalRoot.visible = active;
         if (active) {
           // The ghost mirrors the live body (arms + hands) first, then the
@@ -437,6 +453,7 @@ class RobotViewer {
         object.visible = this.handsVisible;
       }
     });
+    this._needsRender = true;
   }
 
   getEndEffectorObject(side = "right") {
@@ -495,17 +512,20 @@ class RobotViewer {
       : null;
   }
 
-  captureEvidence() {
+  captureEvidence(withScreenshot = true) {
     const spatial = this.liveSpatialEvidence();
     if (!spatial || !this.renderer || !this.scene || !this.camera) return null;
-    // Render immediately before reading the WebGL canvas. This keeps capture
-    // reliable without preserveDrawingBuffer (which would slow every frame).
-    this.renderer.render(this.scene, this.camera);
     let screenshot = null;
-    try {
-      screenshot = this.renderer.domElement.toDataURL("image/jpeg", 0.72);
-    } catch (error) {
-      console.warn("Digital-twin screenshot capture failed", error);
+    // The screenshot needs a fresh render + a synchronous JPEG encode. Skip both
+    // when the caller (the 0.5s shared-pose publish) discards the image anyway —
+    // only chat, which actually sends the picture, pays that cost.
+    if (withScreenshot) {
+      this.renderer.render(this.scene, this.camera);
+      try {
+        screenshot = this.renderer.domElement.toDataURL("image/jpeg", 0.72);
+      } catch (error) {
+        console.warn("Digital-twin screenshot capture failed", error);
+      }
     }
     const camera = {
       position: this.camera.position.toArray().map((value) => Number(value.toFixed(3))),
@@ -644,6 +664,7 @@ class RobotViewer {
     marker.visible = true;
     if (!this.endEffectorBaselines[side]) this.endEffectorBaselines[side] = position.clone();
     this.emitEndEffectorMoved(side);
+    this._needsRender = true;
   }
 
   emitEndEffectorMoved(side) {
@@ -1019,6 +1040,7 @@ class RobotViewer {
 
   setCollisionDebugVisible(visible) {
     this.collisionDebugVisible = Boolean(visible);
+    this._needsRender = true;
     if (!this.compare) return;
     this.createCollisionDebugHelpers();
     for (const item of this.collisionDebugHelpers) item.helper.visible = this.collisionDebugVisible;
@@ -1167,10 +1189,15 @@ class RobotViewer {
         (geometry) => {
           geometry.computeVertexNormals();
           const mesh = new THREE.Mesh(geometry, materialFromVisual(visual, tone));
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
+          // Only the opaque primary model needs shadows; the transparent ghosts
+          // (reference/trajectory/proposal) cast negligible shadows through
+          // ~0.2-0.6 opacity yet would double the per-frame shadow-depth pass.
+          const solid = tone === "default" || tone === "replay";
+          mesh.castShadow = solid;
+          mesh.receiveShadow = solid;
           visualGroup.add(mesh);
           this.loadedMeshes += 1;
+          this._needsRender = true;
           if (this.latestState) this.applyTelemetry(this.latestState, this.live ? "live" : "replay");
         },
         undefined,
@@ -1290,6 +1317,9 @@ class RobotViewer {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(0, -0.65, 0);
     this.controls.enableDamping = true;
+    // Any camera movement (drag/zoom/pan/programmatic) requests a redraw — the
+    // single robust trigger for render-on-demand's camera side.
+    this.controls.addEventListener("change", () => { this._needsRender = true; });
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0x24282d, 2.4);
     this.scene.add(hemi);
@@ -1321,10 +1351,24 @@ class RobotViewer {
     if (this._sizeDirty) {
       this._sizeDirty = false;
       this.resize();
+      this._needsRender = true;
     }
-    this.controls?.update();
-    this.updateCollisionDebugHelpers();
-    this.renderer?.render(this.scene, this.camera);
+    // OrbitControls.update() returns true while the camera is still easing
+    // (damping / auto-rotate) — keep drawing until it settles.
+    const controlsMoving = this.controls ? this.controls.update() : false;
+    if (this.collisionDebugVisible) {
+      this.updateCollisionDebugHelpers();
+      this._needsRender = true;
+    }
+    // Render-on-demand: the robot is idle most of the time, so only redraw the
+    // 3-4 models when a joint/camera/visibility actually changed. The backstop
+    // guarantees liveness if a trigger is ever missed.
+    const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    if (this._needsRender || controlsMoving || now - (this._lastRenderAt || 0) >= RENDER_BACKSTOP_MS) {
+      this.renderer?.render(this.scene, this.camera);
+      this._needsRender = false;
+      this._lastRenderAt = now;
+    }
   }
 
   start() {
@@ -1383,11 +1427,10 @@ function publishSharedSpatialPose() {
   if (spatialPublishTimer) return;
   spatialPublishTimer = window.setTimeout(async () => {
     spatialPublishTimer = null;
-    const evidence = liveViewer.captureEvidence();
+    // The shared service needs geometry, not a screenshot — skip the render +
+    // JPEG encode entirely (chat captures the image separately when queried).
+    const evidence = liveViewer.captureEvidence(false);
     if (!evidence?.spatial) return;
-    // The shared service needs geometry, not a large screenshot. Chat captures
-    // the image separately when a vision-capable model is actually queried.
-    evidence.screenshot = null;
     try {
       await fetch("/api/spatial/pose", {
         method: "POST",

@@ -2680,7 +2680,14 @@ function buildPoseFeedbackCard(proposalId, requestText, hooks = {}) {
   comment.className = "pose-feedback-comment";
   const status = document.createElement("span");
   status.className = "pose-feedback-status";
+  // One verdict per card: a thumbs-up EXECUTES the pose, so a double-click (or a
+  // later contradictory thumbs-down) must not fire a second move / retry.
+  let settled = false;
   const send = async (verdict, button) => {
+    if (settled) return;
+    settled = true;
+    const buttons = wrap.querySelectorAll("button");
+    buttons.forEach((b) => (b.disabled = true));
     const note = comment.value.trim();
     status.textContent = verdict === "liked" ? "recording + executing…" : "recording…";
     try {
@@ -2695,7 +2702,6 @@ function buildPoseFeedbackCard(proposalId, requestText, hooks = {}) {
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error(payload.error || "Feedback failed.");
-      wrap.querySelectorAll("button").forEach((b) => b.classList.remove("chosen"));
       button.classList.add("chosen");
       if (verdict === "liked") {
         if (payload.move && payload.move.ok) {
@@ -2705,14 +2711,19 @@ function buildPoseFeedbackCard(proposalId, requestText, hooks = {}) {
           status.textContent = "recorded 👍, move failed: " + (payload.move?.error || "unknown");
         }
       } else if (note && hooks.onRetry) {
-        status.textContent = "recorded 👎 — retrying with your note…";
-        hooks.onRetry(
+        const dispatched = hooks.onRetry(
           `Önerine 👎 verdim: "${note}". "${requestText}" isteğimi bu notu dikkate alarak düzeltilmiş açılarla yeniden öner.`,
         );
+        status.textContent = dispatched
+          ? "recorded 👎 — retrying with your note…"
+          : "recorded 👎 (note saved; ask again to retry)";
       } else {
         status.textContent = "recorded 👎";
       }
     } catch (error) {
+      // Let the operator try the other verdict if the POST itself failed.
+      settled = false;
+      buttons.forEach((b) => (b.disabled = false));
       status.textContent = error instanceof Error ? error.message : "Feedback failed.";
     }
   };
@@ -2827,9 +2838,14 @@ function setupChat() {
                 tools_used: [{ name: "move", arguments: { position: "proposed", confirm: true }, ok: true }],
               });
             },
+            // Returns true only if it actually dispatched the retry. Never
+            // clobber a half-typed draft or fire while a request is in flight —
+            // the card reports "note saved; ask again" in that case.
             onRetry: (message) => {
+              if (busy || els.chatInput.value.trim()) return false;
               els.chatInput.value = message;
               els.chatForm.requestSubmit();
+              return true;
             },
           }),
         );

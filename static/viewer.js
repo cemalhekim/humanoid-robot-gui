@@ -298,19 +298,31 @@ class RobotViewer {
       }
     }
 
-    if (this.live && this.proposalRoot) {
+    if (this.live) {
       const proposal = snapshot.arm_proposal;
       const active = Boolean(proposal && Array.isArray(proposal.targets) && proposal.targets.length);
-      this.proposalRoot.visible = active;
-      if (active) {
-        // The ghost mirrors the live body first, then the proposed arm targets override.
-        for (const motor of snapshot.motors || []) {
-          const urdfJoint = BODY_JOINTS[motor.name];
-          if (urdfJoint) this.setJointValueIn(this.proposalJointGroups, urdfJoint, motor.q);
-        }
-        for (const target of proposal.targets) {
-          const urdfJoint = BODY_JOINTS[target.name];
-          if (urdfJoint) this.setJointValueIn(this.proposalJointGroups, urdfJoint, target.q);
+      if (active) this.ensureProposalGhost();
+      if (this.proposalRoot) {
+        this.proposalRoot.visible = active;
+        if (active) {
+          // The ghost mirrors the live body (arms + hands) first, then the
+          // proposed arm targets override.
+          for (const motor of snapshot.motors || []) {
+            const urdfJoint = BODY_JOINTS[motor.name];
+            if (urdfJoint) this.setJointValueIn(this.proposalJointGroups, urdfJoint, motor.q);
+          }
+          if (this.handsVisible !== false) {
+            for (const hand of snapshot.hands?.joints || []) {
+              for (const jointConfig of HAND_JOINTS[hand.name] || []) {
+                this.setJointValueIn(this.proposalJointGroups, jointConfig.joint,
+                  handValueToUrdfAngle(hand.q, jointConfig));
+              }
+            }
+          }
+          for (const target of proposal.targets) {
+            const urdfJoint = BODY_JOINTS[target.name];
+            if (urdfJoint) this.setJointValueIn(this.proposalJointGroups, urdfJoint, target.q);
+          }
         }
       }
     }
@@ -397,6 +409,20 @@ class RobotViewer {
   _applyByMode(snapshot, mode) {
     if (mode === "reference") this.applyReference(snapshot);
     else this.applyTelemetry(snapshot, mode);
+  }
+
+  ensureProposalGhost() {
+    // Build the green pose-proposal twin once, on first use.
+    if (this.proposalRoot || !this._urdfXml) return;
+    this.proposalRoot = this.buildRobot(this._urdfXml, {
+      name: "h1_2_proposal",
+      tone: "trajectory",
+      targetGroups: this.proposalJointGroups,
+    });
+    this.proposalRoot.visible = false;
+    // Apply the current hands on/off preference to the freshly built ghost
+    // (the load-time setHandsVisible ran before this model existed).
+    this.setHandsVisible(this.handsVisible !== false);
   }
 
   setHandsVisible(visible) {
@@ -1238,15 +1264,10 @@ class RobotViewer {
       this.setCollisionDebugVisible(this.collisionDebugVisible);
     } else {
       this.robotRoot = this.buildRobot(xml, { name: "h1_2", tone: "default", targetGroups: this.jointGroups });
-      if (this.live) {
-        // LLM pose proposals: green simulated twin, hidden until a proposal is staged.
-        this.proposalRoot = this.buildRobot(xml, {
-          name: "h1_2_proposal",
-          tone: "trajectory",
-          targetGroups: this.proposalJointGroups,
-        });
-        this.proposalRoot.visible = false;
-      }
+      // LLM pose-proposal ghost is built lazily on the first proposal (see
+      // ensureProposalGhost) so a whole second robot's meshes/GPU buffers aren't
+      // resident for a feature that may never fire this session.
+      if (this.live) this._urdfXml = xml;
     }
     this.modelReady = true;
     // Apply the operator's hands on/off preference to the freshly built models.

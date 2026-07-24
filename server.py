@@ -367,7 +367,6 @@ WAIST_YAW_JOINT = 12
 WAIST_LOWCMD_KP = 200.0
 WAIST_LOWCMD_KD = 5.0
 WAIST_LOWCMD_MAX_VEL_RAD_S = 0.6
-WAIST_REPLAY_EPSILON = 0.01
 LOCO_LIMITS = {
     "vx": [-1.0, 1.0],
     "vy": [-0.5, 0.5],
@@ -2112,29 +2111,6 @@ def lowstate_to_dict(
     return data
 
 
-def h264_payload_from_raw_ros(data: bytes, target_resolution: int = 360) -> bytes | None:
-    offset = 4
-    if len(data) < offset + 8:
-        return None
-    offset += 8
-    payloads: dict[int, bytes] = {}
-    for resolution in (720, 360, 180):
-        if offset + 4 > len(data):
-            break
-        payload_size = struct.unpack_from("<I", data, offset)[0]
-        offset += 4
-        if payload_size > len(data) - offset:
-            break
-        payload = data[offset : offset + payload_size]
-        offset += payload_size
-        while offset % 4:
-            offset += 1
-        if not payload:
-            continue
-        payloads[resolution] = payload
-    return payloads.get(target_resolution) or payloads.get(720) or payloads.get(360) or payloads.get(180)
-
-
 def clean_h264_payload(payload: bytes) -> bytes | None:
     for marker in (b"\x00\x00\x00\x01", b"\x00\x00\x01"):
         index = payload.find(marker)
@@ -2311,50 +2287,6 @@ def collect_ros_graph(interface: str) -> dict[str, Any]:
     }
 
 
-def camera_decoder_worker(store: "TelemetryStore", fifo_path: str) -> None:
-    if cv2 is None:
-        store.set_camera_error("OpenCV is not available for H264 decode.")
-        return
-    os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "quiet")
-    try:
-        cv2.setLogLevel(0)
-    except AttributeError:
-        pass
-    try:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, 2)
-        os.close(devnull)
-    except OSError:
-        pass
-    cap = cv2.VideoCapture(fifo_path, cv2.CAP_FFMPEG)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    if not cap.isOpened():
-        store.set_camera_error("OpenCV could not open H264 camera stream.")
-        return
-    while store.running:
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            time.sleep(0.02)
-            continue
-        ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
-        if ok:
-            store.set_camera_frame(encoded.tobytes())
-    cap.release()
-
-
-def camera_fifo_writer(store: "TelemetryStore", fifo_path: str, payloads: "queue.Queue[bytes]") -> None:
-    while store.running:
-        try:
-            with open(fifo_path, "wb", buffering=0) as stream:
-                while store.running:
-                    stream.write(payloads.get())
-        except BrokenPipeError:
-            time.sleep(0.1)
-        except OSError as exc:
-            store.set_camera_error(f"H264 pipe writer failed: {exc}")
-            time.sleep(0.5)
-
-
 def decode_h264_file(path: str) -> bytes | None:
     if cv2 is None:
         return None
@@ -2374,44 +2306,6 @@ def decode_h264_file(path: str) -> bytes | None:
         return None
     ok, encoded = cv2.imencode(".jpg", latest, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
     return encoded.tobytes() if ok else None
-
-
-def camera_buffer_decoder_worker(store: "TelemetryStore", payloads: "queue.Queue[bytes]") -> None:
-    if cv2 is None:
-        store.set_camera_error("OpenCV is not available for H264 decode.")
-        return
-    os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "quiet")
-    buffer = bytearray()
-    max_bytes = 4_000_000
-    decode_path = f"/tmp/robot_telemetry_front_camera_{os.getpid()}.h264"
-    next_decode = 0.0
-    last_frame_at = 0.0
-    while store.running:
-        try:
-            payload = payloads.get(timeout=0.2)
-        except queue.Empty:
-            continue
-        buffer.extend(payload)
-        if len(buffer) > max_bytes:
-            del buffer[: len(buffer) - max_bytes]
-            first_start = buffer.find(b"\x00\x00\x00\x01")
-            if first_start > 0:
-                del buffer[:first_start]
-        now = time.time()
-        if now < next_decode or len(buffer) < 32_000:
-            continue
-        next_decode = now + 0.25
-        try:
-            Path(decode_path).write_bytes(buffer)
-            frame = decode_h264_file(decode_path)
-        except Exception as exc:
-            store.set_camera_error(f"H264 buffer decode failed: {exc}")
-            continue
-        if frame is not None:
-            store.set_camera_frame(frame)
-            last_frame_at = now
-        elif last_frame_at == 0.0 or now - last_frame_at > 3.0:
-            store.set_camera_error("Waiting for H264 keyframe from front video stream.")
 
 
 def camera_bridge_main(camera_source: str, resolution: int, output_path: Path) -> None:
@@ -2626,56 +2520,6 @@ def start_camera_bridge(store: "TelemetryStore") -> None:
         stderr=subprocess.DEVNULL,
     )
     threading.Thread(target=camera_file_watcher, args=(store, CAMERA_JPEG_PATH), daemon=True).start()
-
-
-def ros_camera_worker(store: "TelemetryStore") -> None:
-    configure_ros2_camera_environment(store.camera_source)
-    try:
-        import rclpy
-        from rclpy.node import Node
-        from unitree_go.msg import Go2FrontVideoData
-    except Exception as exc:
-        store.set_camera_error(f"Could not import ROS2 camera dependencies: {exc}")
-        return
-
-    payloads: queue.Queue[bytes] = queue.Queue(maxsize=240)
-    threading.Thread(target=camera_buffer_decoder_worker, args=(store, payloads), daemon=True).start()
-
-    rclpy.init(args=None)
-
-    class FrontVideoNode(Node):
-        def __init__(self) -> None:
-            super().__init__("robot_telemetry_front_video")
-            self.create_subscription(Go2FrontVideoData, "/frontvideostream", self.on_frame, 10)
-
-        def on_frame(self, msg: Any) -> None:
-            if isinstance(msg, bytes):
-                payload = h264_payload_from_raw_ros(bytes(msg), store.camera_resolution)
-                payload = clean_h264_payload(payload) if payload else None
-            else:
-                payload = h264_payload_from_video_msg(msg, store.camera_resolution)
-            if not payload:
-                store.set_camera_error("Front video packet did not contain H264 payload.")
-                return
-            try:
-                payloads.put_nowait(payload)
-            except queue.Full:
-                try:
-                    payloads.get_nowait()
-                except queue.Empty:
-                    pass
-                payloads.put_nowait(payload)
-
-    node = FrontVideoNode()
-    store.set_camera_error(None)
-    try:
-        while store.running:
-            rclpy.spin_once(node, timeout_sec=0.2)
-    except Exception as exc:
-        store.set_camera_error(f"ROS2 front video subscriber failed: {exc}")
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
 
 
 class TelemetryStore:

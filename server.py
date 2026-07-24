@@ -379,6 +379,18 @@ LOCO_LIMITS = {
     "target_yaw": [-3.14, 3.14],
     "balance_mode": [0, 1],
 }
+# Loco actions that walk / translate the whole robot and therefore require an
+# explicit risk acknowledgement (armed + i_understand_risk). Stops, posture and
+# read-only get_* actions are intentionally excluded.
+LOCO_MOBILITY_ACTIONS = frozenset({
+    "start",
+    "velocity",
+    "move",
+    "continuous_gait_on",
+    "next_foot_left",
+    "next_foot_right",
+    "set_target_position",
+})
 LOCO_ACTIONS = [
     "ready",
     "balance_stand",
@@ -6122,6 +6134,18 @@ finally:
         }
         if action not in allowed_actions:
             return 400, {"ok": False, "error": f"Unsupported loco action: {action}"}
+
+        # Base-mobility actions (walk / translate the whole robot) require the
+        # same explicit risk acknowledgement as wrist/tracking. Posture, stop,
+        # damp and read-only get_* actions stay ungated (stopping must always be
+        # allowed). The dashboard already sends these flags for every command;
+        # this closes the gap for a raw/MCP/curl caller.
+        if action in LOCO_MOBILITY_ACTIONS and not has_risk_ack(payload):
+            return 400, {
+                "ok": False,
+                "error": f"Loco action '{action}' moves the robot; set armed=true and "
+                         "i_understand_risk=true to proceed.",
+            }
 
         try:
             vx = self._coerce_float(payload, "vx", 0.0, -1.0, 1.0)

@@ -58,6 +58,21 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertFalse(chill_response["ok"])
         self.assertIn("loco client", chill_response["error"])
 
+    def test_loco_mobility_actions_require_risk_ack(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        # Walking/translating unarmed is rejected (400) before touching the robot.
+        for action in ("velocity", "move", "set_target_position", "start"):
+            status, response = store.command_loco({"action": action})
+            self.assertEqual(status, 400, action)
+            self.assertIn("armed", response["error"])
+        # Armed mobility passes validation and only then hits the no-loco-client 503.
+        status, response = store.command_loco(
+            {"action": "velocity", "armed": True, "i_understand_risk": True, "vx": 0.2}
+        )
+        self.assertEqual(status, 503)
+        # Read-only / posture actions remain ungated.
+        self.assertEqual(store.command_loco({"action": "ready"})[0], 503)
+
     def test_command_limits_fail_closed(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         payload = {

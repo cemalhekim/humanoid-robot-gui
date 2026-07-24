@@ -84,6 +84,9 @@ FEEDBACK_SYNC_KEY = Path(os.environ.get(
 # auto-commits+pushes to main on server start.
 FEEDBACK_SYNC_ENABLED = os.environ.get("FEEDBACK_SYNC_ENABLE", "0") not in ("0", "false", "False", "")
 FEEDBACK_SYNC_DEBOUNCE_SECONDS = 20.0
+# network_status() is expensive (subprocess + /proc + UDP socket); cache it since
+# the interface/host is effectively static between snapshots.
+NETWORK_STATUS_TTL_SECONDS = 5.0
 # The always-on welcome/onboarding page (GitHub Pages). The robot only
 # redirects here; it never serves its own copy.
 WELCOME_PAGE_URL = "https://cemalhekim.github.io/humanoid-robot-gui/"
@@ -2073,22 +2076,26 @@ def lowstate_to_dict(
         "imu": imu,
         "robot": fields_from(
             msg,
+            # wireless_remote (the ~40-byte RC array) is omitted from the live
+            # snapshot: no client reads it (the server decodes RC combos from the
+            # raw DDS msg). The full-fidelity recording path keeps it.
             [
                 "version",
                 "mode_pr",
                 "mode_machine",
                 "tick",
                 "crc",
-                "wireless_remote",
             ],
         ),
         "hands": hands or handstate_to_dict(None, 0, None),
     }
 
     if hasattr(msg, "bms_state"):
+        # version_h/version_l/bms_status are not read by any client — omit them
+        # from the 5 Hz snapshot (kept in the recording path).
         data["battery"] = fields_from(
             msg.bms_state,
-            ["version_h", "version_l", "bms_status", "soc", "current", "cycle", "temperature"],
+            ["soc", "current", "cycle", "temperature"],
         )
     else:
         data["battery"] = {
@@ -2706,6 +2713,9 @@ class TelemetryStore:
         self.spatial_pose_updated_at: float | None = None
         self.proposal_lock = threading.Lock()
         self.proposal_meta: dict[str, dict[str, Any]] = {}
+        self._network_lock = threading.Lock()
+        self._network_cache: dict[str, Any] | None = None
+        self._network_cache_at = 0.0
         # Per-request (per-thread) so concurrent chats from two browsers don't
         # cross-attribute one operator's request text onto another's proposal.
         self._chat_local = threading.local()
@@ -2821,6 +2831,20 @@ class TelemetryStore:
         self.thread = threading.Thread(target=self._run, name="unitree-lowstate", daemon=True)
         self.thread.start()
 
+    def cached_network_status(self) -> dict[str, Any]:
+        """network_status() forks `ip route get` + reads /proc + opens a UDP
+        socket; snapshot() runs per SSE tick (5 Hz) per client, so cache it —
+        the interface/host essentially never changes within the TTL."""
+        now = time.time()
+        with self._network_lock:
+            if self._network_cache is not None and (now - self._network_cache_at) < NETWORK_STATUS_TTL_SECONDS:
+                return self._network_cache
+        status = network_status(self.robot_host)
+        with self._network_lock:
+            self._network_cache = status
+            self._network_cache_at = now
+        return status
+
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
             latest = dict(self.latest)
@@ -2830,7 +2854,7 @@ class TelemetryStore:
         robot = latest.get("robot") or {}
         return {
             **latest,
-            "network": network_status(self.robot_host),
+            "network": self.cached_network_status(),
             "loco": self._loco_status_payload(loco_status, robot, loco_available, include_metadata=False),
             "arm_proposal": self.arm_proposal_public(),
         }
@@ -6669,8 +6693,16 @@ finally:
                 now = time.time()
                 self.samples += 1
                 self.sample_times.append(now)
-                hands = handstate_to_dict(hand_msg, hand_samples, hand_timestamp)
-                self.recorder.write_sample(lowstate_record(msg, self.samples, hands, hand_samples, hand_timestamp))
+                # This callback fires at hundreds of Hz. Build the per-sample
+                # record ONLY while a recording is active (otherwise write_sample
+                # discards it); and defer the hand-dict + snapshot build to the
+                # 30 Hz throttle below. Non-recording steady state is the common
+                # case and now does neither per callback.
+                if self.recorder.file is not None:
+                    rec_hands = handstate_to_dict(hand_msg, hand_samples, hand_timestamp)
+                    self.recorder.write_sample(
+                        lowstate_record(msg, self.samples, rec_hands, hand_samples, hand_timestamp)
+                    )
                 if now - last_snapshot_at < 1.0 / 30.0:
                     return
                 last_snapshot_at = now
@@ -6680,6 +6712,7 @@ finally:
                 else:
                     rate = 0
 
+                hands = handstate_to_dict(hand_msg, hand_samples, hand_timestamp)
                 snapshot = lowstate_to_dict(msg, self.samples, rate, hands)
                 with self.lock:
                     self.latest = snapshot

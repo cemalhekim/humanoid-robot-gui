@@ -3,9 +3,13 @@ set -euo pipefail
 
 # One update at a time: a timer tick overlapping a still-running install
 # re-restarted services mid-deploy (and mid arm-motion) on 2026-07-23.
-exec 9>/tmp/robot_autoupdate.lock
-if ! flock -n 9; then
-  exit 0
+# Degrade gracefully if util-linux flock is absent (don't become a silent
+# permanent no-op).
+if command -v flock >/dev/null 2>&1; then
+  exec 9>/tmp/robot_autoupdate.lock
+  if ! flock -n 9; then
+    exit 0
+  fi
 fi
 
 cd /home/unitree/robot_telemetry_web
@@ -33,7 +37,8 @@ if [ "$xr_update_rc" != "0" ] && [ "$xr_update_rc" != "10" ]; then
   exit 0
 fi
 
-installed="$(cat "$marker" 2>/dev/null || echo none)"
+installed="$(cat "$marker" 2>/dev/null || true)"
+[ -n "$installed" ] || installed=none   # empty (truncated write) counts as none
 head="$(git rev-parse HEAD)"
 needs_install=1
 if [ "$installed" = "$head" ]; then
@@ -42,16 +47,31 @@ elif [ "$installed" != "none" ] && git rev-parse --verify --quiet "$installed" >
   # The robot itself commits feedback data (data/pose_feedback.csv). A delta
   # that touches ONLY data/ is not new code: adopt it without reinstalling,
   # otherwise every operator thumbs-up/down would restart all services and
-  # kill live telemetry streams and in-flight chats.
-  if [ -z "$(git diff --name-only "$installed" "$head" -- ':(exclude)data')" ]; then
-    needs_install=0
-    echo "$head" > "$marker"
+  # kill live telemetry streams and in-flight chats. Detected with plain git +
+  # a pure-shell scan (no `:(exclude)` magic pathspec, no grep-flavor exit
+  # quirks) and FAIL-CLOSED: if the diff can't be computed, deploy.
+  if changed="$(git diff --name-only "$installed" "$head" 2>/dev/null)"; then
+    data_only=1
+    while IFS= read -r changed_file; do
+      case "$changed_file" in
+        data/*|"") ;;              # feedback data (or blank) — not code
+        *) data_only=0 ;;          # anything else is a real code change
+      esac
+    done <<EOF
+$changed
+EOF
+    if [ -n "$changed" ] && [ "$data_only" = 1 ]; then
+      needs_install=0
+      echo "$head" > "$marker"
+    fi
   fi
 fi
 if [ "$xr_update_rc" = "10" ]; then
   needs_install=1
 fi
 if [ "$needs_install" = "1" ]; then
-  deployment/install_robot_services.sh
+  # Reuse the XR result we already computed so install doesn't re-run the XR
+  # update (which would report "no change" and skip a needed xr-teleop restart).
+  XR_UPDATE_RC="$xr_update_rc" deployment/install_robot_services.sh
   echo "$head" > "$marker"
 fi

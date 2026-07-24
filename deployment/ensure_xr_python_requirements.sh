@@ -13,21 +13,30 @@ fi
 # A crash-truncated micromamba proc file (empty or NUL-filled JSON) makes every
 # later `micromamba run` die with a libmamba JSON parse error, which blocked
 # install_robot_services.sh — and with it the dashboard service restart — on
-# 2026-07-23. Drop unparseable proc files before touching micromamba.
-python3 - <<'PY'
+# 2026-07-23. Drop unparseable proc files before touching micromamba. Purge BOTH
+# candidate locations (the observed one under ~/.cache/mamba, and the root-prefix
+# one) so the cleanup can't miss depending on the micromamba build.
+MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-/home/unitree/.micromamba}" python3 - <<'PY'
 import json
 import glob
 import os
 
-for path in glob.glob(os.path.expanduser("~/.cache/mamba/proc/*.json")):
-    try:
-        with open(path, encoding="utf-8") as handle:
-            json.load(handle)
-    except Exception:
+dirs = [
+    os.path.expanduser("~/.cache/mamba/proc"),
+    os.path.join(os.environ.get("MAMBA_ROOT_PREFIX", ""), "proc"),
+]
+for directory in dirs:
+    if not directory:
+        continue
+    for path in glob.glob(os.path.join(directory, "*.json")):
         try:
-            os.remove(path)
-        except OSError:
-            pass
+            with open(path, encoding="utf-8") as handle:
+                json.load(handle)
+        except Exception:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 PY
 
 if "$MAMBA" run -n "$ENV_NAME" python - <<'PY'

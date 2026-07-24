@@ -463,8 +463,11 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
 # Transient connection failures to the LLM (flaky robot Wi-Fi) are retried, since
 # the request never reached the model — no tool ran, so retrying is side-effect-free.
-LLM_CONNECT_RETRIES = int(os.environ.get("LLM_CONNECT_RETRIES", "2"))
-LLM_CONNECT_RETRY_BACKOFF_SECONDS = float(os.environ.get("LLM_CONNECT_RETRY_BACKOFF_SECONDS", "0.6"))
+# The robot's USB Wi-Fi dongle drops for several seconds at a time, so the retries
+# are SPREAD OUT (linear backoff) to cross a multi-second drop rather than bunching
+# inside it: attempts land at ~0, 1.2, 3.6, 7.2, 12 s.
+LLM_CONNECT_RETRIES = int(os.environ.get("LLM_CONNECT_RETRIES", "4"))
+LLM_CONNECT_RETRY_BACKOFF_SECONDS = float(os.environ.get("LLM_CONNECT_RETRY_BACKOFF_SECONDS", "1.2"))
 # Optional second chat backend: a Claude Code bridge (tools/claude_bridge.py)
 # running on the operator's machine. Unset/empty = the Claude toggle reports
 # "not configured". Example: CLAUDE_BRIDGE_URL=http://10.2.100.50:8399

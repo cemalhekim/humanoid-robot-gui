@@ -171,6 +171,22 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(len(plan["gain_plan"]), len(server.ARM_SDK_JOINTS))
         self.assertTrue(all(joint["index"] in server.ARM_SDK_JOINTS for joint in plan["gain_plan"]))
 
+    def test_replay_planner_rejects_non_finite_joint_angle(self) -> None:
+        # A NaN q passes every `NaN > limit` velocity/delta check (all False) and
+        # would clamp to the joint limit — validation must fail closed instead.
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            path = server.Path(directory) / "nan.jsonl"
+            motors = [{"index": i, "name": n, "q": 0.0} for i, n in server.JOINT_NAMES.items()]
+            motors[16]["q"] = float("nan")  # LeftElbow
+            path.write_text(
+                server.json.dumps({"type": "telemetry_sample", "body": {"motors": motors}}) + "\n",
+                encoding="utf-8",
+            )
+            plan = store.plan_replay_control_path(path)
+        self.assertFalse(plan["valid_for_execution"])
+        self.assertTrue(any(v.get("kind") == "non_finite" for v in plan.get("violations", [])))
+
     def test_replay_planner_routes_lower_body_motion_to_lowcmd(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         with TemporaryDirectory() as directory:

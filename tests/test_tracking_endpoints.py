@@ -542,5 +542,19 @@ class TrackToolTests(unittest.TestCase):
         self.assertTrue(result["ok"])
 
 
+class ChillStopsTrackingTests(unittest.TestCase):
+    def test_chill_ends_the_tracking_session(self) -> None:
+        # Emergency limp must stop person-tracking; otherwise the tracking thread
+        # keeps re-asserting arm_sdk weight=1.0 and the arms keep tracking.
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with mock.patch.object(store, "request_track_stop", return_value=(200, {"ok": True})) as track_stop, \
+             mock.patch.object(store, "stop_wrist", return_value={"active": False}):
+            # loco_client is None on a fresh store -> the 503 branch, which must
+            # still stop tracking.
+            status, response = store.request_chill({})
+        self.assertEqual(status, 503)
+        track_stop.assert_called()
+
+
 if __name__ == "__main__":
     unittest.main()

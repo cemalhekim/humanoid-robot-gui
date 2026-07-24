@@ -4146,6 +4146,14 @@ class TelemetryStore:
             for joint, target_q in by_index.items():
                 if joint not in JOINT_NAMES or joint not in scoped_joints:
                     continue
+                # A NaN/inf q slips through every `NaN > limit` velocity/delta
+                # check (all False) and would then clamp to the joint limit — a
+                # large unvalidated move. Treat it as a hard violation.
+                if not math.isfinite(target_q):
+                    self._append_trajectory_violation(
+                        violations, "non_finite", frame_index, joint, target_q, 0.0,
+                    )
+                    continue
                 delta = abs(target_q - previous_q.get(joint, 0.0))
                 total_delta = abs(target_q - current_q.get(joint, 0.0))
                 if delta > TRAJECTORY_ROUTE_EPSILON or total_delta > TRAJECTORY_ROUTE_EPSILON:
@@ -6004,6 +6012,7 @@ finally:
                 select_code, _ = motion_switcher.SelectMode("ai")
                 time.sleep(0.15)
             if loco_client is None:
+                self.request_track_stop()
                 wrist_status = self.stop_wrist()
                 return 503, {"ok": False, "error": "H1 loco client is not available.", "wrist": wrist_status}
             stop_code = loco_client.SetVelocity(0.0, 0.0, 0.0, 0.2)
@@ -6011,6 +6020,7 @@ finally:
             # Give damp a moment to actually engage before dropping the hold.
             time.sleep(0.3)
         except Exception as exc:
+            self.request_track_stop()
             wrist_status = self.stop_wrist()
             return 500, {
                 "ok": False,
@@ -6022,6 +6032,10 @@ finally:
             }
 
         # Motors are damped now — releasing the arm_sdk weight cannot snap.
+        # Also end any person-tracking session: it publishes arm_sdk weight=1.0
+        # every loop and would otherwise re-assert arm authority right after the
+        # damp, so the arms keep tracking a person despite the operator's "limp".
+        self.request_track_stop()
         wrist_status = self.stop_wrist()
 
         ok = damp_code == 0
@@ -6422,6 +6436,13 @@ finally:
                             if mode == "oscillate"
                             else target_q
                         )
+                        # Oscillate builds its setpoint around the MEASURED center,
+                        # so amplitude validation alone can drive the absolute angle
+                        # past WRIST_LIMITS (and the hardware joint limit) when the
+                        # wrist already sits near an extreme. Clamp the final angle.
+                        low, high = WRIST_LIMITS
+                        joint_low, joint_high = JOINT_LIMITS[RIGHT_WRIST_YAW]
+                        wrist_q = max(max(low, joint_low), min(min(high, joint_high), wrist_q))
                         latest_lowcmd_publisher.Write(self._build_lowcmd_wrist_cmd(latest_msg, hold_q, wrist_q, kp, kd))
                     else:
                         if latest_publisher is None:

@@ -258,8 +258,17 @@ function valueList(values, labels) {
   }));
 }
 
+// Only touch the DOM when the built HTML actually differs from what the node
+// already holds — the 5 Hz telemetry tick rebuilt these strings unconditionally,
+// forcing a reparse + style recalc + layout even when the values were identical.
+function _setHtmlIfChanged(node, html) {
+  if (node._lastHtml === html) return;
+  node._lastHtml = html;
+  node.innerHTML = html;
+}
+
 function renderMetricCards(node, cards, rows = []) {
-  node.innerHTML = `
+  _setHtmlIfChanged(node, `
     <div class="metric-card-grid">
       ${cards
         .map(
@@ -279,14 +288,14 @@ function renderMetricCards(node, cards, rows = []) {
             .join("")}</dl>`
         : ""
     }
-  `;
+  `);
 }
 
 function renderStatusList(node, rows) {
-  node.innerHTML = `<dl class="status-list full">${rows
+  _setHtmlIfChanged(node, `<dl class="status-list full">${rows
     .filter((row) => row.value !== undefined)
     .map((row) => `<dt>${row.label}</dt><dd>${fmt(row.value)}</dd>`)
-    .join("")}</dl>`;
+    .join("")}</dl>`);
 }
 
 function renderRobotStatus(snapshot) {
@@ -392,7 +401,7 @@ function renderMotors(motors) {
     );
   });
 
-  els.motorRows.innerHTML = rows
+  _setHtmlIfChanged(els.motorRows, rows
     .map((motor) => {
       const isExtra = String(motor.name).startsWith("ReservedMotorSlot");
       return `
@@ -408,7 +417,7 @@ function renderMotors(motors) {
         </tr>
       `;
     })
-    .join("");
+    .join(""));
 }
 
 function csvCell(value) {
@@ -526,7 +535,14 @@ function networkLabel(network) {
   return `${type}${iface}`;
 }
 
+const _renderSig = {};
+
 function renderNetwork(network) {
+  // Network state changes on the order of seconds; skip the 6 textContent
+  // writes when nothing changed (server also caches network_status for 5s).
+  const sig = JSON.stringify(network || null);
+  if (sig === _renderSig.network) return;
+  _renderSig.network = sig;
   const robot = network?.robot || {};
   const host = network?.host || {};
   const robotTarget = robot.target ? ` to ${robot.target}` : "";

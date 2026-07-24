@@ -1743,6 +1743,68 @@ h3 {
   transform: scale(0.94);
 }
 
+/* Attach-a-photo button (pose mimic): a quiet ghost button so it doesn't
+   compete with the primary red send button beside it. */
+.mimic-attach {
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.7);
+}
+.mimic-attach:hover {
+  color: #66a3ff;
+  border-color: rgba(102, 163, 255, 0.55);
+  background: rgba(102, 163, 255, 0.1);
+}
+.mimic-attach.active {
+  color: #66a3ff;
+  border-color: rgba(102, 163, 255, 0.7);
+  background: rgba(102, 163, 255, 0.16);
+}
+.mimic-attach svg {
+  width: 20px;
+  height: 20px;
+}
+
+.mimic-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: rgba(102, 163, 255, 0.1);
+  border: 1px solid rgba(102, 163, 255, 0.35);
+  border-radius: 10px;
+}
+.mimic-preview img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.mimic-preview-label {
+  flex: 1;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.mimic-clear {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 16px;
+}
+.mimic-clear:hover {
+  color: #fff;
+  border-color: rgba(255, 90, 78, 0.7);
+}
+
 .chat-action .icon {
   width: 22px;
   height: 22px;

@@ -1069,5 +1069,89 @@ class BackendRoutingTest(unittest.TestCase):
         self.assertTrue(all(u == "http://192.0.2.9:8399" for u in urls), urls)
 
 
+class MimicImageTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        self.jpeg = "data:image/jpeg;base64," + base64.b64encode(b"jpegbytes").decode()
+        self.png = "data:image/png;base64," + base64.b64encode(b"pngbytes").decode()
+
+    def _chat(self, payload):
+        with mock.patch.object(self.store, "snapshot", return_value=SNAPSHOT), mock.patch.object(
+            server, "LLM_INCLUDE_ROS_GRAPH", False
+        ):
+            return self.store.chat(payload)
+
+    def test_parse_accepts_jpeg_png_webp(self) -> None:
+        self.assertEqual(server.parse_mimic_image(self.jpeg), self.jpeg)
+        self.assertEqual(server.parse_mimic_image(self.png), self.png)
+        webp = "data:image/webp;base64," + base64.b64encode(b"webp").decode()
+        self.assertEqual(server.parse_mimic_image(webp), webp)
+
+    def test_parse_rejects_non_image_and_malformed(self) -> None:
+        self.assertIsNone(server.parse_mimic_image(None))
+        self.assertIsNone(server.parse_mimic_image("hello"))
+        self.assertIsNone(server.parse_mimic_image("data:text/plain;base64,QQ=="))
+        self.assertIsNone(server.parse_mimic_image("data:image/jpeg;base64,not*base64"))
+        self.assertIsNone(server.parse_mimic_image("data:image/jpeg;base64,"))
+
+    def test_parse_rejects_oversize(self) -> None:
+        big = "data:image/jpeg;base64," + "A" * (server.LLM_MIMIC_IMAGE_MAX_BYTES * 4 // 3 + 100)
+        self.assertIsNone(server.parse_mimic_image(big))
+
+    def test_mimic_routes_to_claude_and_attaches_image(self) -> None:
+        captured = {}
+
+        def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
+            captured["messages"] = messages
+            captured["base_url"] = base_url
+            return 200, {"ok": True, "reply": "Kolları kaldırıyorum."}
+
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", "http://192.0.2.9:8399"), \
+             mock.patch.object(server, "LLM_TOOLS_ENABLED", True), \
+             mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            # Backend deliberately "default": a mimic request must override it.
+            status, response = self._chat({
+                "messages": [{"role": "user", "content": "bunu yap"}],
+                "mimic_image": self.jpeg,
+                "backend": "default",
+            })
+
+        self.assertEqual(status, 200)
+        self.assertEqual(response.get("backend"), "claude")
+        self.assertEqual(captured["base_url"], "http://192.0.2.9:8399")
+        self.assertIn("POSE MIMIC REQUEST", captured["messages"][0]["content"])
+        content = captured["messages"][-1]["content"]
+        self.assertEqual(content[0], {"type": "text", "text": "bunu yap"})
+        self.assertEqual(content[1]["image_url"]["url"], self.jpeg)
+
+    def test_mimic_without_vision_backend_fails_closed(self) -> None:
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", ""):
+            status, response = self._chat({
+                "messages": [{"role": "user", "content": "bunu yap"}],
+                "mimic_image": self.jpeg,
+            })
+        self.assertEqual(status, 503)
+        self.assertIn("vision", response["error"].lower())
+
+    def test_invalid_mimic_image_degrades_to_normal_chat(self) -> None:
+        captured = {}
+
+        def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
+            captured["base_url"] = base_url
+            return 200, {"ok": True, "reply": "ok"}
+
+        # A malformed image is ignored (not a 503): the request proceeds as a
+        # normal text chat on the default backend.
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", ""), \
+             mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            status, response = self._chat({
+                "messages": [{"role": "user", "content": "merhaba"}],
+                "mimic_image": "data:image/jpeg;base64,not*base64",
+            })
+        self.assertEqual(status, 200)
+        self.assertEqual(response.get("backend"), "default")
+        self.assertIsNone(captured.get("base_url"))
+
+
 if __name__ == "__main__":
     unittest.main()

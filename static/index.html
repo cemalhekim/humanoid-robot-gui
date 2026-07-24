@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vodafone Robot Control</title>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="stylesheet" href="/styles.css?v=feedback-plots-v1">
+    <link rel="stylesheet" href="/styles.css?v=mimic-v1">
     <script type="importmap">
       {
         "imports": {
@@ -103,7 +103,20 @@
                   <p>Hi — I can read the robot's live telemetry (motors, IMU, temperatures, health, network) and move the arms to saved positions. Ask &ldquo;which motor is hottest?&rdquo; or say &ldquo;raise your hand&rdquo; / &ldquo;elini kaldır&rdquo; / &ldquo;heb die Hand&rdquo; — I speak your language.</p>
                 </article>
               </div>
+              <div id="mimicPreview" class="mimic-preview" hidden>
+                <img id="mimicThumb" alt="Pose reference to mimic">
+                <span class="mimic-preview-label">Mimic this pose</span>
+                <button id="mimicClear" type="button" class="mimic-clear" title="Remove photo" aria-label="Remove pose photo">×</button>
+              </div>
               <form id="chatForm" class="chat-input" autocomplete="off">
+                <input id="mimicFileInput" type="file" accept="image/*" hidden>
+                <button id="mimicAttach" type="button" class="chat-action mimic-attach" title="Attach a photo and ask the robot to copy the arm pose" aria-label="Attach pose photo">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="5" width="18" height="14" rx="2"/>
+                    <circle cx="8.5" cy="10" r="1.5"/>
+                    <path d="m4 17 4.5-4.5 3 3L15 12l5 5"/>
+                  </svg>
+                </button>
                 <textarea id="chatInput" rows="1" placeholder="Ask about the robot…" aria-label="Message the assistant"></textarea>
                 <button id="chatSend" type="submit" class="chat-action" title="Send message" aria-label="Send message">
                   <svg class="icon icon-send" viewBox="0 0 24 24" aria-hidden="true">
@@ -675,7 +688,7 @@
       <span class="fc-resize bl" data-corner="bl" aria-hidden="true"></span>
       <span class="fc-resize br" data-corner="br" aria-hidden="true"></span>
     </div>
-    <script src="/app.js?v=feedback-plots-v1"></script>
+    <script src="/app.js?v=mimic-v1"></script>
     <script src="/diagram.js?v=locov1"></script>
     <script type="module">
       const params = new URLSearchParams(window.location.search);

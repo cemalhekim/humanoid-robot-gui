@@ -459,6 +459,10 @@ LLM_TWIN_VISION_ENABLED = os.environ.get("LLM_TWIN_VISION_ENABLED", "0") not in 
 )
 # Keep the base64 image plus chat history below MAX_JSON_BODY_BYTES.
 LLM_TWIN_IMAGE_MAX_BYTES = 650_000
+# Operator-supplied reference photo for pose mimicry ("do this pose"). The client
+# downscales before upload; this caps a single image so it plus the chat history
+# stays under MAX_JSON_BODY_BYTES.
+LLM_MIMIC_IMAGE_MAX_BYTES = 900_000
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
 # Transient connection failures to the LLM (flaky robot Wi-Fi) are retried, since
@@ -1077,6 +1081,35 @@ def parse_twin_evidence(value: Any) -> tuple[str | None, str | None]:
     except (ValueError, binascii.Error):
         return text, None
     return text, image if decoded_size <= LLM_TWIN_IMAGE_MAX_BYTES else None
+
+
+# Data URL prefixes accepted for an operator-uploaded reference photo. Broader
+# than the twin screenshot (which is always our own JPEG) because this is a file
+# the operator picked — phones and screenshots produce PNG/WebP too.
+_MIMIC_IMAGE_PREFIXES = (
+    "data:image/jpeg;base64,",
+    "data:image/png;base64,",
+    "data:image/webp;base64,",
+)
+
+
+def parse_mimic_image(value: Any) -> str | None:
+    """Validate an operator-supplied reference photo for pose mimicry.
+
+    Returns the data URL to forward to a vision model, or None if it is missing,
+    the wrong type, malformed base64, or over the size cap. Read-only and never
+    raises: an unusable image simply degrades to a normal (text) pose request.
+    """
+    if not isinstance(value, str) or not value.startswith(_MIMIC_IMAGE_PREFIXES):
+        return None
+    encoded = value.partition(",")[2]
+    if not encoded or len(encoded) > (LLM_MIMIC_IMAGE_MAX_BYTES * 4 // 3) + 8:
+        return None
+    try:
+        decoded_size = len(base64.b64decode(encoded, validate=True))
+    except (ValueError, binascii.Error):
+        return None
+    return value if 0 < decoded_size <= LLM_MIMIC_IMAGE_MAX_BYTES else None
 
 
 def _point_distance(a: dict[str, float], b: dict[str, float]) -> float:
@@ -4756,6 +4789,22 @@ class TelemetryStore:
         model = CLAUDE_BRIDGE_MODEL if backend == "claude" else None
         auth_token = CLAUDE_BRIDGE_TOKEN if (backend == "claude" and CLAUDE_BRIDGE_TOKEN) else None
 
+        # Pose-mimic request: the operator attached a reference photo and wants the
+        # robot to copy the person's arm pose. The on-prem model is text-only, so a
+        # mimic request is ALWAYS routed to the vision-capable Claude bridge —
+        # regardless of the operator's backend toggle — or refused if it is absent.
+        mimic_image = parse_mimic_image(payload.get("mimic_image"))
+        if mimic_image:
+            if not CLAUDE_BRIDGE_URL:
+                return 503, {
+                    "ok": False,
+                    "error": "Pose mimic needs a vision-capable backend: the on-prem model "
+                             "can't read images. Configure CLAUDE_BRIDGE_URL (the Claude bridge "
+                             "on the operator's machine) and try again.",
+                }
+            backend, base_url, model = "claude", CLAUDE_BRIDGE_URL, CLAUDE_BRIDGE_MODEL
+            auth_token = CLAUDE_BRIDGE_TOKEN or None
+
         cleaned: list[dict[str, Any]] = []
         for item in raw_messages:
             if not isinstance(item, dict):
@@ -4839,12 +4888,30 @@ class TelemetryStore:
                 "Do not answer with coordinates unless asked. Use the screenshot only as a visual "
                 "cross-check; report disagreement instead of guessing."
             )
+        if mimic_image and LLM_TOOLS_ENABLED:
+            system += (
+                "\n\nPOSE MIMIC REQUEST: the operator attached a REFERENCE PHOTO and wants the "
+                "robot to REPLICATE the person's arm pose. Study the arms in the image — for each "
+                "arm read the shoulder, elbow and hand: is it raised or lowered, opened out to the "
+                "side, reached forward, bent at the elbow, or crossing the body? Then call "
+                "propose_arm_pose ONCE with H1-2 joint angles that reproduce that pose as closely "
+                "as the robot's kinematics allow. Match sides from the ROBOT'S OWN frame (its right "
+                "arm is the one on the robot's right; a person facing the camera is mirrored). "
+                "Prefer a canonical anchor when the pose clearly matches one (arms up / forward / "
+                "T-pose / crossed). Describe semantic_pose as natural human body language. If only "
+                "one arm is clearly posed, move only that arm; keep the other at home."
+            )
+        # Attach images to the final user turn. The mimic photo (the pose to copy)
+        # comes first so it reads as the primary subject; the twin render, if the
+        # vision flag is on, follows as a self-view cross-check.
+        image_blocks: list[dict[str, Any]] = []
+        if mimic_image:
+            image_blocks.append({"type": "image_url", "image_url": {"url": mimic_image}})
         if twin_image and LLM_TWIN_VISION_ENABLED:
+            image_blocks.append({"type": "image_url", "image_url": {"url": twin_image}})
+        if image_blocks:
             last = cleaned[-1]
-            last["content"] = [
-                {"type": "text", "text": last["content"]},
-                {"type": "image_url", "image_url": {"url": twin_image}},
-            ]
+            last["content"] = [{"type": "text", "text": last["content"]}, *image_blocks]
         messages = [{"role": "system", "content": system}, *cleaned]
         overrides = {"base_url": base_url, "model": model, "auth_token": auth_token} if base_url else {}
         if not LLM_TOOLS_ENABLED:

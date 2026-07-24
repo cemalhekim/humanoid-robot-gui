@@ -224,6 +224,11 @@ const els = {
   chatSend: document.getElementById("chatSend"),
   chatStatus: document.getElementById("chatStatus"),
   chatHint: document.getElementById("chatHint"),
+  mimicFileInput: document.getElementById("mimicFileInput"),
+  mimicAttach: document.getElementById("mimicAttach"),
+  mimicPreview: document.getElementById("mimicPreview"),
+  mimicThumb: document.getElementById("mimicThumb"),
+  mimicClear: document.getElementById("mimicClear"),
 };
 
 function fmt(value, suffix = "") {
@@ -2757,6 +2762,55 @@ function setupChat() {
   setupClaudeBackendToggle();
   const history = [];
   let busy = false;
+  // A pose-reference photo the operator attached ("copy this pose"), as a
+  // downscaled JPEG data URL. Sent once with the next message, then cleared.
+  let pendingMimicImage = null;
+
+  const MIMIC_MAX_EDGE = 1024; // longest side after downscale — keeps upload small
+  const MIMIC_JPEG_QUALITY = 0.85;
+
+  function setMimic(dataUrl) {
+    pendingMimicImage = dataUrl;
+    if (els.mimicThumb) els.mimicThumb.src = dataUrl;
+    if (els.mimicPreview) els.mimicPreview.hidden = false;
+    els.mimicAttach?.classList.add("active");
+  }
+
+  function clearMimic() {
+    pendingMimicImage = null;
+    if (els.mimicPreview) els.mimicPreview.hidden = true;
+    if (els.mimicThumb) els.mimicThumb.removeAttribute("src");
+    if (els.mimicFileInput) els.mimicFileInput.value = "";
+    els.mimicAttach?.classList.remove("active");
+  }
+
+  // Downscale + re-encode to JPEG in the browser so a phone photo doesn't blow
+  // past the server's size cap. Runs entirely client-side (no upload of the raw).
+  function loadMimicFile(file) {
+    if (!file || !file.type?.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, MIMIC_MAX_EDGE / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        try {
+          setMimic(canvas.toDataURL("image/jpeg", MIMIC_JPEG_QUALITY));
+        } catch {
+          setMimic(reader.result); // fallback: original data URL
+        }
+      };
+      img.onerror = () => setHint("Could not read that image.");
+      img.src = reader.result;
+    };
+    reader.onerror = () => setHint("Could not read that file.");
+    reader.readAsDataURL(file);
+  }
 
   function addMessage(role, text, { pending = false, error = false } = {}) {
     const card = document.createElement("article");
@@ -2781,8 +2835,12 @@ function setupChat() {
   }
 
   async function send() {
-    const text = els.chatInput.value.trim();
+    // A photo with no typed message still sends: default to a mimic request.
+    const text = els.chatInput.value.trim() || (pendingMimicImage ? "Replicate this arm pose." : "");
     if (!text || busy) return;
+    // Detach the photo up front so a resend doesn't ship it twice; restored on error.
+    const mimicImage = pendingMimicImage;
+    clearMimic();
     const viaVoice = sendViaVoice;
     sendViaVoice = false;
     busy = true;
@@ -2806,7 +2864,12 @@ function setupChat() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: window_, twin_evidence: twinEvidence, backend: chatBackend() }),
+        body: JSON.stringify({
+          messages: window_,
+          twin_evidence: twinEvidence,
+          backend: chatBackend(),
+          ...(mimicImage ? { mimic_image: mimicImage } : {}),
+        }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) {
@@ -2882,6 +2945,8 @@ function setupChat() {
         : raw;
       // Drop the failed user turn so it isn't resent with the next message.
       history.pop();
+      // Put the pose photo back so the operator can just resend, not re-attach.
+      if (mimicImage) setMimic(mimicImage);
     } finally {
       busy = false;
       els.chatSend.disabled = false;
@@ -3026,6 +3091,14 @@ function setupChat() {
     event.preventDefault();
     send();
   });
+  // Attach-a-photo → file picker → downscale → preview. The button is a plain
+  // proxy for the hidden <input type=file>.
+  els.mimicAttach?.addEventListener("click", () => els.mimicFileInput?.click());
+  els.mimicFileInput?.addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (file) loadMimicFile(file);
+  });
+  els.mimicClear?.addEventListener("click", clearMimic);
   els.chatInput.addEventListener("input", () => {
     autosize();
     updateMode();

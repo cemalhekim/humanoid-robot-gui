@@ -80,6 +80,41 @@ to test on the robot. Recommend fixing together, on hardware, next session.
   start or expose only read-only tools (strip move/chill/track from the MCP tool
   list). A design decision — left for you.
 
+## Part 2b — Second-wave robustness bugs FIXED (with tests)
+
+From a further review of recording/replay file I/O and the camera/SSE streams:
+
+8. **Malformed/partial recording crashed replay** — a truncated trailing jsonl line
+   (common when replaying a file still being recorded) or invalid JSON threw an
+   unhandled exception out of the handler (dropped connection). Now skipped/handled.
+9. **Non-numeric motor `q`/`index` crashed replay planning** — the save path accepted
+   data the read path couldn't survive (`int(None)`/`float("boom")`). Now coerced
+   safely and the plan is rejected (`malformed_motor` violation).
+10. **Ephemeral temp-file collision** — two concurrent filename-less replays could
+    share a `monotonic_ns` temp path and one execute the other's trajectory. Now
+    unique (pid + counter + `O_EXCL`).
+11. **Sentry-stream worker race** — `is_alive()` window could leave clients>0 with no
+    worker, stalling detection until another client connected. Fixed with an explicit
+    run flag + try/finally.
+12. **SSE/MJPEG loops** now catch `OSError` (incl. `ssl.SSLError`) so a dropped TLS
+    client exits cleanly instead of an unhandled-thread crash.
+
+The recording path-containment check (`../`, absolute, symlink, null-byte) was audited
+and confirmed **airtight** — no traversal bug.
+
+## Part 3b — Second-wave findings NOT fixed
+
+- **Camera bridge never restarted/reaped on crash.** If the ROS2 camera subprocess
+  dies, nothing polls/restarts it — the feed permanently stops ("Waiting for camera
+  bridge frame") and the child isn't reaped until the parent exits. *Proposed fix:*
+  in the camera file-watcher, `poll()` the process and restart it with exponential
+  backoff (and a failure ceiling to avoid a restart-loop on a persistent bad config);
+  `wait()` after `terminate()` on shutdown. Left undone: subprocess-restart logic is
+  risky to add without a real camera to test the loop/backoff. Camera-only, not a
+  safety path.
+- **Decoder temp `.h264` file** (`/tmp/…_bridge_<pid>.h264`) isn't unlinked on exit —
+  a bounded, up-to-4 MB stale file per bridge PID. Trivial; unlink in a `finally`.
+
 ## Part 4 — Deferred (your call)
 
 - **~41 MB unused vendor model files** under `static/models/h1_2_description/`

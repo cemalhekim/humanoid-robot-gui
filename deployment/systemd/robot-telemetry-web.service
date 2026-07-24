@@ -6,6 +6,9 @@ After=default.target
 Type=simple
 WorkingDirectory=/home/unitree/robot_telemetry_web
 Environment=MAMBA_ROOT_PREFIX=/home/unitree/.micromamba
+# Auto-commit+push the pose-feedback CSV to the repo (robot only; the deploy
+# key alone is no longer enough, so a dev with the key never pushes by accident).
+Environment=FEEDBACK_SYNC_ENABLE=1
 # Claude chat backend: the operator's Mac running tools/claude_bridge.py.
 # The Mac's DHCP address can change — update here if the ✳ toggle reports
 # the bridge unreachable.

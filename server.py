@@ -79,6 +79,10 @@ FEEDBACK_SYNC_PUSH_URL = "git@github.com:cemalhekim/humanoid-robot-gui.git"
 FEEDBACK_SYNC_KEY = Path(os.environ.get(
     "FEEDBACK_SYNC_KEY", str(Path.home() / ".ssh" / "robot_feedback_deploy")
 ))
+# Auto-push must be explicitly enabled (set on the robot's service unit). Without
+# it, a developer who merely has the deploy key at the default path never
+# auto-commits+pushes to main on server start.
+FEEDBACK_SYNC_ENABLED = os.environ.get("FEEDBACK_SYNC_ENABLE", "0") not in ("0", "false", "False", "")
 FEEDBACK_SYNC_DEBOUNCE_SECONDS = 20.0
 # The always-on welcome/onboarding page (GitHub Pages). The robot only
 # redirects here; it never serves its own copy.
@@ -2704,8 +2708,9 @@ class TelemetryStore:
         self.feedback_sync_timer: threading.Timer | None = None
         self.feedback_git_lock = threading.Lock()
         # Rows appended while the service was down (or pushes failed) get
-        # another chance right after startup.
-        if FEEDBACK_SYNC_KEY.exists() and POSE_FEEDBACK_CSV.exists():
+        # another chance right after startup. _schedule_feedback_sync re-checks
+        # the enable flag + key, so this is a no-op off the robot.
+        if POSE_FEEDBACK_CSV.exists():
             self._schedule_feedback_sync()
         self.arm_proposal: dict[str, Any] | None = None
         self.camera_process: subprocess.Popen[bytes] | None = None
@@ -2987,7 +2992,7 @@ class TelemetryStore:
         return {"ok": True, "active": replay or track, "replay": replay, "tracking": track}
 
     def _schedule_feedback_sync(self) -> None:
-        if not FEEDBACK_SYNC_KEY.exists():
+        if not (FEEDBACK_SYNC_ENABLED and FEEDBACK_SYNC_KEY.exists()):
             return
         with self.proposal_lock:
             if self.feedback_sync_timer is not None:
@@ -3008,12 +3013,23 @@ class TelemetryStore:
     def sync_feedback_to_repo(self) -> dict[str, Any]:
         """Copy the live feedback CSV into the tracked data/ file, commit, push.
 
-        Best-effort: any failure leaves the live file untouched and the next
-        feedback (or service start) retries with the FULL file, so no row is
-        ever lost to a failed push or an autoupdate hard-reset.
+        Best-effort and self-healing: the live CSV is the source of truth, and
+        every failure path leaves local `main` at origin (never diverged, never
+        mid-rebase) so the autoupdate cron's `reset --hard origin/main` can never
+        wedge, and the next sync retries with the full file. A single git lock
+        serializes this against a second sync in the same working tree.
         """
         if not POSE_FEEDBACK_CSV.exists():
             return {"ok": False, "pushed": False, "reason": "no feedback recorded yet"}
+        with self.feedback_git_lock:
+            try:
+                return self._sync_feedback_git()
+            except subprocess.TimeoutExpired:
+                # A hung network git can SIGKILL leaving a half state; clean up.
+                self._git_cleanup()
+                return {"ok": False, "pushed": False, "reason": "git timed out"}
+
+    def _sync_feedback_git(self) -> dict[str, Any]:
         FEEDBACK_REPO_CSV.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(POSE_FEEDBACK_CSV, FEEDBACK_REPO_CSV)
         env = {
@@ -3027,6 +3043,12 @@ class TelemetryStore:
                 capture_output=True, text=True, timeout=60,
             )
 
+        self._git = git  # for _git_cleanup on timeout
+        # A prior crashed run may have left a rebase in progress; clear it so our
+        # add/commit doesn't error out.
+        if (APP_DIR / ".git" / "rebase-merge").exists() or (APP_DIR / ".git" / "rebase-apply").exists():
+            git("rebase", "--abort")
+
         git("add", "--", str(FEEDBACK_REPO_CSV))
         if git("diff", "--cached", "--quiet", "--", str(FEEDBACK_REPO_CSV)).returncode == 0:
             return {"ok": True, "pushed": False, "reason": "no new rows"}
@@ -3036,15 +3058,37 @@ class TelemetryStore:
             "--", str(FEEDBACK_REPO_CSV),
         )
         if commit.returncode != 0:
+            git("reset", "--hard", "HEAD")  # unstage; leave no divergence
             return {"ok": False, "pushed": False, "reason": commit.stderr[:200]}
         push = git("push", FEEDBACK_SYNC_PUSH_URL, "HEAD:main")
         if push.returncode != 0:
-            # Lost a race with a concurrent dev push: rebase (data file is only
-            # ever written by the robot, so this is conflict-free) and retry once.
-            git("pull", "--rebase", FEEDBACK_SYNC_PUSH_URL, "main")
+            # Lost a race with a concurrent push: rebase our single data commit on
+            # top (the robot is the only writer of data/, so it's conflict-free)
+            # and retry once. If the rebase itself fails, abort it so we never
+            # leave the repo mid-rebase (which would wedge the autoupdate reset).
+            pull = git("pull", "--rebase", FEEDBACK_SYNC_PUSH_URL, "main")
+            if pull.returncode != 0:
+                git("rebase", "--abort")
+                git("reset", "--hard", "HEAD~1")
+                return {"ok": False, "pushed": False, "reason": "rebase conflict; discarded local commit"}
             push = git("push", FEEDBACK_SYNC_PUSH_URL, "HEAD:main")
-        pushed = push.returncode == 0
-        return {"ok": pushed, "pushed": pushed, "reason": "" if pushed else push.stderr[:200]}
+        if push.returncode != 0:
+            # Still failing (e.g. network down): drop our local commit so local
+            # `main` doesn't diverge from origin and the autoupdate reset stays a
+            # clean fast-forward. Rows self-heal from the untracked live file.
+            git("reset", "--hard", "HEAD~1")
+            return {"ok": False, "pushed": False, "reason": push.stderr[:200]}
+        return {"ok": True, "pushed": True, "reason": ""}
+
+    def _git_cleanup(self) -> None:
+        git = getattr(self, "_git", None)
+        if git is None:
+            return
+        try:
+            if (APP_DIR / ".git" / "rebase-merge").exists() or (APP_DIR / ".git" / "rebase-apply").exists():
+                git("rebase", "--abort")
+        except Exception:  # pragma: no cover - defensive cleanup
+            pass
 
     def record_pose_feedback(self, payload: Any) -> tuple[int, dict[str, Any]]:
         """Operator verdict on a staged/recent proposal: liked or disliked + comment.

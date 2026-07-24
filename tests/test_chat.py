@@ -716,6 +716,67 @@ class FeedbackRepoSyncTest(unittest.TestCase):
             self.store.record_pose_feedback({"proposal_id": result["proposal_id"], "verdict": "liked"})
         schedule.assert_called_once()
 
+    def test_schedule_requires_enable_flag(self) -> None:
+        # Key present but auto-sync disabled -> no timer (dev machine safety).
+        with mock.patch.object(server, "FEEDBACK_SYNC_ENABLED", False):
+            self.store._schedule_feedback_sync()
+        self.assertIsNone(self.store.feedback_sync_timer)
+        with mock.patch.object(server, "FEEDBACK_SYNC_ENABLED", True):
+            self.store._schedule_feedback_sync()
+        self.assertIsNotNone(self.store.feedback_sync_timer)
+        self.store.feedback_sync_timer.cancel()
+
+    def test_push_failure_discards_local_commit(self) -> None:
+        # push fails, rebase succeeds, second push still fails -> reset HEAD~1
+        def fake_run(cmd, **kwargs):
+            if "--quiet" in cmd:
+                return self._git_result(1)
+            if "push" in cmd:
+                return self._git_result(1)
+            return self._git_result(0)  # add/commit/pull ok
+
+        calls: list[list[str]] = []
+        orig = fake_run
+        def recording(cmd, **kwargs):
+            calls.append(list(cmd))
+            return orig(cmd, **kwargs)
+
+        with mock.patch.object(server.subprocess, "run", side_effect=recording):
+            result = self.store.sync_feedback_to_repo()
+        self.assertFalse(result["pushed"])
+        self.assertTrue(any("reset" in c and "HEAD~1" in c for c in [" ".join(x) for x in calls]))
+
+    def test_rebase_conflict_is_aborted(self) -> None:
+        def fake_run(cmd, **kwargs):
+            if "--quiet" in cmd:
+                return self._git_result(1)
+            if "push" in cmd:
+                return self._git_result(1)
+            if "pull" in cmd:
+                return self._git_result(1)  # rebase conflict
+            return self._git_result(0)
+
+        calls: list[list[str]] = []
+        def recording(cmd, **kwargs):
+            calls.append(list(cmd))
+            return fake_run(cmd, **kwargs)
+
+        with mock.patch.object(server.subprocess, "run", side_effect=recording):
+            result = self.store.sync_feedback_to_repo()
+        self.assertFalse(result["pushed"])
+        joined = [" ".join(x) for x in calls]
+        self.assertTrue(any("rebase --abort" in c for c in joined))
+        self.assertTrue(any("reset --hard HEAD~1" in c for c in joined))
+
+    def test_git_timeout_is_swallowed(self) -> None:
+        def fake_run(cmd, **kwargs):
+            raise server.subprocess.TimeoutExpired(cmd, 60)
+
+        with mock.patch.object(server.subprocess, "run", side_effect=fake_run):
+            result = self.store.sync_feedback_to_repo()
+        self.assertFalse(result["pushed"])
+        self.assertIn("timed out", result["reason"])
+
 
 class PoseFeedbackTest(unittest.TestCase):
     def setUp(self) -> None:

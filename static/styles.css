@@ -4391,6 +4391,23 @@ button:not(:disabled):active { transform: scale(0.96); }
   opacity: 0.75;
 }
 
+/* Feedback-data plots link (opens the CSV plot page). */
+.feedback-plot-link {
+  height: 26px;
+  width: 30px;
+  min-width: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  text-decoration: none;
+}
+.feedback-plot-link:hover {
+  color: #66a3ff;
+  border-color: rgba(102, 163, 255, 0.55);
+}
+
 /* Claude backend toggle + reply badge. */
 .claude-backend-toggle {
   height: 26px;

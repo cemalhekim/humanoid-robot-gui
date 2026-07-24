@@ -1228,6 +1228,60 @@ def _prompt_safe(value: str, limit: int) -> str:
     return flattened[:limit]
 
 
+def pose_feedback_dataset() -> dict[str, Any]:
+    """Parse the labeled pose-feedback CSV for the visualization page.
+
+    Read-only. Returns per-row records plus rollups (verdict counts, per-request
+    liked/disliked tallies, and an activity timeline bucketed by day)."""
+    rows: list[dict[str, Any]] = []
+    try:
+        with POSE_FEEDBACK_CSV.open(newline="", encoding="utf-8") as handle:
+            raw = list(csv.DictReader(handle))[-2000:]
+    except OSError:
+        raw = []
+    counts = {"liked": 0, "disliked": 0, "executed": 0}
+    per_request: dict[str, dict[str, int]] = {}
+    per_day: dict[str, dict[str, int]] = {}
+    for row in raw:
+        event = (row.get("event") or "").strip()
+        if event not in counts:
+            continue
+        counts[event] += 1
+        request = (row.get("request_text") or "").strip() or "(no request text)"
+        joints = row.get("joints_json") or "{}"
+        try:
+            joint_map = json.loads(joints)
+            joints_short = ", ".join(f"{k} {float(v):+.2f}" for k, v in joint_map.items()) if isinstance(joint_map, dict) else ""
+        except (ValueError, TypeError):
+            joints_short = ""
+        rows.append({
+            "timestamp": (row.get("timestamp_iso") or "").strip(),
+            "event": event,
+            "request": request,
+            "joints": joints_short,
+            "comment": (row.get("comment") or "").strip(),
+        })
+        bucket = per_request.setdefault(request, {"liked": 0, "disliked": 0, "executed": 0})
+        bucket[event] += 1
+        day = (row.get("timestamp_iso") or "")[:10]
+        if day:
+            dbucket = per_day.setdefault(day, {"liked": 0, "disliked": 0, "executed": 0})
+            dbucket[event] += 1
+    # Top requests by total volume (liked+disliked) for the grouped bar.
+    top_requests = sorted(
+        ({"request": r, **c, "total": c["liked"] + c["disliked"]} for r, c in per_request.items()),
+        key=lambda item: item["total"], reverse=True,
+    )[:12]
+    timeline = [{"day": d, **per_day[d]} for d in sorted(per_day)]
+    return {
+        "ok": True,
+        "summary": {**counts, "total": sum(counts.values()), "requests": len(per_request)},
+        "top_requests": top_requests,
+        "timeline": timeline,
+        "rows": list(reversed(rows)),  # newest first for the table
+    }
+
+
 def learned_pose_feedback_text() -> str:
     """Operator verdicts from the feedback CSV, rendered for the system prompt.
 
@@ -6790,12 +6844,16 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_file(STATIC_DIR / "diagram.js", "application/javascript; charset=utf-8")
         elif request_path == "/styles.css":
             self._send_file(STATIC_DIR / "styles.css", "text/css; charset=utf-8")
+        elif request_path in ("/feedback", "/feedback.html"):
+            self._send_file(STATIC_DIR / "feedback.html", "text/html; charset=utf-8")
         elif request_path == "/api/state":
             self._send_json(self.store.snapshot())
         elif request_path == "/api/spatial/pose":
             self._send_json(self.store.spatial_pose_snapshot())
         elif request_path == "/api/motion/active":
             self._send_json(self.store.motion_active_snapshot())
+        elif request_path == "/api/pose/feedback/data":
+            self._send_json(pose_feedback_dataset())
         elif request_path == "/api/camera":
             self._send_json(self.store.camera_snapshot())
         elif request_path == "/api/track/status":

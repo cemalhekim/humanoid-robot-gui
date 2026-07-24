@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pose Feedback — Labeled Data</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <style>
+    :root {
+      --bg: #0b0e11; --surface: #14181d; --surface-2: #1b2027; --border: #262c34;
+      --ink: #eef2f6; --ink-2: #aab4bd; --ink-3: #6b7580;
+      --liked: #1fa869; --disliked: #e04a38; --executed: #4285e0;
+      --accent: #e60000;
+    }
+    @media (prefers-color-scheme: light) {
+      :root { --bg:#f4f6f8; --surface:#fff; --surface-2:#eef1f4; --border:#dde2e7;
+              --ink:#14181d; --ink-2:#4a555f; --ink-3:#8a949d; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      font-size:14px; line-height:1.5; }
+    .wrap { max-width:1100px; margin:0 auto; padding:20px 18px 60px; }
+    header { display:flex; align-items:center; gap:14px; margin-bottom:20px; flex-wrap:wrap; }
+    header h1 { font-size:20px; margin:0; font-weight:650; }
+    header .sub { color:var(--ink-2); font-size:13px; }
+    .spacer { flex:1; }
+    a.back, button.rf { display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+      color:var(--ink); background:var(--surface); border:1px solid var(--border);
+      border-radius:9px; padding:7px 12px; font-size:13px; cursor:pointer; }
+    a.back:hover, button.rf:hover { background:var(--surface-2); }
+    .tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+    @media (max-width:640px){ .tiles{ grid-template-columns:repeat(2,1fr);} }
+    .tile { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+    .tile .n { font-size:30px; font-weight:680; letter-spacing:-0.5px; }
+    .tile .l { color:var(--ink-2); font-size:12px; text-transform:uppercase; letter-spacing:0.6px; display:flex; align-items:center; gap:6px; }
+    .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin-bottom:18px; }
+    .panel h2 { font-size:14px; margin:0 0 4px; font-weight:640; }
+    .panel .hint { color:var(--ink-3); font-size:12px; margin-bottom:12px; }
+    .legend { display:flex; gap:16px; margin-bottom:10px; font-size:12px; color:var(--ink-2); flex-wrap:wrap; }
+    .legend span { display:inline-flex; align-items:center; gap:6px; }
+    .row { display:grid; grid-template-columns:150px 1fr; align-items:center; gap:10px; margin:5px 0; }
+    @media (max-width:560px){ .row{ grid-template-columns:110px 1fr; } }
+    .row .name { font-size:12px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .bars { position:relative; }
+    .bar { height:15px; border-radius:0 4px 4px 0; display:flex; align-items:center; margin:2px 0; transition:filter .12s; }
+    .bar:hover { filter:brightness(1.15); }
+    .bar .v { font-size:11px; font-weight:600; color:#fff; padding:0 6px; }
+    .tbar { display:flex; height:22px; border-radius:5px; overflow:hidden; background:var(--surface-2); }
+    .tbar div { transition:filter .12s; }
+    .tbar div:hover { filter:brightness(1.2); }
+    .tl-row { display:grid; grid-template-columns:96px 1fr; align-items:center; gap:10px; margin:6px 0; }
+    .tl-row .d { font-size:12px; color:var(--ink-2); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+    th { color:var(--ink-2); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; position:sticky; top:0; background:var(--surface); }
+    .tblwrap { max-height:520px; overflow:auto; border:1px solid var(--border); border-radius:10px; }
+    .badge { display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; white-space:nowrap; }
+    td.joints { color:var(--ink-2); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; }
+    td.cmt { color:var(--ink); }
+    td.ts { color:var(--ink-3); white-space:nowrap; font-size:11px; }
+    .filter { width:100%; max-width:320px; background:var(--surface-2); border:1px solid var(--border);
+      border-radius:8px; color:var(--ink); padding:7px 10px; font-size:13px; margin-bottom:10px; }
+    .empty { color:var(--ink-3); padding:24px; text-align:center; }
+    .tip { position:fixed; pointer-events:none; background:var(--surface-2); border:1px solid var(--border);
+      border-radius:7px; padding:6px 9px; font-size:12px; color:var(--ink); box-shadow:0 4px 14px rgba(0,0,0,.3);
+      opacity:0; transition:opacity .1s; z-index:20; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Pose Feedback — Labeled Data</h1>
+        <div class="sub" id="sub">Loading…</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="rf" id="refresh" title="Reload data">↻ Refresh</button>
+      <a class="back" href="/">← Dashboard</a>
+    </header>
+
+    <div class="tiles" id="tiles"></div>
+
+    <div class="panel">
+      <h2>Top requests — liked vs disliked</h2>
+      <div class="hint">Which commands the operator approved or rejected. Longer green = it worked; red = it needed correction.</div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--liked)"></i>Liked 👍</span>
+        <span><i class="dot" style="background:var(--disliked)"></i>Disliked 👎</span>
+      </div>
+      <div id="reqchart"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Activity by day</h2>
+      <div class="hint">Feedback events recorded per day.</div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--liked)"></i>Liked</span>
+        <span><i class="dot" style="background:var(--disliked)"></i>Disliked</span>
+        <span><i class="dot" style="background:var(--executed)"></i>Executed</span>
+      </div>
+      <div id="timeline"></div>
+    </div>
+
+    <div class="panel">
+      <h2>All entries</h2>
+      <div class="hint">The full labeled dataset (newest first). Filter by request text or comment.</div>
+      <input class="filter" id="filter" placeholder="Filter by request or comment…">
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>When</th><th>Verdict</th><th>Request</th><th>Joints</th><th>Comment</th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="tip" id="tip"></div>
+
+  <script>
+    const COLORS = { liked:"#1fa869", disliked:"#e04a38", executed:"#4285e0" };
+    const ICON = { liked:"👍", disliked:"👎", executed:"▶" };
+    const tip = document.getElementById("tip");
+    const esc = (s)=>String(s??"").replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+    function showTip(html, e){ tip.innerHTML=html; tip.style.opacity="1"; moveTip(e); }
+    function moveTip(e){ tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY+12)+"px"; }
+    function hideTip(){ tip.style.opacity="0"; }
+
+    let ALL = [];
+
+    async function load(){
+      document.getElementById("sub").textContent = "Loading…";
+      let d;
+      try { d = await (await fetch("/api/pose/feedback/data",{cache:"no-store"})).json(); }
+      catch(e){ document.getElementById("sub").textContent = "Could not load feedback data."; return; }
+      if(!d || !d.ok){ document.getElementById("sub").textContent = "No feedback data yet."; return; }
+      ALL = d.rows || [];
+      renderTiles(d.summary);
+      renderReqChart(d.top_requests || []);
+      renderTimeline(d.timeline || []);
+      renderTable(ALL);
+      const s = d.summary || {};
+      document.getElementById("sub").textContent =
+        `${s.total||0} labeled events across ${s.requests||0} distinct requests`;
+    }
+
+    function renderTiles(s){
+      s = s || {};
+      const tiles = [
+        {l:"Total", n:s.total||0, c:"var(--ink)"},
+        {l:"Liked", n:s.liked||0, c:COLORS.liked, dot:true},
+        {l:"Disliked", n:s.disliked||0, c:COLORS.disliked, dot:true},
+        {l:"Executed", n:s.executed||0, c:COLORS.executed, dot:true},
+      ];
+      document.getElementById("tiles").innerHTML = tiles.map(t=>`
+        <div class="tile">
+          <div class="n" style="color:${t.c}">${t.n}</div>
+          <div class="l">${t.dot?`<i class="dot" style="background:${t.c}"></i>`:""}${t.l}</div>
+        </div>`).join("");
+    }
+
+    function renderReqChart(reqs){
+      const el = document.getElementById("reqchart");
+      if(!reqs.length){ el.innerHTML = '<div class="empty">No liked/disliked feedback yet.</div>'; return; }
+      const max = Math.max(1, ...reqs.map(r=>Math.max(r.liked, r.disliked)));
+      el.innerHTML = reqs.map(r=>{
+        const seg = (v,key)=> v>0 ? `<div class="bar" data-k="${key}" data-r="${esc(r.request)}" data-v="${v}"
+            style="width:${Math.max(6,(v/max)*100)}%;background:${COLORS[key]}"><span class="v">${v}</span></div>` : "";
+        return `<div class="row"><div class="name" title="${esc(r.request)}">${esc(r.request)}</div>
+          <div class="bars">${seg(r.liked,"liked")}${seg(r.disliked,"disliked")}</div></div>`;
+      }).join("");
+      el.querySelectorAll(".bar").forEach(b=>{
+        b.addEventListener("mousemove",e=>showTip(
+          `<b>${ICON[b.dataset.k]} ${b.dataset.k}</b> · ${b.dataset.v}<br>${esc(b.dataset.r)}`, e));
+        b.addEventListener("mouseleave",hideTip);
+      });
+    }
+
+    function renderTimeline(tl){
+      const el = document.getElementById("timeline");
+      if(!tl.length){ el.innerHTML = '<div class="empty">No activity yet.</div>'; return; }
+      const totals = tl.map(t=>(t.liked||0)+(t.disliked||0)+(t.executed||0));
+      const max = Math.max(1, ...totals);
+      el.innerHTML = tl.map((t,i)=>{
+        const seg = (key)=>{ const v=t[key]||0; return v>0
+          ? `<div data-k="${key}" data-v="${v}" data-d="${t.day}" style="width:${(v/max)*100}%;background:${COLORS[key]}"></div>` : ""; };
+        return `<div class="tl-row"><div class="d">${t.day}</div>
+          <div class="tbar" title="${totals[i]} events">${seg("liked")}${seg("disliked")}${seg("executed")}</div></div>`;
+      }).join("");
+      el.querySelectorAll(".tbar div").forEach(b=>{
+        b.addEventListener("mousemove",e=>showTip(`<b>${b.dataset.k}</b> · ${b.dataset.v}<br>${b.dataset.d}`, e));
+        b.addEventListener("mouseleave",hideTip);
+      });
+    }
+
+    function renderTable(rows){
+      const tb = document.getElementById("tbody");
+      if(!rows.length){ tb.innerHTML = `<tr><td colspan="5" class="empty">No matching entries.</td></tr>`; return; }
+      tb.innerHTML = rows.map(r=>{
+        const c = COLORS[r.event] || "var(--ink-2)";
+        return `<tr>
+          <td class="ts">${esc((r.timestamp||"").replace("T"," ").slice(0,19))}</td>
+          <td><span class="badge" style="background:${c}22;color:${c};border:1px solid ${c}55">${ICON[r.event]||""} ${esc(r.event)}</span></td>
+          <td>${esc(r.request)}</td>
+          <td class="joints">${esc(r.joints)}</td>
+          <td class="cmt">${esc(r.comment)}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    document.getElementById("filter").addEventListener("input", (e)=>{
+      const q = e.target.value.trim().toLowerCase();
+      renderTable(!q ? ALL : ALL.filter(r =>
+        (r.request||"").toLowerCase().includes(q) || (r.comment||"").toLowerCase().includes(q)));
+    });
+    document.getElementById("refresh").addEventListener("click", load);
+    document.addEventListener("mousemove",(e)=>{ if(tip.style.opacity==="1") moveTip(e); });
+    load();
+  </script>
+</body>
+</html>

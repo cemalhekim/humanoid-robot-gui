@@ -187,6 +187,21 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertFalse(plan["valid_for_execution"])
         self.assertTrue(any(v.get("kind") == "non_finite" for v in plan.get("violations", [])))
 
+    def test_playback_speed_capped_to_validated_velocity_envelope(self) -> None:
+        cap = server.TelemetryStore._cap_playback_speed
+        limit = server.TRAJECTORY_MAX_VELOCITY_RAD_S
+        peak = server.ARM_REPLAY_APPROACH_PEAK_VEL_RAD_S
+        # Fast recording (native at the limit): must not be sped up at all.
+        self.assertAlmostEqual(cap(4.0, limit), 1.0)
+        # Recording at half the limit: may be sped up to 2x, not 4x.
+        self.assertAlmostEqual(cap(4.0, limit / 2), 2.0)
+        # Slow recording (below approach peak): capped by the approach envelope.
+        self.assertAlmostEqual(cap(4.0, 0.01), limit / peak)
+        # A modest requested speed under the cap is unchanged.
+        self.assertAlmostEqual(cap(1.5, limit / 4), 1.5)
+        # Never returns below 1.0 for a validated (<= limit) native velocity.
+        self.assertGreaterEqual(cap(1.0, limit), 1.0)
+
     def test_replay_planner_routes_lower_body_motion_to_lowcmd(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         with TemporaryDirectory() as directory:

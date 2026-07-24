@@ -3338,6 +3338,18 @@ class TelemetryStore:
                 except OSError:
                     pass
 
+    @staticmethod
+    def _cap_playback_speed(requested: float, native_max_vel_rad_s: float) -> float:
+        """Bound replay playback speed so effective joint velocity stays within
+        the validated envelope. effective_velocity = native_velocity * speed;
+        the smooth approach also runs at ARM_REPLAY_APPROACH_PEAK_VEL_RAD_S * speed.
+        A validated trajectory has native velocity <= the limit, so this never
+        returns below 1.0."""
+        effective = max(native_max_vel_rad_s, ARM_REPLAY_APPROACH_PEAK_VEL_RAD_S)
+        if effective <= 0.0:
+            return requested
+        return min(requested, TRAJECTORY_MAX_VELOCITY_RAD_S / effective)
+
     def execute_arm_sdk_replay(
         self,
         path: Path,
@@ -3383,6 +3395,16 @@ class TelemetryStore:
                 "plan": plan,
             }
         tuning = self._arm_replay_tuning(payload)
+        # SAFETY: the velocity gate validated delta/dt at the recording's NATIVE
+        # timing (<= TRAJECTORY_MAX_VELOCITY_RAD_S), but the run loop sleeps
+        # DEFAULT_DT / playback_speed, so a high replay_response dial would drive
+        # the same setpoints up to ~4x faster — past the validated envelope. Cap
+        # the effective speed so neither the trajectory nor the (0.6 rad/s) smooth
+        # approach can exceed the limit. Never caps below 1.0 since a validated
+        # trajectory's native velocity is already <= the limit.
+        tuning["playback_speed"] = self._cap_playback_speed(
+            tuning["playback_speed"], float(plan.get("max_velocity_rad_s", 0.0))
+        )
 
         xr_suspend = self._suspend_xr_motion_publishers()
         if not xr_suspend.get("ok"):

@@ -92,6 +92,30 @@ class ArmKinematicsTest(unittest.TestCase):
             )["z"]
             self.assertAlmostEqual(solved_z, target_z, delta=1e-5)
 
+    def test_solve_hand_z_stays_on_the_near_pitch_branch(self) -> None:
+        # Two valid pitch solutions exist; the solver must keep the arm near its
+        # current pitch, not swing ~pi to the far branch on a numeric tiebreak.
+        angles = {"RightElbow": 1.57, "RightShoulderPitch": 1.55}
+        target_z = self.kin.landmark(angles, "right", "hand", round_digits=None)["z"]
+        solved = self.kin.solve_hand_z(angles, "right", target_z, (-3.14, 1.57))
+        self.assertAlmostEqual(solved, 1.55, delta=0.05)
+
+    def test_solve_hand_z_rejects_nan_angles(self) -> None:
+        with self.assertRaises(ValueError):
+            self.kin.landmarks({"RightElbow": float("nan")})
+
+    def test_guide_probes_dominant_range_direction(self) -> None:
+        # RightShoulderRoll travel is mostly negative; its guide line must
+        # describe the negative (useful) direction, mirroring the left arm.
+        limits = {name: (-3.14, 3.14) for name in kinematics.ARM_JOINT_NAMES}
+        limits["RightShoulderRoll"] = (-3.4, 0.38)
+        limits["LeftShoulderRoll"] = (-0.38, 3.4)
+        guide = kinematics.arm_pose_guide(self.kin, limits)
+        right = next(l for l in guide.splitlines() if l.startswith("- RightShoulderRoll:"))
+        left = next(l for l in guide.splitlines() if l.startswith("- LeftShoulderRoll:"))
+        self.assertIn("-0.5 rad", right)
+        self.assertIn("+0.5 rad", left)
+
     def test_unrounded_single_landmark_matches_landmark_collection(self) -> None:
         angles = {"RightShoulderPitch": -1.2, "RightElbow": 1.0}
         single = self.kin.landmark(

@@ -38,6 +38,9 @@ _ROOT_LINK = "pelvis"
 
 Matrix = list[list[float]]
 _IDENTITY: Matrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+# A bisected pitch root lands far below this z-residual; anything under it counts
+# as a real solution when choosing the branch nearest the current pitch.
+_Z_SOLVE_TOLERANCE_M = 1e-3
 
 
 def _mat_mul(a: Matrix, b: Matrix) -> Matrix:
@@ -118,7 +121,15 @@ class ArmKinematics:
         unknown = set(angles_rad) - set(TELEMETRY_TO_URDF_JOINT)
         if unknown:
             raise ValueError(f"Unknown arm joints: {', '.join(sorted(unknown))}")
-        return {TELEMETRY_TO_URDF_JOINT[name]: float(value) for name, value in angles_rad.items()}
+        by_urdf: dict[str, float] = {}
+        for name, value in angles_rad.items():
+            number = float(value)
+            # A NaN/inf angle would silently poison every landmark (and make the
+            # guide mislabel the joint as "reorients in place"); fail loudly.
+            if not math.isfinite(number):
+                raise ValueError(f"Angle for {name} must be finite, got {value!r}")
+            by_urdf[TELEMETRY_TO_URDF_JOINT[name]] = number
+        return by_urdf
 
     def _landmark_position(
         self,
@@ -245,7 +256,16 @@ class ArmKinematics:
             error, _ = error_at(pitch)
             roots.append((abs(error), abs(pitch - preferred), pitch))
 
-        return min(roots, default=best)[2]
+        # When the target height has two valid pitch solutions (a near and a far
+        # branch ~pi apart), pick the one CLOSEST to the current pitch. Sorting
+        # by residual first made the far branch win on a negligible numeric edge,
+        # swinging the shoulder ~180 deg away from where it already was.
+        reachable = [root for root in roots if root[0] <= _Z_SOLVE_TOLERANCE_M]
+        if reachable:
+            return min(reachable, key=lambda root: (root[1], root[0]))[2]
+        if roots:
+            return min(roots, key=lambda root: root[0])[2]
+        return best[2]
 
 
 def arm_pose_guide(kin: ArmKinematics, limits_by_name: dict[str, tuple[float, float]]) -> str:
@@ -257,7 +277,14 @@ def arm_pose_guide(kin: ArmKinematics, limits_by_name: dict[str, tuple[float, fl
     for name in ARM_JOINT_NAMES:
         side = "left" if name.startswith("Left") else "right"
         low, high = limits_by_name.get(name, (-math.pi, math.pi))
-        probe = min(0.5, high) if high >= 0.1 else max(-0.5, low)
+        # Probe into whichever side has the MOST travel, not just any positive
+        # range. RightShoulderRoll limits are [-3.4, 0.38]: the old `high >= 0.1`
+        # test probed the 0.38-rad minority side and described the right arm's
+        # useful (negative) direction backwards, inconsistent with the left arm.
+        if abs(low) > abs(high):
+            probe = max(-0.5, low)
+        else:
+            probe = min(0.5, high)
         hand0, hand1 = zero[side]["hand"], kin.landmarks({name: probe})[side]["hand"]
         delta = {axis: hand1[axis] - hand0[axis] for axis in ("x", "y", "z")}
         parts = []

@@ -1174,26 +1174,54 @@ def semantic_arm_pose(hands: dict[str, Any]) -> dict[str, Any] | None:
     return {"arms": arms, "proximity": proximity, "whole_body_concepts": bilateral}
 
 
+def _csv_safe(value: Any) -> str:
+    """Neutralize spreadsheet formula injection in operator/LLM free text.
+
+    The csv module quotes commas/newlines correctly, but a cell beginning with
+    = + - @ (or tab/CR) still executes as a formula when the synced data/ CSV is
+    opened in Excel/Sheets. Prefix such cells with a single quote.
+    """
+    text = str(value)
+    if text and text[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text
+    return text
+
+
+def _prompt_safe(value: str, limit: int) -> str:
+    """Collapse newlines/control chars and cap length before prompt injection.
+
+    Learned-feedback rows are user- and LLM-authored; without this a crafted
+    'liked' request could inject newline-delimited instructions into the
+    trusted section of every later system prompt, or bloat it toward the token
+    limit.
+    """
+    flattened = " ".join(str(value).split())
+    return flattened[:limit]
+
+
 def learned_pose_feedback_text() -> str:
     """Operator verdicts from the feedback CSV, rendered for the system prompt.
 
     Liked proposals become imitable examples; disliked ones become explicit
-    anti-examples (with the operator's comment when given). Bounded so a long
-    feedback history can't blow up the prompt.
+    anti-examples (with the operator's comment when given). Only the tail of the
+    file is read, and every field is flattened + length-capped, so a long or
+    hostile history can neither blow up the prompt nor inject instructions.
     """
     try:
         with POSE_FEEDBACK_CSV.open(newline="", encoding="utf-8") as handle:
-            rows = list(csv.DictReader(handle))
+            # Read from the end: newest verdicts are what we inject, and the file
+            # grows unbounded, so never parse the whole thing on every request.
+            rows = list(csv.DictReader(handle))[-200:]
     except OSError:
         return ""
     liked: list[str] = []
     disliked: list[str] = []
     for row in rows:
-        joints = (row.get("joints_json") or "").strip()
-        request = (row.get("request_text") or "").strip()
+        joints = _prompt_safe(row.get("joints_json") or "", 400)
+        request = _prompt_safe(row.get("request_text") or "", 200)
         if not joints or joints == "{}" or not request:
             continue
-        comment = (row.get("comment") or "").strip()
+        comment = _prompt_safe(row.get("comment") or "", 200)
         suffix = f" (operator: {comment})" if comment else ""
         if row.get("event") == "liked":
             liked.append(f"- LIKED '{request}': {joints}{suffix}")
@@ -1384,7 +1412,7 @@ def call_llm(
         detail = exc.read().decode("utf-8", "replace")[:500]
         return 502, {"ok": False, "error": f"LLM returned HTTP {exc.code}: {detail}"}
     except urllib.error.URLError as exc:
-        return 503, {"ok": False, "error": f"Cannot reach LLM at {LLM_BASE_URL}: {exc.reason}"}
+        return 503, {"ok": False, "error": f"Cannot reach LLM at {base_url or LLM_BASE_URL}: {exc.reason}"}
     except socket.timeout:
         return 504, {"ok": False, "error": f"LLM timed out after {LLM_TIMEOUT_SECONDS:g}s"}
     except Exception as exc:  # pragma: no cover - defensive
@@ -2669,8 +2697,12 @@ class TelemetryStore:
         self.spatial_pose_updated_at: float | None = None
         self.proposal_lock = threading.Lock()
         self.proposal_meta: dict[str, dict[str, Any]] = {}
-        self.last_chat_user_text = ""
+        # Per-request (per-thread) so concurrent chats from two browsers don't
+        # cross-attribute one operator's request text onto another's proposal.
+        self._chat_local = threading.local()
+        self.feedback_lock = threading.Lock()
         self.feedback_sync_timer: threading.Timer | None = None
+        self.feedback_git_lock = threading.Lock()
         # Rows appended while the service was down (or pushes failed) get
         # another chance right after startup.
         if FEEDBACK_SYNC_KEY.exists() and POSE_FEEDBACK_CSV.exists():
@@ -2910,25 +2942,37 @@ class TelemetryStore:
             result["note"] = "No live joint telemetry; unspecified joints were assumed 0 rad."
         return result
 
+    @property
+    def last_chat_user_text(self) -> str:
+        return getattr(self._chat_local, "request_text", "")
+
+    @last_chat_user_text.setter
+    def last_chat_user_text(self, value: str) -> None:
+        self._chat_local.request_text = value
+
     def _append_pose_feedback_row(self, proposal_id: str, event: str, comment: str = "") -> None:
         with self.proposal_lock:
             meta = dict(self.proposal_meta.get(proposal_id) or {})
         FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
-        is_new = not POSE_FEEDBACK_CSV.exists()
-        with POSE_FEEDBACK_CSV.open("a", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=POSE_FEEDBACK_FIELDS)
-            if is_new:
-                writer.writeheader()
-            writer.writerow({
-                "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-                "proposal_id": proposal_id,
-                "event": event,
-                "request_text": meta.get("request_text", ""),
-                "joints_json": json.dumps(meta.get("requested", {}), ensure_ascii=False, sort_keys=True),
-                "semantics_json": json.dumps(meta.get("semantics", {}), ensure_ascii=False,
-                                             separators=(",", ":")),
-                "comment": comment,
-            })
+        row = {
+            "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "proposal_id": proposal_id,
+            "event": event,
+            "request_text": _csv_safe(meta.get("request_text", "")),
+            "joints_json": json.dumps(meta.get("requested", {}), ensure_ascii=False, sort_keys=True),
+            "semantics_json": json.dumps(meta.get("semantics", {}), ensure_ascii=False,
+                                         separators=(",", ":")),
+            "comment": _csv_safe(comment),
+        }
+        # Serialize header-check + write: concurrent handler threads could both
+        # see the file absent and write the header twice, or interleave rows.
+        with self.feedback_lock:
+            is_new = not POSE_FEEDBACK_CSV.exists()
+            with POSE_FEEDBACK_CSV.open("a", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=POSE_FEEDBACK_FIELDS)
+                if is_new:
+                    writer.writeheader()
+                writer.writerow(row)
         self._schedule_feedback_sync()
 
     def motion_active_snapshot(self) -> dict[str, Any]:
@@ -3028,7 +3072,9 @@ class TelemetryStore:
         # Thumbs-up doubles as the operator's approval click (same consent as
         # the Move button): execute the staged proposal through the guarded path.
         if verdict == "liked" and payload.get("execute") is True:
-            response["move"] = self.run_chat_tool("move", {"position": "proposed", "confirm": True})
+            response["move"] = self.run_chat_tool(
+                "move", {"position": "proposed", "confirm": True, "proposal_id": proposal_id}
+            )
         return 200, response
 
     def arm_proposal_public(self) -> dict[str, Any] | None:
@@ -4968,6 +5014,17 @@ class TelemetryStore:
                 "ok": False,
                 "error": "No pending pose proposal (it may have expired). Call propose_arm_pose first, "
                          "let the operator approve the green preview, then retry.",
+            }
+        # When the caller names a specific proposal (the thumbs-up card), refuse
+        # to execute if the LLM has since re-proposed — otherwise clicking 'like'
+        # on an old card would move the robot to a pose the operator never saw
+        # (the green preview always shows the CURRENT arm_proposal).
+        wanted_id = arguments.get("proposal_id")
+        if isinstance(wanted_id, str) and wanted_id and wanted_id != proposal["id"]:
+            return {
+                "ok": False,
+                "error": "The staged pose changed since you reviewed it. Check the current green "
+                         "preview and approve that one.",
             }
         # Same inline-snapshot path the 3D editor's Move button uses: the ephemeral
         # .pose.json goes through plan_replay_control_path + execute_arm_sdk_replay,

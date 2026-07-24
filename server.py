@@ -2572,6 +2572,8 @@ class TelemetryStore:
         self._network_lock = threading.Lock()
         self._network_cache: dict[str, Any] | None = None
         self._network_cache_at = 0.0
+        self._ephemeral_counter_lock = threading.Lock()
+        self._ephemeral_counter = 0
         # Per-request (per-thread) so concurrent chats from two browsers don't
         # cross-attribute one operator's request text onto another's proposal.
         self._chat_local = threading.local()
@@ -3294,8 +3296,16 @@ class TelemetryStore:
                 "or an unsaved sequence (points)."
             )
         EPHEMERAL_REPLAY_DIR.mkdir(parents=True, exist_ok=True)
-        path = EPHEMERAL_REPLAY_DIR / f"unsaved-{time.monotonic_ns()}{suffix}"
-        path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+        # Unique per call: monotonic_ns alone can repeat under concurrent
+        # filename-less replays (coarse clock), and a collision would let one
+        # thread overwrite/unlink another's file — executing the WRONG
+        # trajectory. Add pid + a per-process counter and create exclusively.
+        with self._ephemeral_counter_lock:
+            self._ephemeral_counter += 1
+            token = self._ephemeral_counter
+        path = EPHEMERAL_REPLAY_DIR / f"unsaved-{os.getpid()}-{time.monotonic_ns()}-{token}{suffix}"
+        with open(path, "x", encoding="utf-8") as handle:  # x = fail if exists
+            handle.write(json.dumps(body, ensure_ascii=False))
         return path
 
     def request_robot_replay(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -4156,11 +4166,20 @@ class TelemetryStore:
         previous_timestamp: float | None = None
 
         for frame_index, frame in enumerate(frames):
-            by_index = {
-                int(motor["index"]): float(motor.get("q", 0.0))
-                for motor in frame.get("motors", [])
-                if isinstance(motor, dict) and "index" in motor
-            }
+            by_index: dict[int, float] = {}
+            for motor in frame.get("motors", []):
+                if not (isinstance(motor, dict) and "index" in motor):
+                    continue
+                # The save path accepts motors without checking index/q are
+                # numeric; a string q or null index would crash int()/float()
+                # here and escape the handler. Coerce safely and reject the whole
+                # plan if any motor is malformed.
+                try:
+                    by_index[int(motor["index"])] = float(motor.get("q", 0.0))
+                except (TypeError, ValueError):
+                    self._append_trajectory_violation(
+                        violations, "malformed_motor", frame_index, -1, 0.0, 0.0,
+                    )
             for joint in LOWER_BODY_JOINTS:
                 if joint not in scoped_joints:
                     continue
@@ -4494,12 +4513,21 @@ class TelemetryStore:
                     line = line.strip()
                     if not line:
                         continue
-                    record = json.loads(line)
-                    if record.get("type") == "telemetry_sample":
+                    try:
+                        record = json.loads(line)
+                    except (ValueError, TypeError):
+                        # A partial trailing line is common when replaying a file
+                        # that is still being recorded (recorder flushes every
+                        # 100 samples). Skip it instead of crashing the replay.
+                        continue
+                    if isinstance(record, dict) and record.get("type") == "telemetry_sample":
                         records.append(record)
             return records
 
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, TypeError):
+            return []
         if isinstance(data, list):
             return [record for record in data if isinstance(record, dict)]
         if not isinstance(data, dict):
@@ -7140,7 +7168,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             try:
                 self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
                 self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
+            except OSError:
+                # Any dropped/half-open client (incl. ssl.SSLError under TLS).
                 break
             time.sleep(0.2)
 
@@ -7201,7 +7230,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             try:
                 self.wfile.write(payload)
                 self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
+            except OSError:
+                # Any dropped/half-open client (incl. ssl.SSLError under TLS).
                 break
 
 

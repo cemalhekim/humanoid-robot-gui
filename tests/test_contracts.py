@@ -217,6 +217,48 @@ class TelemetryContractsTest(unittest.TestCase):
         # Never returns below 1.0 for a validated (<= limit) native velocity.
         self.assertGreaterEqual(cap(1.0, limit), 1.0)
 
+    def test_replay_planner_skips_partial_jsonl_line(self) -> None:
+        # A truncated trailing line (concurrent record+replay) must not crash.
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            path = server.Path(directory) / "partial.jsonl"
+            motors = [{"index": i, "name": n, "q": 0.0} for i, n in server.JOINT_NAMES.items()]
+            good = server.json.dumps({"type": "telemetry_sample", "body": {"motors": motors}})
+            path.write_text(good + "\n" + '{"type": "telemetry_sample", "body": {"mot', encoding="utf-8")
+            plan = store.plan_replay_control_path(path)  # must not raise
+        self.assertTrue(plan["frame_count"] >= 1)
+
+    def test_replay_planner_rejects_non_numeric_motor(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with TemporaryDirectory() as directory:
+            path = server.Path(directory) / "bad.jsonl"
+            motors = [{"index": i, "name": n, "q": 0.0} for i, n in server.JOINT_NAMES.items()]
+            motors[16]["q"] = "boom"  # non-numeric q
+            path.write_text(
+                server.json.dumps({"type": "telemetry_sample", "body": {"motors": motors}}) + "\n",
+                encoding="utf-8",
+            )
+            plan = store.plan_replay_control_path(path)  # must not raise
+        self.assertFalse(plan["valid_for_execution"])
+        self.assertTrue(any(v.get("kind") == "malformed_motor" for v in plan.get("violations", [])))
+
+    def test_ephemeral_replay_paths_are_unique(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        motors = [{"index": 13, "name": "LeftShoulderPitch", "q": 0.1}]
+        payload = {"snapshot": {"motors": motors}}
+        paths = set()
+        try:
+            for _ in range(50):
+                p = store._write_ephemeral_replay_file(payload)
+                self.assertNotIn(p, paths)  # no collision
+                paths.add(p)
+        finally:
+            for p in paths:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
     def test_replay_planner_routes_lower_body_motion_to_lowcmd(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
         with TemporaryDirectory() as directory:

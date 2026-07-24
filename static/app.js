@@ -251,17 +251,6 @@ function esc(value) {
     .replaceAll("'", "&#39;");
 }
 
-function setFields(node, data) {
-  const entries = Object.entries(data || {});
-  if (entries.length === 0) {
-    node.innerHTML = "<dt>state</dt><dd>--</dd>";
-    return;
-  }
-  node.innerHTML = entries
-    .map(([key, value]) => `<dt>${key}</dt><dd>${fmt(value)}</dd>`)
-    .join("");
-}
-
 function valueList(values, labels) {
   return (values || []).map((value, index) => ({
     label: labels?.[index] || String(index),
@@ -2867,8 +2856,14 @@ function setupChat() {
       pending.card.classList.remove("assistant-card");
       pending.card.classList.add("error-card");
       pending.card.querySelector("span").textContent = "Error";
-      pending.p.textContent =
-        error instanceof Error ? error.message : "Chat request failed.";
+      const raw = error instanceof Error ? error.message : "Chat request failed.";
+      // The AI server being momentarily down (Ollama restart / network blip)
+      // surfaces as a raw "Cannot reach LLM … Connection refused"; explain it
+      // and tell the operator to just resend — nothing was executed.
+      const unreachable = /cannot reach llm|connection refused|errno 111|timed out|502|503|504/i.test(raw);
+      pending.p.textContent = unreachable
+        ? "AI server şu an ulaşılamıyor (geçici) — mesajını tekrar gönder. / AI server temporarily unreachable — resend your message."
+        : raw;
       // Drop the failed user turn so it isn't resent with the next message.
       history.pop();
     } finally {
@@ -3077,8 +3072,9 @@ loadRecordingFiles({ loadSelected: true });
 renderSequenceBuilder();
 updateReplayResponseLabel();
 updateReplayUi();
-window.setInterval(loadRecordingStatus, 2000);
-window.setInterval(loadRecordingFiles, 5000);
+// Don't poll while the tab is backgrounded — nothing to update, pure network drain.
+window.setInterval(() => { if (!document.hidden) loadRecordingStatus(); }, 2000);
+window.setInterval(() => { if (!document.hidden) loadRecordingFiles(); }, 5000);
 setupLocoControls();
 setupWristControls();
 connectEvents();
@@ -3427,7 +3423,7 @@ connectEvents();
   });
   renderToggle();
   syncMode();
-  window.setInterval(syncMode, 2000);
+  window.setInterval(() => { if (!document.hidden) syncMode(); }, 2000);
 
   const renderBoxesToggle = () => {
     if (!boxesToggle) return;

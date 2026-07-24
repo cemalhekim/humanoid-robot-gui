@@ -293,11 +293,29 @@ class CallLlmTest(unittest.TestCase):
     def test_maps_unreachable_endpoint(self) -> None:
         import urllib.error
 
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("refused")):
+        with mock.patch.object(server, "LLM_CONNECT_RETRY_BACKOFF_SECONDS", 0.0), \
+             mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("refused")):
             status, response = server.call_llm([{"role": "user", "content": "hi"}])
         self.assertEqual(status, 503)
         self.assertFalse(response["ok"])
         self.assertIn("Cannot reach LLM", response["error"])
+
+    def test_retries_transient_connection_error_then_succeeds(self) -> None:
+        import urllib.error
+        body = json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode("utf-8")
+        # Fail the first attempt (Wi-Fi blip), succeed on the retry.
+        calls = {"n": 0}
+        def flaky(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.URLError("refused")
+            return _fake_response(body)
+        with mock.patch.object(server, "LLM_CONNECT_RETRY_BACKOFF_SECONDS", 0.0), \
+             mock.patch("urllib.request.urlopen", side_effect=flaky):
+            status, response = server.call_llm([{"role": "user", "content": "hi"}])
+        self.assertEqual(status, 200)
+        self.assertEqual(response["reply"], "ok")
+        self.assertEqual(calls["n"], 2)  # one failure + one successful retry
 
     def test_maps_malformed_response(self) -> None:
         with mock.patch("urllib.request.urlopen", return_value=_fake_response(b'{"choices": []}')):

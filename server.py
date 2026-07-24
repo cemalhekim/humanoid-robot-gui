@@ -461,6 +461,10 @@ LLM_TWIN_VISION_ENABLED = os.environ.get("LLM_TWIN_VISION_ENABLED", "0") not in 
 LLM_TWIN_IMAGE_MAX_BYTES = 650_000
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
+# Transient connection failures to the LLM (flaky robot Wi-Fi) are retried, since
+# the request never reached the model — no tool ran, so retrying is side-effect-free.
+LLM_CONNECT_RETRIES = int(os.environ.get("LLM_CONNECT_RETRIES", "2"))
+LLM_CONNECT_RETRY_BACKOFF_SECONDS = float(os.environ.get("LLM_CONNECT_RETRY_BACKOFF_SECONDS", "0.6"))
 # Optional second chat backend: a Claude Code bridge (tools/claude_bridge.py)
 # running on the operator's machine. Unset/empty = the Claude toggle reports
 # "not configured". Example: CLAUDE_BRIDGE_URL=http://10.2.100.50:8399
@@ -1427,19 +1431,28 @@ def call_llm(
     elif LLM_API_KEY:
         headers["Authorization"] = f"Bearer {LLM_API_KEY}"
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=LLM_TIMEOUT_SECONDS) as response:
-            raw = response.read()
-        decoded = json.loads(raw.decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:500]
-        return 502, {"ok": False, "error": f"LLM returned HTTP {exc.code}: {detail}"}
-    except urllib.error.URLError as exc:
-        return 503, {"ok": False, "error": f"Cannot reach LLM at {base_url or LLM_BASE_URL}: {exc.reason}"}
-    except socket.timeout:
-        return 504, {"ok": False, "error": f"LLM timed out after {LLM_TIMEOUT_SECONDS:g}s"}
-    except Exception as exc:  # pragma: no cover - defensive
-        return 502, {"ok": False, "error": f"LLM request failed: {exc}"}
+    # The robot reaches the LLM over a flaky USB Wi-Fi link, so a bare connection
+    # error is usually a sub-second blip. Retry transient connection failures a
+    # couple of times — the request never reached the model (no tool ran, no side
+    # effect), so this is safe and makes the drop invisible to the operator.
+    last_conn_error: str | None = None
+    for attempt in range(LLM_CONNECT_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=LLM_TIMEOUT_SECONDS) as response:
+                raw = response.read()
+            decoded = json.loads(raw.decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:500]
+            return 502, {"ok": False, "error": f"LLM returned HTTP {exc.code}: {detail}"}
+        except (urllib.error.URLError, socket.timeout, TimeoutError) as exc:
+            last_conn_error = getattr(exc, "reason", None) and str(exc.reason) or str(exc)
+            if attempt < LLM_CONNECT_RETRIES:
+                time.sleep(LLM_CONNECT_RETRY_BACKOFF_SECONDS * (attempt + 1))
+                continue
+            return 503, {"ok": False, "error": f"Cannot reach LLM at {base_url or LLM_BASE_URL}: {last_conn_error}"}
+        except Exception as exc:  # pragma: no cover - defensive
+            return 502, {"ok": False, "error": f"LLM request failed: {exc}"}
 
     try:
         message = decoded["choices"][0]["message"]

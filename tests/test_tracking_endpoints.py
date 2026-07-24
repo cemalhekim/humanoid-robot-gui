@@ -542,6 +542,32 @@ class TrackToolTests(unittest.TestCase):
         self.assertTrue(result["ok"])
 
 
+class SentryStreamWorkerTests(unittest.TestCase):
+    def _wait(self, predicate, timeout=2.0):
+        import time as _t
+        end = _t.time() + timeout
+        while _t.time() < end:
+            if predicate():
+                return True
+            _t.sleep(0.02)
+        return predicate()
+
+    def test_worker_restarts_after_all_clients_leave(self) -> None:
+        store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
+        with mock.patch.object(store, "sentry_detect", return_value={"ok": True}):
+            store.sentry_stream_subscribe()
+            self.assertTrue(store.sentry_stream_worker_running)
+            # All clients leave -> worker exits and clears the run flag.
+            store.sentry_stream_unsubscribe()
+            self.assertTrue(self._wait(lambda: not store.sentry_stream_worker_running))
+            # A fresh subscribe must start a NEW worker (the bug left clients>0
+            # with no worker, stalling forever).
+            store.sentry_stream_subscribe()
+            self.assertTrue(store.sentry_stream_worker_running)
+            self.assertTrue(self._wait(lambda: store.sentry_stream_thread.is_alive()))
+            store.sentry_stream_unsubscribe()
+
+
 class ChillStopsTrackingTests(unittest.TestCase):
     def test_chill_ends_the_tracking_session(self) -> None:
         # Emergency limp must stop person-tracking; otherwise the tracking thread

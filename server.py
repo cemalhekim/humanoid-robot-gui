@@ -2555,6 +2555,11 @@ class TelemetryStore:
         self.sentry_stream_latest: dict[str, Any] | None = None
         self.sentry_stream_seq = 0
         self.sentry_stream_thread: threading.Thread | None = None
+        # Explicit run-state (not thread.is_alive) so the worker's exit decision
+        # and a new subscriber's start decision are mutually exclusive under the
+        # lock — otherwise a subscribe during the worker's dying window sees the
+        # thread still "alive", skips starting a replacement, and the stream stalls.
+        self.sentry_stream_worker_running = False
         # Master switch for person-following (operator decision 2026-07-22):
         # arm tracking can only START while Sentry Mode is on, and turning
         # Sentry off stops any running session. Defaults OFF on every boot —
@@ -5133,7 +5138,8 @@ class TelemetryStore:
     def sentry_stream_subscribe(self) -> None:
         with self.sentry_stream_lock:
             self.sentry_stream_clients += 1
-            if self.sentry_stream_thread is None or not self.sentry_stream_thread.is_alive():
+            if not self.sentry_stream_worker_running:
+                self.sentry_stream_worker_running = True
                 self.sentry_stream_thread = threading.Thread(
                     target=self._sentry_stream_worker, name="sentry-stream", daemon=True)
                 self.sentry_stream_thread.start()
@@ -5153,17 +5159,24 @@ class TelemetryStore:
 
     def _sentry_stream_worker(self) -> None:
         period = 1.0 / SENTRY_STREAM_HZ
-        while True:
+        try:
+            while True:
+                with self.sentry_stream_lock:
+                    if self.sentry_stream_clients <= 0:
+                        return
+                tick = time.time()
+                result = self.sentry_detect("webcam")
+                with self.sentry_stream_lock:
+                    self.sentry_stream_latest = result
+                    self.sentry_stream_seq += 1
+                    self.sentry_stream_condition.notify_all()
+                time.sleep(max(0.0, period - (time.time() - tick)))
+        finally:
+            # Clear run-state on EVERY exit (normal or exception) so a later
+            # subscribe always starts a fresh worker — no permanent stall even if
+            # sentry_detect throws.
             with self.sentry_stream_lock:
-                if self.sentry_stream_clients <= 0:
-                    return
-            tick = time.time()
-            result = self.sentry_detect("webcam")
-            with self.sentry_stream_lock:
-                self.sentry_stream_latest = result
-                self.sentry_stream_seq += 1
-                self.sentry_stream_condition.notify_all()
-            time.sleep(max(0.0, period - (time.time() - tick)))
+                self.sentry_stream_worker_running = False
 
     def track_snapshot(self) -> dict[str, Any]:
         with self.command_lock:

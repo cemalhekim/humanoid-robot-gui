@@ -56,6 +56,52 @@ class PromptBuildingTest(unittest.TestCase):
         self.assertNotIn("data:", transcript)
 
 
+class VisionPathTest(unittest.TestCase):
+    def test_extract_images_maps_openai_blocks_to_anthropic(self) -> None:
+        messages = [{"role": "user", "content": [
+            {"type": "text", "text": "copy this"},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,QUJD"}},
+        ]}]
+        images = claude_bridge.extract_images(messages)
+        self.assertEqual(len(images), 1)
+        self.assertEqual(images[0], {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": "QUJD"},
+        })
+
+    def test_extract_images_ignores_text_and_malformed_urls(self) -> None:
+        messages = [
+            {"role": "user", "content": "plain string, no blocks"},
+            {"role": "user", "content": [
+                {"type": "text", "text": "hi"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}},
+                {"type": "image_url", "image_url": {"url": "data:image/png;notbase64,zzz"}},
+            ]},
+        ]
+        self.assertEqual(claude_bridge.extract_images(messages), [])
+
+    def test_stream_command_uses_stream_json_in_and_out(self) -> None:
+        cmd = claude_bridge.claude_command_stream("SYSTEM")
+        joined = " ".join(cmd)
+        self.assertIn("--input-format stream-json", joined)
+        self.assertIn("--output-format stream-json", joined)
+        self.assertIn("--tools", cmd)  # same isolation guards as the text path
+        self.assertIn("--no-session-persistence", cmd)
+
+    def test_last_stream_result_returns_terminal_result_object(self) -> None:
+        stdout = (
+            '{"type":"system","subtype":"init"}\n'
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"Magenta"}]}}\n'
+            '{"type":"result","is_error":false,"result":"Magenta"}\n'
+        )
+        obj = claude_bridge._last_stream_result(stdout)
+        self.assertEqual(obj["result"], "Magenta")
+        self.assertFalse(obj["is_error"])
+
+    def test_last_stream_result_none_when_absent(self) -> None:
+        self.assertIsNone(claude_bridge._last_stream_result('{"type":"system"}\nnoise\n'))
+
+
 class ReplyParsingTest(unittest.TestCase):
     def test_plain_text_becomes_openai_message(self) -> None:
         response = claude_bridge.openai_response_from_result("Hello there.", "claude-sonnet")

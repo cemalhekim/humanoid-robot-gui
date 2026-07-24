@@ -72,6 +72,34 @@ def _content_text(content: Any) -> str:
     return ""
 
 
+def extract_images(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collect Anthropic image blocks from OpenAI 'image_url' content blocks.
+
+    The plain-text stdin path (split_messages) can only carry text, so images
+    would be silently dropped. When any are present the caller switches to the
+    stream-json path, which delivers these blocks to the model intact.
+    """
+    images: list[dict[str, Any]] = []
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "image_url":
+                continue
+            url = (block.get("image_url") or {}).get("url", "")
+            if not isinstance(url, str) or not url.startswith("data:") or ";base64," not in url:
+                continue
+            header, _, data = url.partition(",")
+            media_type = header[len("data:"):].split(";")[0] or "image/jpeg"
+            if data:
+                images.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": data},
+                })
+    return images
+
+
 def split_messages(messages: list[dict[str, Any]]) -> tuple[str, str]:
     """(system prompt, flattened conversation transcript for stdin)."""
     system_parts: list[str] = []
@@ -107,6 +135,41 @@ def claude_command(system: str) -> list[str]:
         "--model", CLAUDE_MODEL,
         "--system-prompt", system,
     ]
+
+
+def claude_command_stream(system: str) -> list[str]:
+    """Vision variant: stream-json in/out is the only CLI path that accepts
+    image content blocks. Same guards as the text command."""
+    return [
+        CLAUDE_BIN, "-p",
+        "--input-format", "stream-json",
+        "--output-format", "stream-json",
+        "--verbose",                   # required for stream-json to emit events
+        "--tools", "",
+        "--setting-sources", "",
+        "--no-session-persistence",
+        "--model", CLAUDE_MODEL,
+        "--system-prompt", system,
+    ]
+
+
+def _last_stream_result(stdout: str) -> Any:
+    """Return the final {'type':'result',...} object from stream-json output.
+
+    That terminal line carries the same fields as --output-format=json
+    (result, is_error, modelUsage), so the downstream parsing is shared."""
+    result_obj = None
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and obj.get("type") == "result":
+            result_obj = obj
+    return result_obj
 
 
 def _first_json_object(text: str) -> Any:
@@ -180,14 +243,30 @@ def openai_response_from_result(result_text: str, model: str) -> dict[str, Any]:
 
 def run_claude(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> dict[str, Any]:
     system, transcript = split_messages(messages)
-    completed = subprocess.run(
-        claude_command(build_system_prompt(system, tools)),
-        input=transcript, capture_output=True, text=True, timeout=CLAUDE_TIMEOUT_SECONDS,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(f"claude CLI failed: {completed.stderr.strip()[:300]}")
-    # Tolerate leading noise (node deprecation warnings, etc.) on stdout.
-    decoded = _first_json_object(completed.stdout)
+    full_system = build_system_prompt(system, tools)
+    images = extract_images(messages)
+    if images:
+        # Vision request: deliver the image blocks via stream-json (plain stdin
+        # can't). The whole flattened transcript rides as one leading text block.
+        payload = {"type": "user", "message": {"role": "user",
+                   "content": [{"type": "text", "text": transcript}, *images]}}
+        completed = subprocess.run(
+            claude_command_stream(full_system),
+            input=json.dumps(payload) + "\n",
+            capture_output=True, text=True, timeout=CLAUDE_TIMEOUT_SECONDS,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(f"claude CLI failed: {completed.stderr.strip()[:300]}")
+        decoded = _last_stream_result(completed.stdout)
+    else:
+        completed = subprocess.run(
+            claude_command(full_system),
+            input=transcript, capture_output=True, text=True, timeout=CLAUDE_TIMEOUT_SECONDS,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(f"claude CLI failed: {completed.stderr.strip()[:300]}")
+        # Tolerate leading noise (node deprecation warnings, etc.) on stdout.
+        decoded = _first_json_object(completed.stdout)
     if not isinstance(decoded, dict):
         raise RuntimeError(f"claude produced no JSON result: {completed.stdout.strip()[:200]!r}")
     if decoded.get("is_error"):

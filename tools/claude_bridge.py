@@ -23,9 +23,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
+import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,6 +36,13 @@ CLAUDE_BIN = os.environ.get("CLAUDE_BRIDGE_CLI", shutil.which("claude") or
 CLAUDE_MODEL = os.environ.get("CLAUDE_BRIDGE_CLAUDE_MODEL", "opus")
 CLAUDE_TIMEOUT_SECONDS = float(os.environ.get("CLAUDE_BRIDGE_TIMEOUT", "180"))
 MAX_BODY_BYTES = 2_000_000
+# Cap concurrent CLI subprocesses: this listens on the LAN, and each request
+# forks a billed `claude` process. Excess requests get 503 rather than swamping
+# the Mac / the operator's rate limit.
+MAX_CONCURRENCY = max(1, int(os.environ.get("CLAUDE_BRIDGE_MAX_CONCURRENCY", "3")))
+_SEM = threading.BoundedSemaphore(MAX_CONCURRENCY)
+# Optional shared secret. When set, POSTs must carry Authorization: Bearer <it>.
+CLAUDE_BRIDGE_TOKEN = os.environ.get("CLAUDE_BRIDGE_TOKEN", "")
 
 TOOL_PROTOCOL = (
     "\n\nTOOLS: you can call the tools below. To call one, reply with ONLY this bare JSON "
@@ -102,29 +109,54 @@ def claude_command(system: str) -> list[str]:
     ]
 
 
-_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+def _first_json_object(text: str) -> Any:
+    """Decode the first standalone JSON object embedded anywhere in text.
+
+    Claude often narrates ("Sure: {...}") or fences the tool-call JSON; scanning
+    each '{' with raw_decode recovers it whether or not it stands alone."""
+    decoder = json.JSONDecoder()
+    index = text.find("{")
+    while index != -1:
+        try:
+            parsed, _ = decoder.raw_decode(text, index)
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            return parsed
+        index = text.find("{", index + 1)
+    return None
 
 
 def _extract_tool_call(text: str) -> dict[str, Any] | None:
-    candidates = [text.strip()]
-    fenced = _FENCE.search(text)
-    if fenced:
-        candidates.append(fenced.group(1))
-    for candidate in candidates:
+    decoder = json.JSONDecoder()
+    index = text.find("{")
+    while index != -1:
         try:
-            parsed = json.loads(candidate)
-        except (ValueError, TypeError):
-            continue
-        call = parsed.get("tool_call") if isinstance(parsed, dict) else None
-        if isinstance(call, dict) and isinstance(call.get("name"), str):
-            return call
+            parsed, _ = decoder.raw_decode(text, index)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            call = parsed.get("tool_call")
+            if isinstance(call, dict) and isinstance(call.get("name"), str):
+                return call
+        index = text.find("{", index + 1)
     return None
+
+
+def _arguments_json(arguments: Any) -> str:
+    # OpenAI function.arguments is a JSON STRING. Pass a model-provided string
+    # through unchanged (avoid double-encoding); serialize anything else.
+    if isinstance(arguments, str):
+        return arguments
+    return json.dumps(arguments or {}, ensure_ascii=False)
 
 
 def openai_response_from_result(result_text: str, model: str) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": result_text}
+    finish_reason = "stop"
     call = _extract_tool_call(result_text)
     if call is not None:
+        finish_reason = "tool_calls"  # spec-conformant clients branch on this
         message = {
             "role": "assistant",
             "content": "",
@@ -133,7 +165,7 @@ def openai_response_from_result(result_text: str, model: str) -> dict[str, Any]:
                 "type": "function",
                 "function": {
                     "name": call["name"],
-                    "arguments": json.dumps(call.get("arguments") or {}, ensure_ascii=False),
+                    "arguments": _arguments_json(call.get("arguments")),
                 },
             }],
         }
@@ -141,7 +173,7 @@ def openai_response_from_result(result_text: str, model: str) -> dict[str, Any]:
         "id": f"claude-bridge-{time.monotonic_ns()}",
         "object": "chat.completion",
         "model": model,
-        "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
+        "choices": [{"index": 0, "message": message, "finish_reason": finish_reason}],
         "usage": {},
     }
 
@@ -154,7 +186,10 @@ def run_claude(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | Non
     )
     if completed.returncode != 0:
         raise RuntimeError(f"claude CLI failed: {completed.stderr.strip()[:300]}")
-    decoded = json.loads(completed.stdout)
+    # Tolerate leading noise (node deprecation warnings, etc.) on stdout.
+    decoded = _first_json_object(completed.stdout)
+    if not isinstance(decoded, dict):
+        raise RuntimeError(f"claude produced no JSON result: {completed.stdout.strip()[:200]!r}")
     if decoded.get("is_error"):
         raise RuntimeError(f"claude reported an error: {str(decoded.get('result'))[:300]}")
     model = CLAUDE_MODEL
@@ -186,9 +221,17 @@ class BridgeHandler(BaseHTTPRequestHandler):
         else:
             self._send_json({"ok": False, "error": "Unknown path."}, HTTPStatus.NOT_FOUND)
 
+    def _authorized(self) -> bool:
+        if not CLAUDE_BRIDGE_TOKEN:
+            return True
+        return self.headers.get("Authorization", "") == f"Bearer {CLAUDE_BRIDGE_TOKEN}"
+
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         if self.path != "/v1/chat/completions":
             self._send_json({"ok": False, "error": "Unknown path."}, HTTPStatus.NOT_FOUND)
+            return
+        if not self._authorized():
+            self._send_json({"error": "Unauthorized."}, HTTPStatus.UNAUTHORIZED)
             return
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > MAX_BODY_BYTES:
@@ -202,6 +245,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         except (ValueError, KeyError) as exc:
             self._send_json({"error": f"Invalid request: {exc}"}, HTTPStatus.BAD_REQUEST)
             return
+        # Bound concurrent CLI subprocesses; shed load instead of swamping the Mac.
+        if not _SEM.acquire(timeout=2):
+            self._send_json({"error": "Bridge busy; try again."}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
         try:
             response = run_claude(messages, payload.get("tools"))
         except subprocess.TimeoutExpired:
@@ -210,6 +257,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
         except Exception as exc:  # surface CLI failures to the dashboard verbatim
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
             return
+        finally:
+            _SEM.release()
         self._send_json(response)
 
     def log_message(self, fmt: str, *args: Any) -> None:

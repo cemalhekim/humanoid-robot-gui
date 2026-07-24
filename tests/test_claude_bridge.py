@@ -76,6 +76,27 @@ class ReplyParsingTest(unittest.TestCase):
         calls = response["choices"][0]["message"]["tool_calls"]
         self.assertEqual(calls[0]["function"]["name"], "move")
 
+    def test_prose_wrapped_bare_tool_call_is_recovered(self) -> None:
+        raw = 'Sure, calling the tool now:\n{"tool_call": {"name": "move", "arguments": {"position": "proposed"}}} done'
+        response = claude_bridge.openai_response_from_result(raw, "m")
+        message = response["choices"][0]["message"]
+        self.assertEqual(message["tool_calls"][0]["function"]["name"], "move")
+        self.assertEqual(response["choices"][0]["finish_reason"], "tool_calls")
+
+    def test_plain_text_finish_reason_is_stop(self) -> None:
+        response = claude_bridge.openai_response_from_result("just chatting", "m")
+        self.assertEqual(response["choices"][0]["finish_reason"], "stop")
+
+    def test_already_string_arguments_not_double_encoded(self) -> None:
+        raw = '{"tool_call": {"name": "move", "arguments": "{\\"position\\": \\"home\\"}"}}'
+        response = claude_bridge.openai_response_from_result(raw, "m")
+        args = response["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+        self.assertEqual(json.loads(args)["position"], "home")
+
+    def test_lenient_json_object_skips_leading_noise(self) -> None:
+        decoded = claude_bridge._first_json_object('(node warning)\n{"is_error": false, "result": "hi"}')
+        self.assertEqual(decoded["result"], "hi")
+
     def test_command_line_is_isolated_and_tool_free(self) -> None:
         cmd = claude_bridge.claude_command("SYSTEM")
         joined = " ".join(cmd)

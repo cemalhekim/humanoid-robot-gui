@@ -975,8 +975,8 @@ class BackendRoutingTest(unittest.TestCase):
     def test_default_backend_uses_configured_llm(self) -> None:
         captured = {}
 
-        def fake_call_llm(messages, tools=None, base_url=None, model=None):
-            captured.update(base_url=base_url, model=model)
+        def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
+            captured.update(base_url=base_url, model=model, auth_token=auth_token)
             return 200, {"ok": True, "reply": "hi"}
 
         with mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
@@ -988,8 +988,8 @@ class BackendRoutingTest(unittest.TestCase):
     def test_claude_backend_routes_to_bridge_url(self) -> None:
         captured = {}
 
-        def fake_call_llm(messages, tools=None, base_url=None, model=None):
-            captured.update(base_url=base_url, model=model)
+        def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
+            captured.update(base_url=base_url, model=model, auth_token=auth_token)
             return 200, {"ok": True, "reply": "hello from claude"}
 
         with mock.patch.object(server, "CLAUDE_BRIDGE_URL", "http://192.0.2.9:8399"), mock.patch.object(
@@ -1001,6 +1001,19 @@ class BackendRoutingTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(captured["base_url"], "http://192.0.2.9:8399")
         self.assertEqual(response.get("backend"), "claude")
+
+    def test_claude_backend_sends_bridge_token_when_set(self) -> None:
+        captured = {}
+
+        def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
+            captured.update(auth_token=auth_token)
+            return 200, {"ok": True, "reply": "ok"}
+
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", "http://192.0.2.9:8399"), \
+             mock.patch.object(server, "CLAUDE_BRIDGE_TOKEN", "s3cret"), \
+             mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            self._chat({"messages": [{"role": "user", "content": "selam"}], "backend": "claude"})
+        self.assertEqual(captured["auth_token"], "s3cret")
 
     def test_claude_backend_unconfigured_fails_closed(self) -> None:
         with mock.patch.object(server, "CLAUDE_BRIDGE_URL", ""):
@@ -1020,7 +1033,7 @@ class BackendRoutingTest(unittest.TestCase):
     def test_tool_loop_keeps_backend_for_every_round(self) -> None:
         urls = []
 
-        def fake_call_llm(messages, tools=None, base_url=None, model=None):
+        def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
             urls.append(base_url)
             if tools and len(urls) == 1:
                 return 200, {"ok": True, "reply": "", "tool_calls": [

@@ -452,6 +452,9 @@ LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
 # "not configured". Example: CLAUDE_BRIDGE_URL=http://10.2.100.50:8399
 CLAUDE_BRIDGE_URL = os.environ.get("CLAUDE_BRIDGE_URL", "").rstrip("/")
 CLAUDE_BRIDGE_MODEL = os.environ.get("CLAUDE_BRIDGE_MODEL", "claude")
+# Optional shared secret; when set (on both the robot and the bridge) it is sent
+# as a bearer token so a random LAN host can't spend the operator's Claude quota.
+CLAUDE_BRIDGE_TOKEN = os.environ.get("CLAUDE_BRIDGE_TOKEN", "")
 CHAT_BACKENDS = ("default", "claude")
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1024"))
 # 0 keeps action commands deterministic: at 0.3 qwen3-30b intermittently skipped
@@ -1382,7 +1385,7 @@ def build_telemetry_context(snapshot: dict[str, Any], ros_graph: dict[str, Any] 
 
 def call_llm(
     messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
-    base_url: str | None = None, model: str | None = None,
+    base_url: str | None = None, model: str | None = None, auth_token: str | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """POST an OpenAI-compatible chat completion to the configured LLM.
 
@@ -1405,7 +1408,9 @@ def call_llm(
     body = json.dumps(payload).encode("utf-8")
     url = f"{(base_url or LLM_BASE_URL).rstrip('/')}/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
-    if LLM_API_KEY:
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    elif LLM_API_KEY:
         headers["Authorization"] = f"Bearer {LLM_API_KEY}"
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
@@ -4735,6 +4740,7 @@ class TelemetryStore:
             }
         base_url = CLAUDE_BRIDGE_URL if backend == "claude" else None
         model = CLAUDE_BRIDGE_MODEL if backend == "claude" else None
+        auth_token = CLAUDE_BRIDGE_TOKEN if (backend == "claude" and CLAUDE_BRIDGE_TOKEN) else None
 
         cleaned: list[dict[str, Any]] = []
         for item in raw_messages:
@@ -4826,7 +4832,7 @@ class TelemetryStore:
                 {"type": "image_url", "image_url": {"url": twin_image}},
             ]
         messages = [{"role": "system", "content": system}, *cleaned]
-        overrides = {"base_url": base_url, "model": model} if base_url else {}
+        overrides = {"base_url": base_url, "model": model, "auth_token": auth_token} if base_url else {}
         if not LLM_TOOLS_ENABLED:
             status, response = call_llm(messages, **overrides)
         else:
@@ -4848,7 +4854,7 @@ class TelemetryStore:
 
     def _chat_tool_loop(
         self, messages: list[dict[str, Any]],
-        base_url: str | None = None, model: str | None = None,
+        base_url: str | None = None, model: str | None = None, auth_token: str | None = None,
     ) -> tuple[int, dict[str, Any]]:
         """Chat completion loop that executes model-requested tool calls.
 
@@ -4858,9 +4864,10 @@ class TelemetryStore:
         without tools so it must produce a final answer.
         """
         tools = self.chat_tool_specs()
+        overrides = {"base_url": base_url, "model": model, "auth_token": auth_token} if base_url else {}
         tools_used: list[dict[str, Any]] = []
         for _ in range(LLM_MAX_TOOL_ROUNDS):
-            status, response = call_llm(messages, tools=tools, **({"base_url": base_url, "model": model} if base_url else {}))
+            status, response = call_llm(messages, tools=tools, **overrides)
             if status != 200:
                 return status, response
             calls = response.pop("tool_calls", None)
@@ -4900,7 +4907,7 @@ class TelemetryStore:
                         "content": json.dumps(result, default=str)[:LLM_TOOL_OUTPUT_CHARS],
                     }
                 )
-        status, response = call_llm(messages, **({"base_url": base_url, "model": model} if base_url else {}))
+        status, response = call_llm(messages, **overrides)
         if status == 200:
             response.pop("tool_calls", None)
             response["tools_used"] = tools_used

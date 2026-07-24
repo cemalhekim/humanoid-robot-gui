@@ -3063,9 +3063,11 @@ function setupChat() {
       voiceOutput = Boolean(status.voice_output);
       if (els.chatStatus) {
         if (status.enabled) {
-          els.chatStatus.textContent = "Assistant online";
-          els.chatStatus.title = `Model: ${status.model}`;
+          // "Assistant online" is always true, so it's noise — keep the badge
+          // hidden. The offline case below still surfaces (it disables input).
+          els.chatStatus.hidden = true;
         } else {
+          els.chatStatus.hidden = false;
           els.chatStatus.textContent = "Assistant offline";
           els.chatStatus.classList.add("offline");
           els.chatInput.disabled = true;

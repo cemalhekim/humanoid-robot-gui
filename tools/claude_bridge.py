@@ -272,6 +272,13 @@ def main() -> None:
     args = parser.parse_args()
     if not CLAUDE_BIN or not os.path.exists(CLAUDE_BIN):
         raise SystemExit("claude CLI not found — install Claude Code or set CLAUDE_BRIDGE_CLI.")
+    if not CLAUDE_BRIDGE_TOKEN and args.host not in ("127.0.0.1", "localhost", "::1"):
+        print(
+            "[bridge] WARNING: listening on the LAN with NO token — any host on this "
+            "network can spend your Claude quota. Set CLAUDE_BRIDGE_TOKEN (and the same "
+            "on the robot) to require a bearer token.",
+            flush=True,
+        )
     server = ThreadingHTTPServer((args.host, args.port), BridgeHandler)
     print(f"Claude bridge listening on {args.host}:{args.port} (model {CLAUDE_MODEL}, cli {CLAUDE_BIN})")
     server.serve_forever()

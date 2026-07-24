@@ -55,7 +55,20 @@ class ReadOnlyProxy(BaseHTTPRequestHandler):
         self.wfile.write(b'{"ok":false,"error":"Remote tunnel is read-only."}\n')
 
     def proxy(self, head_only: bool = False) -> None:
-        target = urllib.parse.urljoin(self.upstream, self.path)
+        # SSRF guard: forward only a plain absolute path to the FIXED upstream.
+        # urljoin(upstream, self.path) would let an absolute-form request target
+        # (`GET http://evil/…`) or a protocol-relative one (`GET //evil/…`)
+        # override the upstream host, turning this internet-facing tunnel into an
+        # open proxy into the internal network / cloud metadata.
+        raw = self.path
+        parts = urllib.parse.urlsplit(raw)
+        if not raw.startswith("/") or raw.startswith("//") or parts.scheme or parts.netloc:
+            self.send_response(400)
+            self.send_header("content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"ok":false,"error":"Invalid request path."}\n')
+            return
+        target = self.upstream.rstrip("/") + raw
         request = urllib.request.Request(
             target,
             method="HEAD" if head_only else "GET",

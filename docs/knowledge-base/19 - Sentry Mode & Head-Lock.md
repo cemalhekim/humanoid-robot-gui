@@ -190,8 +190,18 @@ Webcam/Sentry sessions use their own tuning, from the `SENTRY_*` env constants
 | `SENTRY_FOV_YAW` | 1.25 | Horizontal FOV mapping. The deployed USB cam already reads robot-relative L/R (verified 2026-07-23), so it is **not** mirrored. |
 | `SENTRY_FOV_PITCH` | 0.9 | Vertical FOV mapping. |
 | `SENTRY_YAW_OFFSET` / `SENTRY_PITCH_OFFSET` | 0.11 / -1.52 | Center-pose aim offsets. |
-| `SENTRY_REPLAY_RESPONSE` | 1.25 | Corrector response — quicker than general replay, below the legacy ceiling (clamp ≤2.5). |
-| `SENTRY_MAX_STEP_RAD_S` | 0.65 | Per-tick velocity bound applied before every publish (clamp 0.1–1.0). |
+| `SENTRY_REPLAY_RESPONSE` | 2.0 | Corrector response — quicker than general replay, below the legacy ceiling (clamp ≤2.5). Raised 1.25 → 2.0 on 2026-07-27 for faster/snappier tracking. |
+| `SENTRY_MAX_STEP_RAD_S` | 0.9 | Per-tick velocity bound applied before every publish (clamp 0.1–1.0). Raised 0.65 → 0.9 on 2026-07-27. |
+| `SENTRY_AIM_ALPHA` | 0.5 | EMA alpha of the image-space `AimSmoother` (webcam path only; head cam keeps 0.25). Higher = less lag. Clamp 0.05–1.0. Added 2026-07-27. |
+| `SENTRY_SMOOTH_ALPHA` | 0.6 | EMA alpha of the joint-space `Smoother` (webcam path only; head cam keeps 0.35). Clamp 0.05–1.0. Added 2026-07-27. |
+
+The 2026-07-27 retune targets faster, snappier target-following: the response
+dial scales the closed-loop PID kp/ki up (via `_arm_replay_tuning`'s lerp), the
+velocity bound allows quicker sweeps, and the lighter EMA filtering cuts the
+lag that made snappy target moves come out slow. Smoothness is preserved
+because the `RateLimiter` still bounds every published step, and the filters
+remain well below passthrough (test-pinned envelope in
+`tests/test_tracking_endpoints.py::test_sentry_response_is_faster_but_still_bounded`).
 
 Two Sentry-specific behaviors worth naming:
 

@@ -519,16 +519,28 @@ SENTRY_FOV_YAW = float(os.environ.get("SENTRY_FOV_YAW", "1.25") or 1.25)
 SENTRY_FOV_PITCH = float(os.environ.get("SENTRY_FOV_PITCH", "0.9") or 0.9)
 SENTRY_YAW_OFFSET = float(os.environ.get("SENTRY_YAW_OFFSET", "0.11") or 0.11)
 SENTRY_PITCH_OFFSET = float(os.environ.get("SENTRY_PITCH_OFFSET", "-1.52") or -1.52)
-# Sentry is intentionally quicker than general pose replay while remaining
+# Bullseye is intentionally quicker than general pose replay while remaining
 # below the controller's legacy "responsive" ceiling. The velocity bound is
 # still applied before every publish, so detector jumps cannot become steps.
 SENTRY_REPLAY_RESPONSE = max(
     0.0,
-    min(2.5, float(os.environ.get("SENTRY_REPLAY_RESPONSE", "1.25") or 1.25)),
+    min(2.5, float(os.environ.get("SENTRY_REPLAY_RESPONSE", "2.0") or 2.0)),
 )
 SENTRY_MAX_STEP_RAD_S = max(
     0.1,
-    min(1.0, float(os.environ.get("SENTRY_MAX_STEP_RAD_S", "0.65") or 0.65)),
+    min(1.0, float(os.environ.get("SENTRY_MAX_STEP_RAD_S", "0.9") or 0.9)),
+)
+# Bullseye smoothing filters (webcam path only). Higher alpha = less lag, so the
+# arm mirrors quick target moves; the velocity limiter above still bounds the
+# published step, which is what keeps the motion smooth despite lighter
+# filtering. The head-camera path keeps the original conservative values.
+SENTRY_AIM_ALPHA = max(
+    0.05,
+    min(1.0, float(os.environ.get("SENTRY_AIM_ALPHA", "0.5") or 0.5)),
+)
+SENTRY_SMOOTH_ALPHA = max(
+    0.05,
+    min(1.0, float(os.environ.get("SENTRY_SMOOTH_ALPHA", "0.6") or 0.6)),
 )
 TRACKING_MAX_SESSION_S = max(30.0, float(os.environ.get("TRACKING_MAX_SESSION_S", "600") or 600))
 LLM_TOOL_TRACK_ENABLED = os.environ.get("LLM_TOOL_TRACK_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
@@ -562,7 +574,7 @@ def sentry_constant_hand_z_goal(
     targets: dict[int, float],
     target_z: float | None,
 ) -> dict[int, float]:
-    """Compensate shoulder pitch so Sentry's right hand keeps one height."""
+    """Compensate shoulder pitch so Bullseye's right hand keeps one height."""
     out = dict(targets)
     if ARM_KINEMATICS is None or target_z is None:
         return out
@@ -2681,7 +2693,7 @@ class TelemetryStore:
         # Secondary USB webcam (plugged into the robot PC), streamed below the
         # head camera in the floating view.
         self.webcam_lock = threading.Lock()
-        # Sentry push-stream state (worker + SSE subscriber bookkeeping).
+        # Bullseye push-stream state (worker + SSE subscriber bookkeeping).
         self.sentry_stream_lock = threading.Lock()
         self.sentry_stream_condition = threading.Condition(self.sentry_stream_lock)
         self.sentry_stream_clients = 0
@@ -2694,8 +2706,8 @@ class TelemetryStore:
         # thread still "alive", skips starting a replacement, and the stream stalls.
         self.sentry_stream_worker_running = False
         # Master switch for person-following (operator decision 2026-07-22):
-        # arm tracking can only START while Sentry Mode is on, and turning
-        # Sentry off stops any running session. Defaults OFF on every boot —
+        # arm tracking can only START while Bullseye Mode is on, and turning
+        # Bullseye off stops any running session. Defaults OFF on every boot —
         # following must always be re-armed deliberately.
         self.sentry_mode_on = False
         self.webcam_condition = threading.Condition(self.webcam_lock)
@@ -5457,7 +5469,7 @@ class TelemetryStore:
     # Pure decision logic lives in tracking.py; this owns frames, HTTP, DDS.
     # ------------------------------------------------------------------
     def sentry_detect(self, feed: str = "head") -> dict[str, Any]:
-        """Sentry Mode (detection only): forward one cached frame to the YOLO
+        """Bullseye Mode (detection only): forward one cached frame to the YOLO
         service and return its person boxes. Never touches motion paths."""
         if feed == "head":
             frame = self.get_camera_frame()
@@ -5483,7 +5495,7 @@ class TelemetryStore:
             return {"ok": False, "error": "Detection service unreachable."}
         return {"ok": True, "feed": feed, "persons": persons, "ts": time.time()}
 
-    # ---- Sentry push stream: one background detect loop, shared by all SSE
+    # ---- Bullseye push stream: one background detect loop, shared by all SSE
     # ---- subscribers; it runs only while at least one client is connected,
     # ---- so closing the UI still stops all detection traffic.
 
@@ -5538,11 +5550,11 @@ class TelemetryStore:
         return snap
 
     def set_sentry_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        """Arm/disarm Sentry detection.
+        """Arm/disarm Bullseye detection.
 
-        Enabling Sentry is deliberately motion-free. A physical tracking
+        Enabling Bullseye is deliberately motion-free. A physical tracking
         session starts only from an explicit person-lock action carrying the
-        selected target identity. Disabling Sentry always stops motion.
+        selected target identity. Disabling Bullseye always stops motion.
         """
         on = payload.get("on")
         if not isinstance(on, bool):
@@ -5656,7 +5668,7 @@ class TelemetryStore:
         # Horizontal pose interpolation changes elbow/roll as well as yaw, so
         # a fixed camera Y alone cannot keep the endpoint level. Use the
         # calibrated center pose's FK height as the invariant and solve
-        # shoulder pitch for every Sentry target.
+        # shoulder pitch for every Bullseye target.
         sentry_hand_z = None
         if camera == "webcam":
             reference_mapper = tracking.PointingMapper(
@@ -5668,11 +5680,15 @@ class TelemetryStore:
             sentry_hand_z = sentry_right_hand_z(reference_mapper.targets(0.5, 0.5))
         # Stability-focused control: filter image coordinates first, then
         # joint targets, and finally apply a bounded but responsive velocity.
-        aim_smoother = tracking.AimSmoother(alpha=0.25)
+        aim_smoother = tracking.AimSmoother(
+            alpha=SENTRY_AIM_ALPHA if camera == "webcam" else 0.25
+        )
         limiter = tracking.RateLimiter(
             max_step_rad_s=SENTRY_MAX_STEP_RAD_S if camera == "webcam" else 0.45
         )
-        smoother = tracking.Smoother(alpha=0.35)
+        smoother = tracking.Smoother(
+            alpha=SENTRY_SMOOTH_ALPHA if camera == "webcam" else 0.35
+        )
         seed = None
         if config["target"] is not None:
             cx, cy = config["target"]["cx"], config["target"]["cy"]

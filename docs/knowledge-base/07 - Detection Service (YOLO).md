@@ -50,12 +50,20 @@ Anything else on GET → `404 {"error": "not found"}`.
 }
 ```
 
-Keypoints exposed (conf ≥ 0.3, normalized 0..1): `nose`, `l_ear`/`r_ear`,
-`l_shoulder`/`r_shoulder`, `l_elbow`/`r_elbow`, `l_wrist`/`r_wrist`
-(elbows/wrists added 2026-07-27 for [[27 - Mimic Mode (Live Motion)]] —
-**redeploy the AI-host copy** when pulling that change), `l_hip`/`r_hip`.
-`head` is the nose, else the ear midpoint; headless boxes are how the robot's
-own arm is filtered out.
+Keypoints exposed (conf ≥ 0.3, normalized 0..1): `nose`, `l_eye`/`r_eye`,
+`l_ear`/`r_ear`, `l_shoulder`/`r_shoulder`, `l_elbow`/`r_elbow`,
+`l_wrist`/`r_wrist`, `l_hip`/`r_hip`. Elbows/wrists added + deployed
+2026-07-27 for [[27 - Mimic Mode (Live Motion)]]. `head` is the nose, else
+eye midpoint, else ear midpoint (each at `DETECT_HEAD_CONF`, default 0.15);
+with `DETECT_REQUIRE_HEAD=1` (default) headless boxes are dropped at the
+source — that is how the robot's own arm is filtered out.
+
+> [!warning] Repo copy = deployed copy since 2026-07-27
+> The AI-host file had diverged (head-gate + eyes existed only on AI-DEV).
+> The deployed version was synced back into
+> `deployment/ai_host/detect_service.py` — treat the repo copy as canonical
+> again and deploy BY COPYING IT, don't hand-edit on the host.
+> Backups on the host: `detect_service.py.bak-20260723`, `.bak-20260727`.
 
 | Field | Meaning |
 | --- | --- |

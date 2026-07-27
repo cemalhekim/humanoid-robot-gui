@@ -83,6 +83,25 @@ the counter chip reads `Mimic: N • MIRRORING`.
   published step, so detector jumps cannot become arm jumps.
 - `MIMIC_NEUTRAL_TEMPLATE` (both arms relaxed) is the park/stale pose.
 
+## Troubleshooting (from the 2026-07-27 bring-up)
+
+First live attempt "did nothing"; two independent causes, both fixed:
+
+1. **No elbow/wrist keypoints reaching the robot** — the AI-host service
+   was serving OLD code from a **rogue process squatting on :8188** (boot-era
+   PID) while the freshly restarted systemd unit crash-looped on bind — the
+   exact [[25 - Known Issues & Optimization Audit|known gotcha]]. Diagnosis:
+   hips present but elbows absent (hips come AFTER elbows in COCO order →
+   impossible with new code), `ss -ltnp | grep 8188` PID ≠ `ExecMainPID`.
+   Fix: kill the rogue PID, restart `person-detect.service`, verify the
+   listener PID matches. Without arm keypoints mimic starts but holds
+   neutral — box visible, no skeleton arms, no motion.
+2. **Mimic refused while a Bullseye pointing session ran** (409). Since
+   2026-07-27, Mimic ON **stops a running pointing session and takes over**
+   — a mode switch is one deliberate operator action (risk-acked + browser
+   confirm). Bullseye's toggle stays armed; a new lock works after mimic
+   turns off.
+
 ## Status / hardware TODO
 
 ⚠️ Signs and planes are verified against joint-limit tables and unit tests

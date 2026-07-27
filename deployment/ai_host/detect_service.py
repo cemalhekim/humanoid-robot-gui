@@ -4,6 +4,14 @@ POST /detect?feed=<name> with a JPEG body ->
     JSON {persons: [{id,x1,y1,x2,y2,conf,cx,cy}], ms, w, h}
 GET  /health -> {ok: true, feeds: [...], model: ..., device: ...}
 
+Only detections with a confidently visible HEAD (nose/eye/ear keypoints at
+or above DETECT_HEAD_CONF) are returned: the H1-2's own raised arm reads as a
+'person' box to YOLO but never grows face keypoints (measured 2026-07-23:
+max face-kp conf 0.043 on the arm vs 0.38+ on the weakest real visible head —
+the 0.15 default sits in that gap with margin both ways), so requiring a head
+keeps the robot from tracking itself (operator, 2026-07-23). Set
+DETECT_REQUIRE_HEAD=0 to return headless boxes again (debugging only).
+
 Coordinates are normalized 0..1 relative to image width/height. Each feed
 keeps its own ByteTrack state (one YOLO instance per feed), so `id` is a
 persistent track id for the same person across frames — it survives fast
@@ -30,6 +38,8 @@ PORT = 8188
 MODEL_NAME = os.environ.get("DETECT_MODEL", "yolo11m-pose.engine")
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 CONF = float(os.environ.get("DETECT_CONF", "0.35"))
+HEAD_KP_CONF = float(os.environ.get("DETECT_HEAD_CONF", "0.15"))
+REQUIRE_HEAD = os.environ.get("DETECT_REQUIRE_HEAD", "1") not in ("0", "false", "False", "")
 IMGSZ = int(os.environ.get("DETECT_IMGSZ", "640"))
 _LOCAL_TRACKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tracker.yaml")
 TRACKER = os.environ.get(
@@ -91,9 +101,8 @@ class Handler(BaseHTTPRequestHandler):
                 tracker=TRACKER, verbose=False, device=DEVICE,
             )
         ms = (time.time() - t0) * 1000
-        # COCO keypoint indices used below: 0 nose, 3/4 ears, 5/6 shoulders,
-        # 7/8 elbows, 9/10 wrists, 11/12 hips. Everything is normalized 0..1
-        # like the boxes. Elbows/wrists feed the robot's Mimic Mode.
+        # COCO keypoint indices used below: 0 nose, 1/2 eyes, 3/4 ears,
+        # 5/6 shoulders, 11/12 hips. Normalized 0..1 like the boxes.
         kpts = getattr(results[0], "keypoints", None)
         kp_xy = kpts.xy.tolist() if kpts is not None and kpts.xy is not None else []
         kp_conf = kpts.conf.tolist() if kpts is not None and kpts.conf is not None else []
@@ -108,25 +117,35 @@ class Handler(BaseHTTPRequestHandler):
             }
             if i < len(kp_xy) and i < len(kp_conf):
                 xy, kc = kp_xy[i], kp_conf[i]
-                def kp(j):
-                    if j < len(xy) and j < len(kc) and kc[j] >= 0.3:
+                def kp(j, min_conf=0.3):
+                    if j < len(xy) and j < len(kc) and kc[j] >= min_conf:
                         return {"x": xy[j][0] / w, "y": xy[j][1] / h, "conf": round(kc[j], 3)}
                     return None
-                named = {"nose": kp(0), "l_ear": kp(3), "r_ear": kp(4),
+                named = {"nose": kp(0), "l_eye": kp(1), "r_eye": kp(2),
+                         "l_ear": kp(3), "r_ear": kp(4),
                          "l_shoulder": kp(5), "r_shoulder": kp(6),
                          "l_elbow": kp(7), "r_elbow": kp(8),
                          "l_wrist": kp(9), "r_wrist": kp(10),
                          "l_hip": kp(11), "r_hip": kp(12)}
                 person["keypoints"] = {k: v for k, v in named.items() if v}
-                # Head anchor: nose, else ear midpoint, else nothing (client
-                # falls back to box top-center).
-                if named["nose"]:
-                    person["head"] = {"x": named["nose"]["x"], "y": named["nose"]["y"]}
-                elif named["l_ear"] and named["r_ear"]:
-                    person["head"] = {
-                        "x": (named["l_ear"]["x"] + named["r_ear"]["x"]) / 2,
-                        "y": (named["l_ear"]["y"] + named["r_ear"]["y"]) / 2,
-                    }
+                # Head anchor from the face keypoints at HEAD_KP_CONF or
+                # better — nose, else eye midpoint/single eye, else ear
+                # midpoint/single ear. No face at that confidence -> no head.
+                face = {k: kp(j, HEAD_KP_CONF) for k, j in
+                        (("nose", 0), ("l_eye", 1), ("r_eye", 2), ("l_ear", 3), ("r_ear", 4))}
+                def midpoint(a, b):
+                    points = [p for p in (a, b) if p]
+                    if not points:
+                        return None
+                    return {"x": sum(p["x"] for p in points) / len(points),
+                            "y": sum(p["y"] for p in points) / len(points),
+                            "conf": max(p["conf"] for p in points)}
+                anchor = (face["nose"] or midpoint(face["l_eye"], face["r_eye"])
+                          or midpoint(face["l_ear"], face["r_ear"]))
+                if anchor:
+                    person["head"] = anchor
+            if REQUIRE_HEAD and "head" not in person:
+                continue  # headless box (e.g. the robot's own arm) — drop it
             persons.append(person)
         persons.sort(key=lambda p: (p["x2"] - p["x1"]) * (p["y2"] - p["y1"]), reverse=True)
         self._send(200, {"persons": persons, "ms": round(ms, 1), "w": w, "h": h, "feed": feed})

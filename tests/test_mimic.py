@@ -260,6 +260,34 @@ class MimicEndpointTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertIn("Mimic", response["error"])
 
+    def test_mimic_on_replaces_running_pointing_session(self):
+        # Mode switch is one deliberate action: with a Bullseye pointing
+        # session live, a confirmed mimic request stops it and proceeds to
+        # the start gates instead of failing with "already running".
+        import threading
+
+        store = self.make_store()
+        cancel = threading.Event()
+        fake_session = threading.Thread(target=cancel.wait, daemon=True)
+        fake_session.start()
+        store.track_thread = fake_session
+        store.track_cancel = cancel
+        old = server.TRACKING_ENABLED
+        server.TRACKING_ENABLED = True
+        try:
+            status, response = store.set_mimic_mode(
+                {"on": True, "armed": True, "i_understand_risk": True}
+            )
+        finally:
+            server.TRACKING_ENABLED = old
+        # The old session was stopped…
+        fake_session.join(timeout=1.0)
+        self.assertFalse(fake_session.is_alive())
+        # …and the request reached the DDS gate (503 offline), NOT the
+        # "already running" 409.
+        self.assertEqual(status, 503)
+        self.assertFalse(response["mimic_mode"])
+
     def test_mimic_off_is_always_accepted(self):
         store = self.make_store()
         status, response = store.set_mimic_mode({"on": False})

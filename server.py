@@ -5620,6 +5620,13 @@ class TelemetryStore:
             return 200, {"ok": True, "mimic_mode": False, "tracking": self.track_snapshot()}
         if not has_risk_ack(payload):
             return 403, {"ok": False, "error": "Set armed=true and i_understand_risk=true to enable Mimic Mode."}
+        # Switching modes is one deliberate operator action: a running
+        # Bullseye pointing session yields to the confirmed mimic request
+        # instead of bouncing it with "already running".
+        with self.command_lock:
+            session_running = self.track_thread is not None and self.track_thread.is_alive()
+        if session_running:
+            self.request_track_stop()
         with self.command_lock:
             self.mimic_mode_on = True
         status, result = self.request_track_start({

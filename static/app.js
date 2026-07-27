@@ -2812,7 +2812,7 @@ function setupChat() {
     reader.readAsDataURL(file);
   }
 
-  function addMessage(role, text, { pending = false, error = false } = {}) {
+  function addMessage(role, text, { pending = false, error = false, image = null } = {}) {
     const card = document.createElement("article");
     const cls =
       role === "user" ? "user-card" : error ? "error-card" : "assistant-card";
@@ -2823,6 +2823,14 @@ function setupChat() {
     const p = document.createElement("p");
     p.textContent = text;
     card.append(span, p);
+    if (image) {
+      // Show the attached image inside the sent message bubble.
+      const img = document.createElement("img");
+      img.className = "chat-image";
+      img.src = image;
+      img.alt = "attached image";
+      card.append(img);
+    }
     els.chatLog.append(card);
     els.chatLog.scrollTop = els.chatLog.scrollHeight;
     return { card, p };
@@ -2847,7 +2855,7 @@ function setupChat() {
     els.chatSend.disabled = true;
     els.chatInput.value = "";
     autosize();
-    addMessage("user", text);
+    addMessage("user", text, { image: mimicImage });
     history.push({ role: "user", content: text });
     const pending = addMessage("assistant", "Thinking…", { pending: true });
 

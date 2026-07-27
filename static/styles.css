@@ -1814,6 +1814,17 @@ h3 {
   border-color: rgba(255, 90, 78, 0.7);
 }
 
+/* Image attached to a sent chat message. */
+.chat-card .chat-image {
+  display: block;
+  margin-top: 8px;
+  max-width: 220px;
+  max-height: 180px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  object-fit: cover;
+}
+
 .chat-action .icon {
   width: 22px;
   height: 22px;

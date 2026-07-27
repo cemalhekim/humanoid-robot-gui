@@ -1767,6 +1767,10 @@ h3 {
   height: 20px;
 }
 
+.mimic-preview[hidden] {
+  /* display:flex below would otherwise override the hidden attribute. */
+  display: none;
+}
 .mimic-preview {
   display: flex;
   align-items: center;

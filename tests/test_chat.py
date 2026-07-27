@@ -977,6 +977,25 @@ class PoseFeedbackTest(unittest.TestCase):
         q_by_index = {m["index"]: m["q"] for m in replay.call_args[0][0]["snapshot"]["motors"]}
         self.assertEqual(q_by_index[20], -2.2)  # the FIRST (reviewed) pose ran
 
+    def test_restage_by_id_reactivates_an_earlier_candidate(self) -> None:
+        first = self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightElbow": 1.5}}
+        )["proposal_id"]
+        second = self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightElbow": 0.2}}
+        )["proposal_id"]
+        self.assertNotEqual(first, second)
+        status, response = self.store.restage_proposal_by_id({"proposal_id": first})
+        self.assertEqual(status, 200)
+        self.assertTrue(response["ok"], response)
+        self.assertEqual(self.store.arm_proposal["id"], first)  # ghost switched back
+
+    def test_restage_unknown_id_is_404_and_staging_only(self) -> None:
+        status, response = self.store.restage_proposal_by_id({"proposal_id": "pose-nope"})
+        self.assertEqual(status, 404)
+        self.assertFalse(response["ok"])
+        self.assertEqual(self.store.restage_proposal_by_id("junk")[0], 400)
+
     def test_identical_repropose_keeps_id_and_refreshes_ttl(self) -> None:
         # The visual self-check may re-stage the same pose while confirming; that
         # must not invalidate the operator's card or spawn duplicate proposals.

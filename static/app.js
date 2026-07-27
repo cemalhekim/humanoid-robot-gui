@@ -2773,6 +2773,10 @@ function setupChat() {
   // own proposal — bounded rounds per operator request so it cannot ping-pong.
   let twinCheckRounds = 0;
   const TWIN_CHECK_MAX_ROUNDS = 2;
+  // Every pose the self-check loop photographed this request: {id, shot}.
+  // When the loop settles, alternatives are offered as a clickable gallery.
+  let twinCandidates = [];
+  let lastStagedId = null;
 
   function scheduleTwinCheck() {
     // Give the viewer a beat to render the fresh green ghost (5 Hz state poll).
@@ -2788,6 +2792,10 @@ function setupChat() {
         ? window.captureDigitalTwinEvidence()
         : null;
     if (!evidence || !evidence.screenshot || busy) return;
+    // Remember what this render shows: the currently staged candidate.
+    if (lastStagedId && !twinCandidates.some((c) => c.id === lastStagedId)) {
+      twinCandidates.push({ id: lastStagedId, shot: evidence.screenshot });
+    }
     busy = true;
     els.chatSend.disabled = true;
     const pending = addMessage("assistant", "🔍 Checking my own preview against your request…", { pending: true });
@@ -2837,9 +2845,13 @@ function setupChat() {
         );
       }
       // The model corrected itself → verify the NEW ghost too, within budget.
-      if (payload.proposal && used.some((t) => t.name === "propose_arm_pose") && twinCheckRounds < TWIN_CHECK_MAX_ROUNDS) {
+      const corrected = payload.proposal && used.some((t) => t.name === "propose_arm_pose");
+      if (corrected) lastStagedId = payload.proposal.id;
+      if (corrected && twinCheckRounds < TWIN_CHECK_MAX_ROUNDS) {
         twinCheckRounds++;
         scheduleTwinCheck();
+      } else {
+        finishTwinLoop(lastStagedId);
       }
     } catch (error) {
       // Self-checks are best-effort: withdraw quietly, never surface an error.
@@ -2850,6 +2862,92 @@ function setupChat() {
       els.chatSend.disabled = false;
       els.chatLog.scrollTop = els.chatLog.scrollHeight;
     }
+  }
+
+  function finishTwinLoop(finalId) {
+    // Offer every pose the loop photographed as a clickable alternative, so the
+    // operator can prefer an earlier try over the final proposal.
+    const alternatives = twinCandidates.filter((c) => c.id && c.id !== finalId);
+    if (!alternatives.length) {
+      twinCandidates = [];
+      return;
+    }
+    let finalShot = (twinCandidates.find((c) => c.id === finalId) || {}).shot || null;
+    if (!finalShot && typeof window.captureDigitalTwinEvidence === "function") {
+      const evidence = window.captureDigitalTwinEvidence();
+      finalShot = (evidence && evidence.screenshot) || null;
+    }
+    const entries = [...alternatives.map((c) => ({ ...c, current: false }))];
+    if (finalId) entries.push({ id: finalId, shot: finalShot, current: true });
+    const card = document.createElement("article");
+    card.className = "chat-card assistant-card";
+    const span = document.createElement("span");
+    span.textContent = "Pose candidates";
+    const p = document.createElement("p");
+    p.textContent = "The self-check tried these poses. Click one if you like it better — the green preview switches to it (👍 still decides).";
+    const gallery = document.createElement("div");
+    gallery.className = "pose-gallery";
+    const status = document.createElement("p");
+    status.className = "chat-tools-note";
+    const feedbackHolder = document.createElement("div");
+    entries.forEach((entry, index) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pose-candidate" + (entry.current ? " current" : "");
+      if (entry.shot) {
+        const img = document.createElement("img");
+        img.src = entry.shot;
+        img.alt = `candidate pose ${index + 1}`;
+        btn.append(img);
+      }
+      const label = document.createElement("span");
+      label.textContent = entry.current ? "current ✓" : `try ${index + 1}`;
+      btn.append(label);
+      btn.addEventListener("click", async () => {
+        if (busy) return;
+        try {
+          const response = await fetch("/api/pose/proposal/restage", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ proposal_id: entry.id }),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.error || "restage failed");
+          gallery.querySelectorAll(".pose-candidate").forEach((b) => b.classList.remove("current"));
+          btn.classList.add("current");
+          status.textContent = "Green preview switched to this pose — approve it with 👍.";
+          feedbackHolder.innerHTML = "";
+          if (poseFeedbackEnabled()) {
+            feedbackHolder.append(
+              buildPoseFeedbackCard(entry.id, "(alternative selected from candidates)", {
+                onExecuted: () => {
+                  history.push({
+                    role: "assistant",
+                    content: "(Operator approved via thumbs-up; the staged pose was executed.)",
+                    tools_used: [{ name: "move", arguments: { position: "proposed", confirm: true }, ok: true }],
+                  });
+                },
+                onRetry: (message) => {
+                  if (busy || els.chatInput.value.trim()) return false;
+                  pendingRetryOf = entry.id;
+                  els.chatInput.value = message;
+                  els.chatForm.requestSubmit();
+                  return true;
+                },
+              }),
+            );
+          }
+          history.push({ role: "assistant", content: "(Operator switched the staged preview to an earlier candidate pose.)" });
+        } catch (error) {
+          status.textContent = "Could not restage: " + ((error && error.message) || "unknown error");
+        }
+      });
+      gallery.append(btn);
+    });
+    card.append(span, p, gallery, status, feedbackHolder);
+    els.chatLog.append(card);
+    els.chatLog.scrollTop = els.chatLog.scrollHeight;
+    twinCandidates = [];
   }
 
   const MIMIC_MAX_EDGE = 1024; // longest side after downscale — keeps upload small
@@ -2938,6 +3036,8 @@ function setupChat() {
     const retryOf = pendingRetryOf;
     pendingRetryOf = null;
     twinCheckRounds = 0; // fresh self-check budget per operator request
+    twinCandidates = [];
+    lastStagedId = null;
     const viaVoice = sendViaVoice;
     sendViaVoice = false;
     busy = true;
@@ -3020,6 +3120,7 @@ function setupChat() {
             },
           }),
         );
+        lastStagedId = payload.proposal.id;
         // Closed loop: let the vision model SEE its own green ghost and correct
         // itself before the operator judges. Only when a vision backend is in
         // play (Claude toggle on, or this turn carried an image → routed there).

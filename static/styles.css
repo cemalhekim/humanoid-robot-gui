@@ -1824,6 +1824,41 @@ h3 {
   border-color: rgba(255, 90, 78, 0.7);
 }
 
+/* Candidate-pose gallery from the visual self-check loop. */
+.pose-gallery {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.pose-candidate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  cursor: pointer;
+}
+.pose-candidate img {
+  width: 96px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 7px;
+  display: block;
+}
+.pose-candidate:hover {
+  border-color: rgba(102, 163, 255, 0.8);
+}
+.pose-candidate.current {
+  border-color: rgba(53, 224, 138, 0.85);
+  color: #35e08a;
+}
+
 /* Image attached to a sent chat message. */
 .chat-card .chat-image {
   display: block;

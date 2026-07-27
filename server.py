@@ -3293,6 +3293,25 @@ class TelemetryStore:
             )
         return 200, response
 
+    def restage_proposal_by_id(self, payload: Any) -> tuple[int, dict[str, Any]]:
+        """Make a previously staged proposal the active green preview again.
+
+        Used by the candidates gallery: the operator picks an alternative the
+        self-check loop tried, and its ghost returns for review. Staging only —
+        execution still requires the operator's explicit approval click."""
+        if not isinstance(payload, dict):
+            return 400, {"ok": False, "error": "Body must be a JSON object."}
+        proposal_id = payload.get("proposal_id")
+        if not isinstance(proposal_id, str) or not proposal_id:
+            return 400, {"ok": False, "error": "proposal_id is required."}
+        with self.proposal_lock:
+            meta = self.proposal_meta.get(proposal_id)
+        requested = dict((meta or {}).get("requested") or {})
+        if not requested:
+            return 404, {"ok": False, "error": "Unknown or expired proposal_id."}
+        proposal = self._restage_proposal(proposal_id, requested)
+        return 200, {"ok": True, "proposal_id": proposal["id"], "targets_rad": proposal["targets"]}
+
     def arm_proposal_public(self) -> dict[str, Any] | None:
         """Proposal summary for /api/state and the browser ghost.
 
@@ -7287,6 +7306,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/chat",
             "/api/spatial/pose",
             "/api/pose/feedback",
+            "/api/pose/proposal/restage",
             "/api/tts",
             "/api/recording/start",
             "/api/recording/pose",
@@ -7371,6 +7391,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/pose/feedback":
             status, response = self.store.record_pose_feedback(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/pose/proposal/restage":
+            status, response = self.store.restage_proposal_by_id(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

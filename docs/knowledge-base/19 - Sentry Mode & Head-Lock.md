@@ -1,9 +1,24 @@
 ---
-tags: [feature, sentry, person-tracking, head-lock, yolo, master-switch, arm_sdk, sse]
-summary: Sentry Mode is the server-enforced master switch for person-following — the toggle IS the tracking switch. Covers the /api/sentry/* surface, the shared SSE detect-stream worker, the head-lock buttons, and the lock→closed-loop-pointing path.
+tags: [feature, sentry, bullseye, person-tracking, head-lock, yolo, master-switch, arm_sdk, sse]
+summary: Bullseye Mode (formerly Sentry Mode) is the server-enforced master switch for person-following — the toggle IS the tracking switch. Covers the /api/sentry/* surface, the shared SSE detect-stream worker, the head-lock buttons, and the lock→closed-loop-pointing path.
 ---
 
 # 19 - Sentry Mode & Head-Lock
+
+> [!info] Renamed to **Bullseye Mode** (2026-07-27)
+> All user-facing text (toggle tooltip/aria-label, `Bullseye: N` webcam
+> counter, server error/status messages) now says **Bullseye Mode**, and the
+> topbar toggle got a segmented-crosshair bullseye icon. **Internal names are
+> unchanged**: the `/api/sentry/*` endpoints, `sentry_*`/`SENTRY_*`
+> identifiers, DOM ids (`sentryToggle`, `floatCamSentry`), CSS classes
+> (`.sentry-toggle`) and the `h1_sentry_boxes` localStorage key all keep
+> `sentry`, so robot-side services and env-var overrides are unaffected.
+> Everywhere this note says "Sentry", read "Bullseye" for the UI.
+>
+> The same commit added a **Mimic Mode** button (`#mimicModeToggle`, person
+> icon with raised hands) next to the Bullseye toggle in the topbar. It is a
+> **placeholder only** — styled via `.mimic-mode-toggle`, wired to nothing yet.
+> It is unrelated to the existing chat "mimic this pose" image-attach flow.
 
 > [!abstract] Goal
 > Give the operator one deliberate, server-owned arming control for

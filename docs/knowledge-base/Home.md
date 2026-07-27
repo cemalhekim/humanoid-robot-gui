@@ -45,7 +45,7 @@ deployment for the **Unitree H1-2** humanoid robot.
 | [[16 - Arm Control & Command Surfaces]] | Wrist / home / straight / chill / arm_sdk replay |
 | [[17 - 3D URDF Viewer]] | Three.js viewer, blue/green/red models, IK editing |
 | [[18 - Body, IMU, Battery & Hand Telemetry]] | DDS lowstate → `/api/state` + SSE, hand state |
-| [[19 - Sentry Mode & Head-Lock]] | Server-enforced person-following master switch |
+| [[19 - Sentry Mode & Head-Lock]] | Bullseye Mode (UI name since 2026-07-27): server-enforced person-following master switch |
 | [[20 - LLM Arm Pose Proposals & Mimic]] | Propose → green twin → 👍/👎 → move; photo→pose mimic; feedback CSV + plots |
 | [[21 - Semantic Teleoperation Pipeline]] | Monorepo teleop/sim/execution subsystems |
 | [[22 - Deployment & Runtime Services]] | systemd units, auto-update timer, runtime services |

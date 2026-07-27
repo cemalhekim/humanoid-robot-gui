@@ -845,6 +845,31 @@ class PoseFeedbackTest(unittest.TestCase):
         self.store._append_pose_feedback_row(pid, "liked")
         self.assertEqual(self._rows()[-1]["image_path"], "")
 
+    def test_legacy_seven_column_csv_header_is_migrated(self) -> None:
+        # A CSV created before image collection: 7-column header, one old row,
+        # plus one row that was appended with 8 values under the old header
+        # (the on-robot bug: its image_path was invisible to readers).
+        legacy_header = "timestamp_iso,proposal_id,event,request_text,joints_json,semantics_json,comment"
+        server.POSE_FEEDBACK_CSV.write_text(
+            legacy_header + "\r\n"
+            + "2026-07-27T10:00:00+0200,pose-old,liked,eski istek,{},{},\r\n"
+            + "2026-07-27T13:47:04+0200,pose-new,disliked,do this pose pls,{},{},not,images/pose-new.jpg\r\n",
+            encoding="utf-8",
+        )
+        server._upgrade_feedback_csv_header()
+        rows = self._rows()
+        self.assertEqual(rows[0].get("image_path"), None)  # short old row → None
+        self.assertEqual(rows[1]["image_path"], "images/pose-new.jpg")
+        # Idempotent: running again changes nothing.
+        before = server.POSE_FEEDBACK_CSV.read_text(encoding="utf-8")
+        server._upgrade_feedback_csv_header()
+        self.assertEqual(server.POSE_FEEDBACK_CSV.read_text(encoding="utf-8"), before)
+        # The dataset used by the plot page now surfaces the image.
+        with mock.patch.object(server, "POSE_FEEDBACK_CSV", server.POSE_FEEDBACK_CSV):
+            data = server.pose_feedback_dataset()
+        by_req = {r["request"]: r for r in data["rows"]}
+        self.assertEqual(by_req["do this pose pls"]["image"], "images/pose-new.jpg")
+
     def test_verdict_row_records_request_joints_and_comment(self) -> None:
         proposal_id = self._propose()
         status, response = self.store.record_pose_feedback(

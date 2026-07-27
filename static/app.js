@@ -2919,6 +2919,9 @@ function setupChat() {
             // the card reports "note saved; ask again" in that case.
             onRetry: (message) => {
               if (busy || els.chatInput.value.trim()) return false;
+              // Re-attach the original reference photo so the corrected
+              // proposal is judged against (and labeled with) the same image.
+              if (mimicImage) setMimic(mimicImage);
               els.chatInput.value = message;
               els.chatForm.requestSubmit();
               return true;

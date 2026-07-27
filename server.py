@@ -1265,6 +1265,24 @@ def _prompt_safe(value: str, limit: int) -> str:
     return flattened[:limit]
 
 
+def _upgrade_feedback_csv_header() -> None:
+    """One-time migration: a CSV created before image collection has a 7-column
+    header, so rows written since (8 values) read back without their image_path.
+    Append the column to the header; short old rows read image_path=None. Never
+    raises — on any error the file is left untouched."""
+    try:
+        with POSE_FEEDBACK_CSV.open(newline="", encoding="utf-8") as handle:
+            first = handle.readline()
+            rest = handle.read()
+        header = first.rstrip("\r\n")
+        if not header or "image_path" in header:
+            return
+        with POSE_FEEDBACK_CSV.open("w", newline="", encoding="utf-8") as handle:
+            handle.write(header + ",image_path\r\n" + rest)
+    except OSError:
+        return
+
+
 def pose_feedback_dataset() -> dict[str, Any]:
     """Parse the labeled pose-feedback CSV for the visualization page.
 
@@ -2698,6 +2716,7 @@ class TelemetryStore:
         # another chance right after startup. _schedule_feedback_sync re-checks
         # the enable flag + key, so this is a no-op off the robot.
         if POSE_FEEDBACK_CSV.exists():
+            _upgrade_feedback_csv_header()
             self._schedule_feedback_sync()
         self.arm_proposal: dict[str, Any] | None = None
         self.camera_process: subprocess.Popen[bytes] | None = None
@@ -3015,6 +3034,8 @@ class TelemetryStore:
         # see the file absent and write the header twice, or interleave rows.
         with self.feedback_lock:
             is_new = not POSE_FEEDBACK_CSV.exists()
+            if not is_new:
+                _upgrade_feedback_csv_header()  # legacy 7-column header
             with POSE_FEEDBACK_CSV.open("a", newline="", encoding="utf-8") as handle:
                 writer = csv.DictWriter(handle, fieldnames=POSE_FEEDBACK_FIELDS)
                 if is_new:

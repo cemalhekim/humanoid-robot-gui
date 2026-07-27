@@ -3099,6 +3099,20 @@ function setupChat() {
     if (file) loadMimicFile(file);
   });
   els.mimicClear?.addEventListener("click", clearMimic);
+  // Paste an image straight into the chat (Cmd/Ctrl+V) — clipboard screenshots too.
+  els.chatInput?.addEventListener("paste", (event) => {
+    const items = (event.clipboardData && event.clipboardData.items) || [];
+    for (const item of items) {
+      if (item.kind === "file" && item.type && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          event.preventDefault(); // don't also paste a blob path as text
+          loadMimicFile(file);
+          break;
+        }
+      }
+    }
+  });
   els.chatInput.addEventListener("input", () => {
     autosize();
     updateMode();

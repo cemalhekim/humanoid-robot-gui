@@ -72,6 +72,9 @@ flowchart LR
 > **identical** targets is idempotent (same id, TTL refreshed, original meta
 > kept) so self-checks can't invalidate cards — except on a 👎-retry, which is
 > always a distinct chained proposal even if numerically unchanged.
+> The **green ghost itself never expires from the viewer** — display is
+> harmless, so it stays until the pose is executed, replaced, or cleared
+> (`arm_proposal_public` is TTL-free; only execution semantics use the TTL).
 
 ## Canonical anchors (prompt hardening)
 

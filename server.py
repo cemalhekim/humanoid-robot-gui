@@ -3294,17 +3294,17 @@ class TelemetryStore:
         return 200, response
 
     def arm_proposal_public(self) -> dict[str, Any] | None:
-        """Proposal summary for /api/state and the browser ghost; expires by TTL."""
+        """Proposal summary for /api/state and the browser ghost.
+
+        Display-only, so it does NOT expire: the green ghost stays until the
+        pose is executed, replaced, or explicitly cleared. (The TTL still
+        governs the bare-'okay' execution path; an id-bound approval revives
+        regardless — see the move handler.)"""
         with self.proposal_lock:
             proposal = self.arm_proposal
         if not proposal:
             return None
         age = time.time() - proposal["created_at"]
-        if age > ARM_PROPOSAL_TTL_SECONDS:
-            with self.proposal_lock:
-                if self.arm_proposal is proposal:
-                    self.arm_proposal = None
-            return None
         return {
             "id": proposal["id"],
             "age_seconds": round(age, 1),

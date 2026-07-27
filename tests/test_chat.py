@@ -556,12 +556,16 @@ class ProposeArmPoseTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertIsNone(self.store.arm_proposal_public())
 
-    def test_snapshot_exposes_active_proposal_and_ttl_expiry(self) -> None:
+    def test_snapshot_keeps_showing_the_ghost_past_the_ttl(self) -> None:
+        # Display is TTL-free: the green ghost stays until executed, replaced,
+        # or cleared. (The TTL still guards the bare-'okay' execution path.)
         self.store.run_chat_tool("propose_arm_pose", {"joints": {"LeftElbow": 1.0}})
         self.assertIsNotNone(self.store.snapshot()["arm_proposal"])
         with self.store.proposal_lock:
             self.store.arm_proposal["created_at"] -= server.ARM_PROPOSAL_TTL_SECONDS + 1
-        self.assertIsNone(self.store.snapshot()["arm_proposal"])
+        stale = self.store.snapshot()["arm_proposal"]
+        self.assertIsNotNone(stale)
+        self.assertGreater(stale["age_seconds"], server.ARM_PROPOSAL_TTL_SECONDS)
 
     def test_tool_spec_offered_when_move_enabled(self) -> None:
         names = [spec["function"]["name"] for spec in self.store.chat_tool_specs()]

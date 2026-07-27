@@ -1138,9 +1138,11 @@ class MimicImageTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(response.get("backend"), "claude")
         self.assertEqual(captured["base_url"], "http://192.0.2.9:8399")
-        # General image prompt + the conditional pose-mimic guidance (tools on).
+        # General image prompt + the conditional pose-mimic guidance (tools on),
+        # including the "What I see:" describe-first reply contract.
         self.assertIn("ATTACHED AN IMAGE", captured["messages"][0]["content"])
         self.assertIn("propose_arm_pose", captured["messages"][0]["content"])
+        self.assertIn("What I see:", captured["messages"][0]["content"])
         content = captured["messages"][-1]["content"]
         self.assertEqual(content[0], {"type": "text", "text": "bunu yap"})
         self.assertEqual(content[1]["image_url"]["url"], self.jpeg)

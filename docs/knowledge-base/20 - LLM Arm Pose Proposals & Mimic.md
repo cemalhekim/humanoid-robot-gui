@@ -100,7 +100,10 @@ Sent as the `image` field (legacy `mimic_image` still accepted).
 **Pose mimic is one thing it can do:** *only* when the operator asks to copy /
 replicate / mimic / match the pose, the model calls `propose_arm_pose` and it
 flows through the *same* proposal loop (preview + approve-gate + feedback all
-apply unchanged). Otherwise it just answers about the image.
+apply unchanged). Otherwise it just answers about the image. When it proposes
+from an image, the reply must begin with **"What I see:"** + a short description
+of the pose in the photo, so the operator can verify the model read the image
+correctly before approving.
 
 - Front-end (`static/app.js`): attach via the photo button **or paste
   (Cmd/Ctrl+V, clipboard screenshots included)**; the image is downscaled

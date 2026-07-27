@@ -4966,8 +4966,12 @@ class TelemetryStore:
                     "match sides from the ROBOT'S OWN frame (its right arm is on the robot's right; "
                     "a person facing the camera is mirrored), and prefer a canonical anchor when "
                     "the pose clearly matches one (arms up / forward / T-pose / crossed). If only "
-                    "one arm is clearly posed, move only that arm. Otherwise just answer about the "
-                    "image — do NOT propose a pose."
+                    "one arm is clearly posed, move only that arm. When you propose from an image, "
+                    "your final reply MUST begin with 'What I see:' followed by one or two short "
+                    "sentences describing the pose in the photo (each arm: direction, elbow, hand), "
+                    "in the operator's language, THEN confirm the staged preview and ask for "
+                    "approval — so the operator can verify you read the image correctly before "
+                    "approving. Otherwise just answer about the image — do NOT propose a pose."
                 )
         # Attach images to the final user turn. The operator's photo comes first so
         # it reads as the primary subject; the twin render, if the vision flag is on,

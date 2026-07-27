@@ -3605,6 +3605,9 @@ connectEvents();
 
   const BOXES_KEY = "h1_sentry_boxes";
   const isBoxesOn = () => localStorage.getItem(BOXES_KEY) === "1";
+  // Mimic Mode (separate IIFE below) publishes its server-confirmed state on
+  // the body dataset; while it mirrors, this panel shows what mimic sees.
+  const isMimicOn = () => document.body.dataset.mimicOn === "1";
 
   const MATCH_DIST = 0.18;    // fallback center-distance gate (id-less detections)
   const SMOOTH_ALPHA = 0.75;     // light data smoothing; the rAF spring does the rest
@@ -3827,6 +3830,24 @@ connectEvents();
         track.hy = track.hy === undefined ? person.head.y
           : track.hy + SMOOTH_ALPHA * (person.head.y - track.hy);
       }
+      // Pose keypoints (Mimic skeleton overlay), lightly smoothed like the
+      // box; points the detector stops reporting are dropped immediately so
+      // a stale limb never lingers on screen.
+      if (person.keypoints) {
+        track.kp = track.kp || {};
+        Object.entries(person.keypoints).forEach(([name, p]) => {
+          const prev = track.kp[name];
+          track.kp[name] = prev
+            ? { x: prev.x + SMOOTH_ALPHA * (p.x - prev.x),
+                y: prev.y + SMOOTH_ALPHA * (p.y - prev.y) }
+            : { x: p.x, y: p.y };
+        });
+        Object.keys(track.kp).forEach((name) => {
+          if (!person.keypoints[name]) delete track.kp[name];
+        });
+      } else {
+        track.kp = null;
+      }
       track.conf = person.conf;
       track.lastSeen = now;
       maybeReattachLock(track);
@@ -3919,7 +3940,9 @@ connectEvents();
     layer.classList.remove("hidden");
     tracks.forEach((track) => {
       const btn = buttonFor(track);
-      if (!t) { btn.classList.add("hidden"); return; }
+      // Person-lock buttons belong to Bullseye pointing; in a mimic-only
+      // view a lock click would only produce a "Bullseye is off" error.
+      if (!t || !isOn()) { btn.classList.add("hidden"); return; }
       btn.classList.remove("hidden");
       if (!track.hover) {
         // Real head keypoint when the pose model provides it; box top otherwise.
@@ -3936,9 +3959,19 @@ connectEvents();
     renderBoxes(t);
   };
 
+  // Arm chains Mimic actually consumes, plus the shoulder line for context.
+  const MIMIC_BONES = [
+    ["l_shoulder", "r_shoulder"],
+    ["l_shoulder", "l_elbow"], ["l_elbow", "l_wrist"],
+    ["r_shoulder", "r_elbow"], ["r_elbow", "r_wrist"],
+  ];
+  const MIMIC_JOINTS = [
+    "l_shoulder", "r_shoulder", "l_elbow", "r_elbow", "l_wrist", "r_wrist",
+  ];
+
   const renderBoxes = (t) => {
     if (!boxCanvas) return;
-    if (!isBoxesOn() || !t || !tracks.length) { clearBoxes(); return; }
+    if ((!isBoxesOn() && !isMimicOn()) || !t || !tracks.length) { clearBoxes(); return; }
     boxCanvas.style.left = `${img.offsetLeft}px`;
     boxCanvas.style.top = `${img.offsetTop}px`;
     boxCanvas.width = img.clientWidth;
@@ -3962,6 +3995,34 @@ connectEvents();
       ctx.fillRect(x, Math.max(0, y - 15), labelWidth, 15);
       ctx.fillStyle = "#fff";
       ctx.fillText(label, x + 4, Math.max(11, y - 4));
+
+      // Mimic skeleton: the exact shoulder→elbow→wrist chains the retarget
+      // math consumes, in the mimic accent blue. Missing keypoints simply
+      // leave their bone undrawn — that is genuinely what mimic sees.
+      if (isMimicOn() && track.kp) {
+        const px = (p) => t.ox + p.x * t.dw;
+        const py = (p) => t.oy + p.y * t.dh;
+        ctx.strokeStyle = "#2f6fed";
+        ctx.fillStyle = "#2f6fed";
+        ctx.lineWidth = 3;
+        MIMIC_BONES.forEach(([a, b]) => {
+          const pa = track.kp[a];
+          const pb = track.kp[b];
+          if (!pa || !pb) return;
+          ctx.beginPath();
+          ctx.moveTo(px(pa), py(pa));
+          ctx.lineTo(px(pb), py(pb));
+          ctx.stroke();
+        });
+        MIMIC_JOINTS.forEach((name) => {
+          const p = track.kp[name];
+          if (!p) return;
+          ctx.beginPath();
+          ctx.arc(px(p), py(p), name.endsWith("wrist") ? 5 : 4, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.lineWidth = 2;
+      }
     });
   };
 
@@ -3974,13 +4035,15 @@ connectEvents();
       return;
     }
     counter.classList.remove("hidden");
+    const label = isMimicOn() && !isOn() ? "Mimic" : "Bullseye";
     if (count !== null) {
       const lockState = pointing ? " • POINTING"
         : (lockedId !== null ? " • LOCKED" : (pendingLock ? " • RE-LOCK…" : ""));
-      counter.textContent = `Bullseye: ${count}${lockState}`;
+      const mimicState = isMimicOn() ? " • MIRRORING" : "";
+      counter.textContent = `${label}: ${count}${lockState}${mimicState}`;
       counter.title = trackError || lastError || "People detected on the webcam feed";
     } else {
-      counter.textContent = "Bullseye: —";
+      counter.textContent = `${label}: —`;
       counter.title = lastError;
     }
   };
@@ -4017,7 +4080,7 @@ connectEvents();
   };
 
   window.setInterval(() => {
-    const active = isOn() && !panel.classList.contains("hidden")
+    const active = (isOn() || isMimicOn()) && !panel.classList.contains("hidden")
       && !img.classList.contains("hidden") && !!img.getAttribute("src");
     if (!active) { closeStream(); clearAllTracks(); return; }
     openStream();
@@ -4053,6 +4116,9 @@ connectEvents();
     toggle.title = serverOn
       ? "Mimic Mode is ON — the robot mirrors your arms. Click to stop."
       : "Mimic Mode — the robot mirrors your upper-body pose from the webcam";
+    // The Bullseye panel reads this to draw the skeleton overlay and keep
+    // the webcam detection stream open while mimic runs.
+    document.body.dataset.mimicOn = serverOn ? "1" : "0";
   };
   const apply = (flag) => {
     if (typeof flag === "boolean" && flag !== serverOn) {

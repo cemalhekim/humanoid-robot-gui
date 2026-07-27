@@ -271,5 +271,26 @@ class MimicEndpointTests(unittest.TestCase):
         self.assertIn("mimic_mode", store.track_snapshot())
 
 
+class MimicUiSourceTests(unittest.TestCase):
+    def test_skeleton_overlay_draws_the_chains_mimic_consumes(self):
+        with open("static/app.js") as fh:
+            src = fh.read()
+        # The overlay must draw exactly the retargeted chains: both
+        # shoulder→elbow→wrist arms plus the shoulder line.
+        self.assertIn('["l_shoulder", "l_elbow"], ["l_elbow", "l_wrist"]', src)
+        self.assertIn('["r_shoulder", "r_elbow"], ["r_elbow", "r_wrist"]', src)
+        self.assertIn('["l_shoulder", "r_shoulder"]', src)
+
+    def test_mimic_state_reaches_the_bullseye_panel(self):
+        with open("static/app.js") as fh:
+            src = fh.read()
+        # setupMimic publishes, setupBullseye consumes: stream gating, box
+        # gating and the skeleton pass all read the shared dataset flag.
+        self.assertIn('document.body.dataset.mimicOn = serverOn ? "1" : "0"', src)
+        self.assertIn('document.body.dataset.mimicOn === "1"', src)
+        self.assertIn("(isOn() || isMimicOn())", src)
+        self.assertIn("(!isBoxesOn() && !isMimicOn())", src)
+
+
 if __name__ == "__main__":
     unittest.main()

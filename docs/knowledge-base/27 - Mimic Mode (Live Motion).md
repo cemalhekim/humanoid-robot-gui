@@ -49,6 +49,27 @@ mimic]], which copies one static pose from an attached image via the LLM.
    changes < 0.04 rad (keypoint flicker) are ignored; an arm with missing
    keypoints **holds** its last targets while the staleness machine decides.
 
+## Camera-view overlay (what mimic sees)
+
+While Mimic is ON, the floating **webcam** panel shows, per person (added
+2026-07-27, same day as the mode):
+
+- the detection **bounding box** with confidence label (green/red exactly as
+  in Bullseye), even if the "boxes" toggle is off — mimic forces it on;
+- a blue (#2f6fed, the mimic accent) **skeleton**: the shoulder–shoulder
+  line plus both shoulder→elbow→wrist chains — precisely the segments the
+  retargeting consumes, with dots on the six arm joints (wrists slightly
+  bigger). A keypoint the detector drops leaves its bone undrawn — the
+  overlay never invents a limb, so it is an honest debug view.
+
+Plumbing: `setupMimic` publishes the server-confirmed state on
+`document.body.dataset.mimicOn`; the Bullseye panel reads it to keep the
+`/api/sentry/stream` SSE open while mimic runs (even with Bullseye off),
+track keypoints per person (`track.kp`, lightly smoothed, stale points
+dropped), and draw the skeleton in `renderBoxes`. Person-lock 🔓 buttons are
+hidden in a mimic-only view (a lock would only error while Bullseye is off);
+the counter chip reads `Mimic: N • MIRRORING`.
+
 ## Safety envelope
 
 - Own master switch (`mimic_mode_on`), default OFF every boot; `POST

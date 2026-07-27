@@ -1,0 +1,119 @@
+---
+tags: [yolo, detection, microservice, ai-host, computer-vision, systemd]
+summary: The YOLOv8n person-detection microservice on the AI host — HTTP contract, systemd unit, install steps, and GPU performance.
+---
+
+# 07 - Detection Service (YOLO)
+
+A minimal HTTP microservice that runs **YOLOv8n** on the AI host GPU and returns
+normalized person bounding boxes. It is the detection half of the
+[[06 - Person Tracking (CV Feature)|person-pointing feature]]. Canonical source
+lives in the repo at `deployment/ai_host/detect_service.py` (Task 2 of the plan —
+already landed).
+
+- **Host**: `10.2.125.3` (AI host / "AI-DEV") — see [[02 - Network & Hosts]].
+- **Port**: `8188` (`ThreadingHTTPServer` on `0.0.0.0`).
+- **Model**: `YOLO("yolov8n.pt")` (ultralytics), person class only (`classes=[0]`), `conf=0.4`.
+- **GPU**: NVIDIA A40, ~6.8–7 ms/frame steady state (first request ~2 s for model load).
+- **Deps** (AI host only): `ultralytics`, `opencv-python-headless` (imported as `cv2`), `numpy`. No robot-side deps.
+
+## HTTP contract
+
+### `GET /health`
+
+```json
+{ "ok": true }
+```
+
+Anything else on GET → `404 {"error": "not found"}`.
+
+### `POST /detect`
+
+- **Body**: raw **JPEG** bytes (`Content-Type: image/jpeg`). Decoded via
+  `cv2.imdecode(...)`; a bad image → `400 {"error": "bad image"}`.
+- **Response** (`200`):
+
+```json
+{
+  "persons": [
+    {"x1": 0.31, "y1": 0.10, "x2": 0.55, "y2": 0.92,
+     "cx": 0.43, "cy": 0.51, "conf": 0.94}
+  ],
+  "ms": 6.8,
+  "w": 1280,
+  "h": 720
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `x1,y1,x2,y2` | Bbox corners, **normalized 0..1** (pixel / width or height) |
+| `cx,cy` | Bbox center, normalized 0..1 |
+| `conf` | Detection confidence (≥ 0.4) |
+| `persons` | **Sorted by area descending** (largest first) |
+| `ms` | Inference time in milliseconds |
+| `w,h` | Source image pixel dimensions |
+
+The tracking loop consumes `persons`; `associate()` in `tracking.py` picks the
+target (largest, then nearest-to-previous). See
+[[06 - Person Tracking (CV Feature)#Target selection policy (`associate`)]].
+
+> [!note] Implementation detail
+> The service normalizes coordinates itself (`x1/w`, `y1/h`, …) and computes
+> `cx,cy` as the box-center midpoint. It suppresses access logging
+> (`log_message` is a no-op). It is single-file, stdlib HTTP + ultralytics.
+
+## systemd unit
+
+`deployment/ai_host/person-detect.service` (installed as a **user** service on
+the AI host as user `vodafone`):
+
+```ini
+[Unit]
+Description=YOLOv8n person-detection HTTP service (port 8188)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/vodafone/person-tracking
+ExecStart=/home/vodafone/person-tracking/venv/bin/python /home/vodafone/person-tracking/detect_service.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+```
+
+## Install (from `deployment/ai_host/README.md`)
+
+```bash
+mkdir -p ~/person-tracking && cd ~/person-tracking
+python3 -m venv venv
+./venv/bin/pip install ultralytics opencv-python-headless
+# copy detect_service.py here from this repo, then:
+mkdir -p ~/.config/systemd/user
+cp person-detect.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now person-detect.service
+loginctl enable-linger vodafone   # survive logout
+```
+
+Smoke test:
+
+```bash
+curl -s http://localhost:8188/health                 # {"ok": true}
+curl -s -X POST --data-binary @some.jpg http://localhost:8188/detect
+```
+
+The robot reaches it at `http://10.2.125.3:8188/detect` (`TRACKING_DETECT_URL`).
+
+> [!info] Latency budget
+> The robot-side loop uses a **0.5 s** timeout per detect call. Over Wi-Fi the
+> expected round-trip with a real head-camera frame is well under 0.25 s
+> (bring-up step 1). If the service stalls, the [[03 - Safety Interlocks#Layer 6 — Staleness → neutral (fail-safe)|staleness fail-safe]]
+> ramps the arm to neutral and aborts after 10 consecutive failures.
+
+## Related
+
+[[06 - Person Tracking (CV Feature)]] · [[02 - Network & Hosts]] · [[03 - Safety Interlocks]]
+</content>

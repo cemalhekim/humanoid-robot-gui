@@ -212,11 +212,12 @@ class TrackPayloadTests(unittest.TestCase):
         )
         self.assertGreater(server.SENTRY_MAX_STEP_RAD_S, 0.45)
         self.assertLessEqual(server.SENTRY_MAX_STEP_RAD_S, 1.0)
-        # Lighter filtering than the head-camera defaults, but never an
+        # Defaults back to the original conservative filtering (operator
+        # found the 2026-07-27 lighter tuning too aggressive), and never an
         # unfiltered passthrough: detector jitter must still be averaged out.
-        self.assertGreater(server.SENTRY_AIM_ALPHA, 0.25)
+        self.assertGreaterEqual(server.SENTRY_AIM_ALPHA, 0.25)
         self.assertLess(server.SENTRY_AIM_ALPHA, 1.0)
-        self.assertGreater(server.SENTRY_SMOOTH_ALPHA, 0.35)
+        self.assertGreaterEqual(server.SENTRY_SMOOTH_ALPHA, 0.35)
         self.assertLess(server.SENTRY_SMOOTH_ALPHA, 1.0)
 
     def test_parses_locked_webcam_session(self):

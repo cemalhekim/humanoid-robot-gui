@@ -524,23 +524,23 @@ SENTRY_PITCH_OFFSET = float(os.environ.get("SENTRY_PITCH_OFFSET", "-1.52") or -1
 # still applied before every publish, so detector jumps cannot become steps.
 SENTRY_REPLAY_RESPONSE = max(
     0.0,
-    min(2.5, float(os.environ.get("SENTRY_REPLAY_RESPONSE", "2.0") or 2.0)),
+    min(2.5, float(os.environ.get("SENTRY_REPLAY_RESPONSE", "1.25") or 1.25)),
 )
 SENTRY_MAX_STEP_RAD_S = max(
     0.1,
-    min(1.0, float(os.environ.get("SENTRY_MAX_STEP_RAD_S", "0.9") or 0.9)),
+    min(1.0, float(os.environ.get("SENTRY_MAX_STEP_RAD_S", "0.65") or 0.65)),
 )
-# Bullseye smoothing filters (webcam path only). Higher alpha = less lag, so the
-# arm mirrors quick target moves; the velocity limiter above still bounds the
-# published step, which is what keeps the motion smooth despite lighter
-# filtering. The head-camera path keeps the original conservative values.
+# Bullseye smoothing filters (webcam path only). Defaults match the original
+# conservative filtering (the 2026-07-27 "snappier" tuning felt too aggressive
+# in practice); raise the alphas via env vars for less lag if ever needed. The
+# velocity limiter above still bounds every published step regardless.
 SENTRY_AIM_ALPHA = max(
     0.05,
-    min(1.0, float(os.environ.get("SENTRY_AIM_ALPHA", "0.5") or 0.5)),
+    min(1.0, float(os.environ.get("SENTRY_AIM_ALPHA", "0.25") or 0.25)),
 )
 SENTRY_SMOOTH_ALPHA = max(
     0.05,
-    min(1.0, float(os.environ.get("SENTRY_SMOOTH_ALPHA", "0.6") or 0.6)),
+    min(1.0, float(os.environ.get("SENTRY_SMOOTH_ALPHA", "0.35") or 0.35)),
 )
 TRACKING_MAX_SESSION_S = max(30.0, float(os.environ.get("TRACKING_MAX_SESSION_S", "600") or 600))
 LLM_TOOL_TRACK_ENABLED = os.environ.get("LLM_TOOL_TRACK_ENABLED", "0").strip().lower() in {"1", "true", "yes"}

@@ -519,7 +519,7 @@ SENTRY_FOV_YAW = float(os.environ.get("SENTRY_FOV_YAW", "1.25") or 1.25)
 SENTRY_FOV_PITCH = float(os.environ.get("SENTRY_FOV_PITCH", "0.9") or 0.9)
 SENTRY_YAW_OFFSET = float(os.environ.get("SENTRY_YAW_OFFSET", "0.11") or 0.11)
 SENTRY_PITCH_OFFSET = float(os.environ.get("SENTRY_PITCH_OFFSET", "-1.52") or -1.52)
-# Sentry is intentionally quicker than general pose replay while remaining
+# Bullseye is intentionally quicker than general pose replay while remaining
 # below the controller's legacy "responsive" ceiling. The velocity bound is
 # still applied before every publish, so detector jumps cannot become steps.
 SENTRY_REPLAY_RESPONSE = max(
@@ -530,7 +530,7 @@ SENTRY_MAX_STEP_RAD_S = max(
     0.1,
     min(1.0, float(os.environ.get("SENTRY_MAX_STEP_RAD_S", "0.9") or 0.9)),
 )
-# Sentry smoothing filters (webcam path only). Higher alpha = less lag, so the
+# Bullseye smoothing filters (webcam path only). Higher alpha = less lag, so the
 # arm mirrors quick target moves; the velocity limiter above still bounds the
 # published step, which is what keeps the motion smooth despite lighter
 # filtering. The head-camera path keeps the original conservative values.
@@ -574,7 +574,7 @@ def sentry_constant_hand_z_goal(
     targets: dict[int, float],
     target_z: float | None,
 ) -> dict[int, float]:
-    """Compensate shoulder pitch so Sentry's right hand keeps one height."""
+    """Compensate shoulder pitch so Bullseye's right hand keeps one height."""
     out = dict(targets)
     if ARM_KINEMATICS is None or target_z is None:
         return out
@@ -2693,7 +2693,7 @@ class TelemetryStore:
         # Secondary USB webcam (plugged into the robot PC), streamed below the
         # head camera in the floating view.
         self.webcam_lock = threading.Lock()
-        # Sentry push-stream state (worker + SSE subscriber bookkeeping).
+        # Bullseye push-stream state (worker + SSE subscriber bookkeeping).
         self.sentry_stream_lock = threading.Lock()
         self.sentry_stream_condition = threading.Condition(self.sentry_stream_lock)
         self.sentry_stream_clients = 0
@@ -2706,8 +2706,8 @@ class TelemetryStore:
         # thread still "alive", skips starting a replacement, and the stream stalls.
         self.sentry_stream_worker_running = False
         # Master switch for person-following (operator decision 2026-07-22):
-        # arm tracking can only START while Sentry Mode is on, and turning
-        # Sentry off stops any running session. Defaults OFF on every boot —
+        # arm tracking can only START while Bullseye Mode is on, and turning
+        # Bullseye off stops any running session. Defaults OFF on every boot —
         # following must always be re-armed deliberately.
         self.sentry_mode_on = False
         self.webcam_condition = threading.Condition(self.webcam_lock)
@@ -5469,7 +5469,7 @@ class TelemetryStore:
     # Pure decision logic lives in tracking.py; this owns frames, HTTP, DDS.
     # ------------------------------------------------------------------
     def sentry_detect(self, feed: str = "head") -> dict[str, Any]:
-        """Sentry Mode (detection only): forward one cached frame to the YOLO
+        """Bullseye Mode (detection only): forward one cached frame to the YOLO
         service and return its person boxes. Never touches motion paths."""
         if feed == "head":
             frame = self.get_camera_frame()
@@ -5495,7 +5495,7 @@ class TelemetryStore:
             return {"ok": False, "error": "Detection service unreachable."}
         return {"ok": True, "feed": feed, "persons": persons, "ts": time.time()}
 
-    # ---- Sentry push stream: one background detect loop, shared by all SSE
+    # ---- Bullseye push stream: one background detect loop, shared by all SSE
     # ---- subscribers; it runs only while at least one client is connected,
     # ---- so closing the UI still stops all detection traffic.
 
@@ -5550,11 +5550,11 @@ class TelemetryStore:
         return snap
 
     def set_sentry_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        """Arm/disarm Sentry detection.
+        """Arm/disarm Bullseye detection.
 
-        Enabling Sentry is deliberately motion-free. A physical tracking
+        Enabling Bullseye is deliberately motion-free. A physical tracking
         session starts only from an explicit person-lock action carrying the
-        selected target identity. Disabling Sentry always stops motion.
+        selected target identity. Disabling Bullseye always stops motion.
         """
         on = payload.get("on")
         if not isinstance(on, bool):
@@ -5598,11 +5598,11 @@ class TelemetryStore:
         with self.command_lock:
             sentry_on = self.sentry_mode_on
         if not sentry_on:
-            return 409, {"ok": False, "error": "Sentry mode is off — it is the master switch; turn it on before starting tracking."}
+            return 409, {"ok": False, "error": "Bullseye mode is off — it is the master switch; turn it on before starting tracking."}
         if payload.get("source") == "sentry-lock" and (
             config["camera"] != "webcam" or config["target"] is None
         ):
-            return 400, {"ok": False, "error": "Sentry lock tracking requires a webcam target."}
+            return 400, {"ok": False, "error": "Bullseye lock tracking requires a webcam target."}
         with self.command_lock:
             if self.track_thread is not None and self.track_thread.is_alive():
                 return 409, {"ok": False, "error": "A tracking session is already running."}
@@ -5668,7 +5668,7 @@ class TelemetryStore:
         # Horizontal pose interpolation changes elbow/roll as well as yaw, so
         # a fixed camera Y alone cannot keep the endpoint level. Use the
         # calibrated center pose's FK height as the invariant and solve
-        # shoulder pitch for every Sentry target.
+        # shoulder pitch for every Bullseye target.
         sentry_hand_z = None
         if camera == "webcam":
             reference_mapper = tracking.PointingMapper(
@@ -5825,7 +5825,7 @@ class TelemetryStore:
             self._set_track_status(
                 active=False, phase="idle",
                 loop_hz=0.0,
-                message="Tracking session ended; Sentry remains armed for another lock.",
+                message="Tracking session ended; Bullseye remains armed for another lock.",
             )
             with self.command_lock:
                 if self.track_cancel is cancel:

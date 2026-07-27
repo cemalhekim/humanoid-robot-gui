@@ -66,7 +66,7 @@ POSE_FEEDBACK_CSV = FEEDBACK_DIR / "pose_feedback.csv"
 POSE_FEEDBACK_IMAGE_DIR = FEEDBACK_DIR / "images"
 POSE_FEEDBACK_FIELDS = [
     "timestamp_iso", "proposal_id", "event", "request_text",
-    "joints_json", "semantics_json", "comment", "image_path",
+    "joints_json", "semantics_json", "comment", "image_path", "parent_id",
 ]
 POSE_FEEDBACK_COMMENT_MAX = 500
 LEARNED_FEEDBACK_LIKED_MAX = 8
@@ -1266,19 +1266,23 @@ def _prompt_safe(value: str, limit: int) -> str:
 
 
 def _upgrade_feedback_csv_header() -> None:
-    """One-time migration: a CSV created before image collection has a 7-column
-    header, so rows written since (8 values) read back without their image_path.
-    Append the column to the header; short old rows read image_path=None. Never
-    raises — on any error the file is left untouched."""
+    """In-place migration for a CSV written under an older schema.
+
+    New columns are only ever APPENDED to POSE_FEEDBACK_FIELDS, so any older
+    header is a strict prefix of the current field list. Rewrite the header to
+    the full list; short old rows simply read None for the added columns. A
+    header that is not a known prefix is left untouched. Never raises."""
     try:
         with POSE_FEEDBACK_CSV.open(newline="", encoding="utf-8") as handle:
             first = handle.readline()
             rest = handle.read()
-        header = first.rstrip("\r\n")
-        if not header or "image_path" in header:
+        header_cols = first.rstrip("\r\n").split(",")
+        if header_cols == POSE_FEEDBACK_FIELDS or not first.strip():
             return
+        if header_cols != POSE_FEEDBACK_FIELDS[: len(header_cols)]:
+            return  # unknown layout — do not touch
         with POSE_FEEDBACK_CSV.open("w", newline="", encoding="utf-8") as handle:
-            handle.write(header + ",image_path\r\n" + rest)
+            handle.write(",".join(POSE_FEEDBACK_FIELDS) + "\r\n" + rest)
     except OSError:
         return
 
@@ -1316,6 +1320,8 @@ def pose_feedback_dataset() -> dict[str, Any]:
             "joints": joints_short,
             "comment": (row.get("comment") or "").strip(),
             "image": (row.get("image_path") or "").strip(),
+            "proposal": (row.get("proposal_id") or "").strip(),
+            "parent": (row.get("parent_id") or "").strip(),
         })
         bucket = per_request.setdefault(request, {"liked": 0, "disliked": 0, "executed": 0})
         bucket[event] += 1
@@ -2942,6 +2948,8 @@ class TelemetryStore:
         }
         with self.proposal_lock:
             self.arm_proposal = proposal
+            parent_id = self.last_chat_retry_of or ""
+            parent_meta = self.proposal_meta.get(parent_id) if parent_id else None
             # Meta survives execution/clear so late feedback can still be filed.
             self.proposal_meta[proposal["id"]] = {
                 "request_text": self.last_chat_user_text,
@@ -2949,7 +2957,11 @@ class TelemetryStore:
                 "semantics": semantic,
                 # Reference image attached to this turn (if any) — saved into the
                 # labeled dataset when the operator files feedback on this proposal.
-                "image": self.last_chat_image,
+                # A retry without its own attachment inherits the parent's image so
+                # the whole correction chain stays tied to the same reference.
+                "image": self.last_chat_image or (parent_meta or {}).get("image"),
+                # Chain link: which proposal this one corrects (👎 retry), if any.
+                "parent_id": parent_id,
             }
             while len(self.proposal_meta) > 20:
                 self.proposal_meta.pop(next(iter(self.proposal_meta)))
@@ -2987,6 +2999,16 @@ class TelemetryStore:
     @last_chat_image.setter
     def last_chat_image(self, value: str | None) -> None:
         self._chat_local.chat_image = value
+
+    @property
+    def last_chat_retry_of(self) -> str | None:
+        """Proposal id this turn is correcting (a thumbs-down retry), thread-local.
+        Links the new proposal to its parent so the labeled data forms a chain."""
+        return getattr(self._chat_local, "retry_of", None)
+
+    @last_chat_retry_of.setter
+    def last_chat_retry_of(self, value: str | None) -> None:
+        self._chat_local.retry_of = value
 
     @staticmethod
     def _save_feedback_image(proposal_id: str, image: Any) -> str:
@@ -3029,6 +3051,7 @@ class TelemetryStore:
                                          separators=(",", ":")),
             "comment": _csv_safe(comment),
             "image_path": image_path,
+            "parent_id": _csv_safe(meta.get("parent_id", "")),
         }
         # Serialize header-check + write: concurrent handler threads could both
         # see the file absent and write the header twice, or interleave rows.
@@ -4949,6 +4972,12 @@ class TelemetryStore:
                 twin_text = json.dumps(cached_pose["actual"], ensure_ascii=False, separators=(",", ":"))
         self.last_chat_user_text = cleaned[-1]["content"] if isinstance(cleaned[-1]["content"], str) else ""
         self.last_chat_image = chat_image
+        # Thumbs-down retry: the browser tells us which proposal this turn is
+        # correcting, so the resulting proposal is chained to its parent.
+        retry_of = payload.get("retry_of")
+        self.last_chat_retry_of = (
+            retry_of.strip()[:64] if isinstance(retry_of, str) and retry_of.strip() else None
+        )
         behavior = (LLM_TOOLS_PROMPT + "\n\n" + LLM_ARM_GUIDE) if LLM_TOOLS_ENABLED else LLM_READONLY_PROMPT
         if LLM_TOOLS_ENABLED:
             learned = learned_pose_feedback_text()

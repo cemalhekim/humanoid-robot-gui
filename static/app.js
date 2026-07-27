@@ -2765,6 +2765,9 @@ function setupChat() {
   // A pose-reference photo the operator attached ("copy this pose"), as a
   // downscaled JPEG data URL. Sent once with the next message, then cleared.
   let pendingMimicImage = null;
+  // Set by a thumbs-down retry: the proposal id the next message corrects,
+  // so the server chains the new proposal to its parent in the labeled data.
+  let pendingRetryOf = null;
 
   const MIMIC_MAX_EDGE = 1024; // longest side after downscale — keeps upload small
   const MIMIC_JPEG_QUALITY = 0.85;
@@ -2849,6 +2852,8 @@ function setupChat() {
     // Detach the photo up front so a resend doesn't ship it twice; restored on error.
     const mimicImage = pendingMimicImage;
     clearMimic();
+    const retryOf = pendingRetryOf;
+    pendingRetryOf = null;
     const viaVoice = sendViaVoice;
     sendViaVoice = false;
     busy = true;
@@ -2877,6 +2882,7 @@ function setupChat() {
           twin_evidence: twinEvidence,
           backend: chatBackend(),
           ...(mimicImage ? { image: mimicImage } : {}),
+          ...(retryOf ? { retry_of: retryOf } : {}),
         }),
       });
       const payload = await response.json();
@@ -2922,6 +2928,8 @@ function setupChat() {
               // Re-attach the original reference photo so the corrected
               // proposal is judged against (and labeled with) the same image.
               if (mimicImage) setMimic(mimicImage);
+              // Chain the correction to the proposal it fixes.
+              pendingRetryOf = payload.proposal.id;
               els.chatInput.value = message;
               els.chatForm.requestSubmit();
               return true;
@@ -2956,8 +2964,9 @@ function setupChat() {
         : raw;
       // Drop the failed user turn so it isn't resent with the next message.
       history.pop();
-      // Put the pose photo back so the operator can just resend, not re-attach.
+      // Put the pose photo (and retry link) back so a plain resend keeps them.
       if (mimicImage) setMimic(mimicImage);
+      if (retryOf) pendingRetryOf = retryOf;
     } finally {
       busy = false;
       els.chatSend.disabled = false;

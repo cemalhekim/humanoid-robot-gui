@@ -61,7 +61,12 @@
     td.cmt { color:var(--ink); }
     td.ts { color:var(--ink-3); white-space:nowrap; font-size:11px; }
     .fb-thumb { width:44px; height:44px; object-fit:cover; border-radius:6px; border:1px solid var(--border); display:block; }
+    .fb-thumb.inherited { opacity:0.55; border-style:dashed; }
     .fb-noimg { color:var(--ink-3); }
+    /* Correction-chain rows: indented, tinted, visually hooked to their parent. */
+    tr.chain-child td { background: rgba(66,133,224,0.06); }
+    tr.chain-child td:first-child { border-left: 3px solid var(--executed); padding-left: 14px; }
+    .chain-tag { color: var(--ink-2); font-style: italic; }
     .filter { width:100%; max-width:320px; background:var(--surface-2); border:1px solid var(--border);
       border-radius:8px; color:var(--ink); padding:7px 10px; font-size:13px; margin-bottom:10px; }
     .empty { color:var(--ink-3); padding:24px; text-align:center; }
@@ -198,17 +203,29 @@
     function renderTable(rows){
       const tb = document.getElementById("tbody");
       if(!rows.length){ tb.innerHTML = `<tr><td colspan="6" class="empty">No matching entries.</td></tr>`; return; }
+      // Chain support: a retry row carries parent = the proposal it corrects.
+      // Look up parents across ALL rows (not just the filtered view).
+      const byProposal = {};
+      for(const r of ALL){ if(r.proposal && !byProposal[r.proposal]) byProposal[r.proposal] = r; }
+      const chainRoot = (r)=>{ let cur=r, g=0; while(cur && cur.parent && byProposal[cur.parent] && g++<6) cur = byProposal[cur.parent]; return cur; };
       tb.innerHTML = rows.map(r=>{
         const c = COLORS[r.event] || "var(--ink-2)";
-        const imgName = (r.image||"").split("/").pop();
+        const root = r.parent ? chainRoot(r) : null;
+        // A retry without its own image shows the chain's reference image.
+        const imgPath = r.image || (root && root.image) || "";
+        const imgName = imgPath.split("/").pop();
+        const inherited = !r.image && imgName;
         const imgCell = imgName
-          ? `<a href="/api/pose/feedback/image/${encodeURIComponent(imgName)}" target="_blank" rel="noopener"><img class="fb-thumb" src="/api/pose/feedback/image/${encodeURIComponent(imgName)}" alt="reference" loading="lazy"></a>`
+          ? `<a href="/api/pose/feedback/image/${encodeURIComponent(imgName)}" target="_blank" rel="noopener"><img class="fb-thumb${inherited?" inherited":""}" src="/api/pose/feedback/image/${encodeURIComponent(imgName)}" alt="reference" loading="lazy" ${inherited?'title="from the original request in this chain"':''}></a>`
           : `<span class="fb-noimg">—</span>`;
-        return `<tr>
+        const reqCell = r.parent
+          ? `<span class="chain-tag" title="${esc(r.request)}">↳ correction of “${esc((root && root.request) || r.parent)}”</span>`
+          : esc(r.request);
+        return `<tr${r.parent?' class="chain-child"':''}>
           <td class="ts">${esc((r.timestamp||"").replace("T"," ").slice(0,19))}</td>
           <td><span class="badge" style="background:${c}22;color:${c};border:1px solid ${c}55">${ICON[r.event]||""} ${esc(r.event)}</span></td>
           <td>${imgCell}</td>
-          <td>${esc(r.request)}</td>
+          <td>${reqCell}</td>
           <td class="joints">${esc(r.joints)}</td>
           <td class="cmt">${esc(r.comment)}</td>
         </tr>`;

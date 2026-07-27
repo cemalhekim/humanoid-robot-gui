@@ -844,6 +844,28 @@ class PoseFeedbackTest(unittest.TestCase):
         pid = self._propose("raise your hand")
         self.store._append_pose_feedback_row(pid, "liked")
         self.assertEqual(self._rows()[-1]["image_path"], "")
+        self.assertEqual(self._rows()[-1]["parent_id"], "")
+
+    def test_retry_chains_to_parent_and_inherits_image(self) -> None:
+        img_dir = server.Path(self.tmp.name) / "images"
+        with mock.patch.object(server, "POSE_FEEDBACK_IMAGE_DIR", img_dir):
+            jpeg = "data:image/jpeg;base64," + base64.b64encode(b"chainimg").decode()
+            self.store.last_chat_image = jpeg
+            parent = self._propose("do this pose pls")
+            self.store._append_pose_feedback_row(parent, "disliked", "elbows should bend")
+            # The 👎 retry turn: no fresh attachment, but linked via retry_of.
+            self.store.last_chat_image = None
+            self.store.last_chat_retry_of = parent
+            child = self._propose("corrected retry request")
+            self.store.last_chat_retry_of = None
+            self.store._append_pose_feedback_row(child, "liked")
+            rows = self._rows()
+            self.assertEqual(rows[-1]["parent_id"], parent)
+            # Child inherited the parent's reference image (own copy, own id).
+            self.assertEqual(rows[-1]["image_path"], f"images/{child}.jpg")
+            data = server.pose_feedback_dataset()
+            child_row = next(r for r in data["rows"] if r["proposal"] == child)
+            self.assertEqual(child_row["parent"], parent)
 
     def test_legacy_seven_column_csv_header_is_migrated(self) -> None:
         # A CSV created before image collection: 7-column header, one old row,
@@ -1177,6 +1199,7 @@ class MimicImageTest(unittest.TestCase):
 
         def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
             captured["messages"] = messages
+            captured["retry_of"] = self.store.last_chat_retry_of
             return 200, {"ok": True, "reply": "I see two people."}
 
         with mock.patch.object(server, "CLAUDE_BRIDGE_URL", "http://192.0.2.9:8399"), \
@@ -1185,10 +1208,13 @@ class MimicImageTest(unittest.TestCase):
             status, response = self._chat({
                 "messages": [{"role": "user", "content": "what do you see?"}],
                 "image": self.png,
+                "retry_of": "pose-123",
             })
         self.assertEqual(status, 200)
         self.assertEqual(response.get("backend"), "claude")
         self.assertEqual(captured["messages"][-1]["content"][1]["image_url"]["url"], self.png)
+        # retry_of from the payload reaches the thread-local chain link.
+        self.assertEqual(captured["retry_of"], "pose-123")
 
     def test_mimic_without_vision_backend_fails_closed(self) -> None:
         with mock.patch.object(server, "CLAUDE_BRIDGE_URL", ""):

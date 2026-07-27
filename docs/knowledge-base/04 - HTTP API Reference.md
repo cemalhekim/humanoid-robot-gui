@@ -87,6 +87,7 @@ does **not** publish motor commands.
 | `/api/chat` | POST | Command Center LLM chat + tool loop; optional `image` (attach an image to ask about it / mimic — routed to the vision bridge, see [[20 - LLM Arm Pose Proposals & Mimic]]; legacy `mimic_image` accepted) and `backend` (`default`/`claude`) |
 | `/api/spatial/pose` | POST | Update the shared digital-twin spatial pose |
 | `/api/pose/feedback` | POST | Record a pose verdict (`proposal_id`, `event`, `comment`); 👍 also executes the staged pose |
+| `/api/pose/proposal/restage` | POST | Restage an earlier proposal as the green preview (candidates gallery; staging only) |
 | `/api/stt` | POST | Speech-to-text proxy (off unless `LLM_STT_ENABLED`) |
 | `/api/tts` | POST | Text-to-speech proxy (off unless `LLM_TTS_ENABLED`) |
 | `/mcp` | POST | MCP endpoint (off unless `MCP_ENABLED`); `GET /mcp` → 405 |

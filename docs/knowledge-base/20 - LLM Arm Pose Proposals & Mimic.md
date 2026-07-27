@@ -59,7 +59,11 @@ flowchart LR
 > or calls `propose_arm_pose` once with corrections. Bounded to 2 rounds per
 > operator request; the check never runs while the operator is typing, withdraws
 > silently on error, and is forbidden from calling `move`. Only the operator's
-> explicit approval ever executes.
+> explicit approval ever executes. When the loop tried more than one pose, a
+> **candidates gallery** appears next to the final proposal: every screenshot
+> the loop took, final marked "current" — clicking an alternative restages it
+> as the green ghost (`POST /api/pose/proposal/restage`, staging only) with a
+> fresh feedback card, so the operator can prefer an earlier try.
 
 > [!note] Expiry, supersession + revive-by-reference
 > A staged proposal expires after `ARM_PROPOSAL_TTL_SECONDS` (300 s), and any

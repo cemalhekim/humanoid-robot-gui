@@ -102,9 +102,11 @@ replicate / mimic / match the pose, the model calls `propose_arm_pose` and it
 flows through the *same* proposal loop (preview + approve-gate + feedback all
 apply unchanged). Otherwise it just answers about the image.
 
-- Front-end (`static/app.js`): an attach-photo button downscales the image
-  client-side to a bounded JPEG and sends it as `mimic_image`; a preview chip
-  shows it; the photo is restored on a send error.
+- Front-end (`static/app.js`): attach via the photo button **or paste
+  (Cmd/Ctrl+V, clipboard screenshots included)**; the image is downscaled
+  client-side to a bounded JPEG and sent as `image`. A preview chip shows the
+  pending attachment, the sent message bubble renders the image thumbnail, and
+  the photo is restored on a send error.
 - Server (`server.py`): `parse_mimic_image()` validates the data URL (JPEG/PNG/
   WebP, size-capped by `LLM_MIMIC_IMAGE_MAX_BYTES`). `chat()` injects a
   "POSE MIMIC REQUEST" system prompt and attaches the image to the final user

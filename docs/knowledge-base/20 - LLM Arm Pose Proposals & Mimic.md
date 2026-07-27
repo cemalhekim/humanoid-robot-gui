@@ -67,7 +67,14 @@ change (auto-retry with the note). Every event is appended to a CSV:
 - Live file: `feedback/pose_feedback.csv` (untracked, on the robot).
 - Auto-synced to the tracked repo copy `data/pose_feedback.csv` via a deploy key.
 - Columns: `timestamp_iso, proposal_id, event(liked|disliked|executed),
-  request_text, joints_json, semantics_json, comment, image_path`.
+  request_text, joints_json, semantics_json, comment, image_path, parent_id`.
+- **Correction chains:** a 👎 retry sends `retry_of`, so the corrected proposal
+  records `parent_id` — the chain (original → corrections) is explicit in the
+  data. A retry without its own attachment inherits the parent's reference
+  image. The `/feedback` table indents child rows with a "↳ correction of …"
+  tag and shows the chain's image (dashed = inherited). Header migrations are
+  generalized: newly added trailing columns are appended in place
+  (`_upgrade_feedback_csv_header`), old short rows read blank.
 - **Attached images are collected too:** if the proposal came from a message with
   an attached image, the image is saved to `feedback/images/<proposal_id>.<ext>`
   when feedback is filed (`_save_feedback_image`), referenced by `image_path`, and

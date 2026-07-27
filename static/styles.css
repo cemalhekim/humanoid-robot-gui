@@ -321,6 +321,16 @@ h1 {
   color: var(--good);
 }
 
+/* The sample-rate bubble keeps one fixed footprint no matter how many
+   digits it shows ("-- Hz" through "999.999 Hz"), so the header row never
+   reflows as the value updates. */
+#rate {
+  width: 136px;
+  padding: 0;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .signal-chip::before {
   content: "⌁";
   color: var(--accent);

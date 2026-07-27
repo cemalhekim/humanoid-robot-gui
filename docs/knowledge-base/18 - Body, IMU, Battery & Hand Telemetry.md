@@ -81,6 +81,11 @@ every 0.25 s as a fallback).
 > rounded to 2 dp. It reflects the **true `rt/lowstate` arrival rate** (typically
 > hundreds of Hz on H1-2), independent of the 30 Hz rebuild and 5 Hz stream.
 
+The header's `#rate` bubble that displays this value has a fixed 136 px
+footprint (`styles.css`, `#rate` rule, 2026-07-27) with centered text and
+`tabular-nums`, so the pill no longer stretches/shrinks as the digit count
+changes between updates.
+
 ## The normalized snapshot (`lowstate_to_dict`)
 
 `lowstate_to_dict(msg, samples, rate_hz, hands)` produces the dict that becomes

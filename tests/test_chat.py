@@ -644,6 +644,33 @@ class MoveProposedTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIsNotNone(self.store.arm_proposal_public())  # operator can retry
 
+    def test_expired_proposal_revives_when_card_names_it(self) -> None:
+        # Stage, then let the TTL lapse (operator switched tabs / got distracted).
+        propose = self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightElbow": 1.5, "RightShoulderPitch": -1.0}}
+        )
+        pid = propose["proposal_id"]
+        self.store.arm_proposal["created_at"] -= server.ARM_PROPOSAL_TTL_SECONDS + 60
+        with mock.patch.object(
+            self.store, "request_robot_replay", return_value=(200, {"ok": True})
+        ) as replay:
+            result = self.store.run_chat_tool(
+                "move", {"position": "proposed", "confirm": True, "proposal_id": pid}
+            )
+        self.assertTrue(result["ok"], result)  # revived + executed, not a dead end
+        q_by_index = {m["index"]: m["q"] for m in replay.call_args[0][0]["snapshot"]["motors"]}
+        self.assertEqual(q_by_index[23], 1.5)   # the exact reviewed pose
+        self.assertEqual(q_by_index[20], -1.0)
+
+    def test_expired_proposal_without_id_still_requires_repropose(self) -> None:
+        # A bare 'okay' (no proposal_id) keeps the strict expiry: the operator
+        # must re-review a fresh green preview.
+        self.store.run_chat_tool("propose_arm_pose", {"joints": {"RightElbow": 1.5}})
+        self.store.arm_proposal["created_at"] -= server.ARM_PROPOSAL_TTL_SECONDS + 60
+        result = self.store.run_chat_tool("move", {"position": "proposed", "confirm": True})
+        self.assertFalse(result["ok"])
+        self.assertIn("propose_arm_pose", result["error"])
+
     def test_move_tool_spec_offers_only_proposed_and_home(self) -> None:
         specs = {s["function"]["name"]: s for s in self.store.chat_tool_specs()}
         self.assertIn("move", specs)  # offered even with zero saved positions now

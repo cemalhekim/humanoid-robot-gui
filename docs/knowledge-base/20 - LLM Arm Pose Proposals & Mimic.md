@@ -48,6 +48,15 @@ flowchart LR
 > command. The arm only moves after an explicit approval drives the guarded
 > `move` path. This approve-gate is the safety net for LLM guesswork.
 
+> [!note] Expiry + revive-by-reference
+> A staged proposal expires after `ARM_PROPOSAL_TTL_SECONDS` (300 s). An
+> approval that **names the exact proposal** (the 👍 card sends `proposal_id`)
+> revives it after expiry — `_restage_proposal` rebuilds the same reviewed
+> joints (re-clamped; unspecified joints follow the current live pose) under
+> the same id with a fresh TTL, then executes normally. A bare chat "okay"
+> with no id keeps the strict expiry and the model must re-propose, so an
+> operator can never execute a stale pose they didn't explicitly reference.
+
 ## Canonical anchors (prompt hardening)
 
 Early on, qwen would parrot the single prompt example (e.g. proposing the

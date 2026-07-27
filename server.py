@@ -2982,6 +2982,41 @@ class TelemetryStore:
             result["note"] = "No live joint telemetry; unspecified joints were assumed 0 rad."
         return result
 
+    def _restage_proposal(self, proposal_id: str, requested: dict[str, Any]) -> dict[str, Any]:
+        """Rebuild an expired proposal from its surviving meta (same id, fresh TTL).
+
+        Explicit joints are exactly what the operator reviewed (clamped at the
+        original staging); unspecified joints follow the CURRENT live pose, same
+        as the original staging. Only reachable from an explicit reference (a
+        feedback card naming the id) — never from a bare 'okay'. The replay path
+        re-validates every joint against limits regardless."""
+        with self.lock:
+            motors = list(self.latest.get("motors") or [])
+        q_by_name = {
+            str(motor.get("name")): float(motor["q"])
+            for motor in motors
+            if isinstance(motor, dict) and isinstance(motor.get("q"), (int, float))
+            and not isinstance(motor.get("q"), bool) and math.isfinite(float(motor["q"]))
+        }
+        full: dict[str, float] = {}
+        for name in ARM_JOINT_INDEX_BY_NAME:
+            value = requested.get(name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)):
+                full[name] = round(self._clamp_joint_target(ARM_JOINT_INDEX_BY_NAME[name], float(value)), 4)
+            elif name in q_by_name:
+                full[name] = round(q_by_name[name], 4)
+            else:
+                full[name] = 0.0
+        proposal = {
+            "id": proposal_id,
+            "created_at": time.time(),
+            "requested": dict(requested),
+            "targets": full,
+        }
+        with self.proposal_lock:
+            self.arm_proposal = proposal  # green ghost reappears with the fresh TTL
+        return proposal
+
     @property
     def last_chat_user_text(self) -> str:
         return getattr(self._chat_local, "request_text", "")
@@ -5263,18 +5298,33 @@ class TelemetryStore:
 
         with self.proposal_lock:
             proposal = self.arm_proposal
-        if not proposal or (time.time() - proposal["created_at"]) > ARM_PROPOSAL_TTL_SECONDS:
-            return {
-                "ok": False,
-                "error": "No pending pose proposal (it may have expired). Call propose_arm_pose first, "
-                         "let the operator approve the green preview, then retry.",
-            }
+        wanted_id = arguments.get("proposal_id")
+        fresh = proposal is not None and (time.time() - proposal["created_at"]) <= ARM_PROPOSAL_TTL_SECONDS
+        if not fresh:
+            # Revive-by-reference: a thumbs-up card names the EXACT proposal the
+            # operator reviewed, so a TTL expiry (operator got distracted) must not
+            # dead-end their approval. Restage the same pose from its surviving
+            # meta — explicit joints as reviewed (already clamped), the rest from
+            # the CURRENT live pose — under the same id with a fresh TTL, then
+            # execute normally. A plain 'okay' with no id keeps the strict expiry:
+            # the model must re-propose so the operator re-reviews a fresh preview.
+            meta = None
+            if isinstance(wanted_id, str) and wanted_id:
+                with self.proposal_lock:
+                    meta = self.proposal_meta.get(wanted_id)
+            requested = dict((meta or {}).get("requested") or {})
+            if not requested:
+                return {
+                    "ok": False,
+                    "error": "No pending pose proposal (it may have expired). Call propose_arm_pose first, "
+                             "let the operator approve the green preview, then retry.",
+                }
+            proposal = self._restage_proposal(wanted_id, requested)
         # When the caller names a specific proposal (the thumbs-up card), refuse
         # to execute if the LLM has since re-proposed — otherwise clicking 'like'
         # on an old card would move the robot to a pose the operator never saw
         # (the green preview always shows the CURRENT arm_proposal).
-        wanted_id = arguments.get("proposal_id")
-        if isinstance(wanted_id, str) and wanted_id and wanted_id != proposal["id"]:
+        elif isinstance(wanted_id, str) and wanted_id and wanted_id != proposal["id"]:
             return {
                 "ok": False,
                 "error": "The staged pose changed since you reviewed it. Check the current green "

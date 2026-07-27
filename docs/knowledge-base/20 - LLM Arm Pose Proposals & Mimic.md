@@ -48,6 +48,19 @@ flowchart LR
 > command. The arm only moves after an explicit approval drives the guarded
 > `move` path. This approve-gate is the safety net for LLM guesswork.
 
+> [!note] Closed-loop visual self-check (Claude backend / image turns)
+> The model already self-checks **numerically**: every `propose_arm_pose` result
+> returns FK-predicted hand landmarks + semantics, and the prompt tells it to
+> re-propose if the prediction contradicts the request (within the tool loop).
+> On top of that, when a vision backend is in play (Claude toggle on, or the turn
+> carried an image), the browser auto-sends a **`twin_check`** turn ~1.2 s after a
+> proposal is staged: the 3D-viewer render (solid = live pose, green ghost =
+> proposal) goes to the vision model, which either confirms ("verified — approve?")
+> or calls `propose_arm_pose` once with corrections. Bounded to 2 rounds per
+> operator request; the check never runs while the operator is typing, withdraws
+> silently on error, and is forbidden from calling `move`. Only the operator's
+> explicit approval ever executes.
+
 > [!note] Expiry + revive-by-reference
 > A staged proposal expires after `ARM_PROPOSAL_TTL_SECONDS` (300 s). An
 > approval that **names the exact proposal** (the 👍 card sends `proposal_id`)

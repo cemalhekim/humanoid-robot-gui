@@ -2768,6 +2768,89 @@ function setupChat() {
   // Set by a thumbs-down retry: the proposal id the next message corrects,
   // so the server chains the new proposal to its parent in the labeled data.
   let pendingRetryOf = null;
+  // Closed-loop visual self-check: after a proposal is staged, the viewer render
+  // (blue live + green ghost) is auto-sent back so the vision model verifies its
+  // own proposal — bounded rounds per operator request so it cannot ping-pong.
+  let twinCheckRounds = 0;
+  const TWIN_CHECK_MAX_ROUNDS = 2;
+
+  function scheduleTwinCheck() {
+    // Give the viewer a beat to render the fresh green ghost (5 Hz state poll).
+    window.setTimeout(() => {
+      if (busy || els.chatInput.value.trim()) return; // never preempt the operator
+      sendTwinCheck();
+    }, 1200);
+  }
+
+  async function sendTwinCheck() {
+    const evidence =
+      typeof window.captureDigitalTwinEvidence === "function"
+        ? window.captureDigitalTwinEvidence()
+        : null;
+    if (!evidence || !evidence.screenshot || busy) return;
+    busy = true;
+    els.chatSend.disabled = true;
+    const pending = addMessage("assistant", "🔍 Checking my own preview against your request…", { pending: true });
+    const text = "(automatic twin check — verify that the staged green pose matches my previous request)";
+    history.push({ role: "user", content: text });
+    try {
+      const window_ = history.slice(-20);
+      while (window_.length && window_[0].role !== "user") window_.shift();
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: window_, twin_evidence: evidence,
+          backend: chatBackend(), twin_check: true,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || `Request failed (${response.status}).`);
+      pending.card.classList.remove("pending");
+      pending.p.textContent = payload.reply;
+      const used = Array.isArray(payload.tools_used)
+        ? payload.tools_used.map((tool) => ({ name: tool.name, arguments: tool.arguments, ok: tool.ok }))
+        : [];
+      history.push(
+        used.length
+          ? { role: "assistant", content: payload.reply, tools_used: used }
+          : { role: "assistant", content: payload.reply },
+      );
+      if (payload.proposal && poseFeedbackEnabled()) {
+        pending.card.append(
+          buildPoseFeedbackCard(payload.proposal.id, "(visual self-check correction)", {
+            onExecuted: () => {
+              history.push({
+                role: "assistant",
+                content: "(Operator approved via thumbs-up; the staged pose was executed.)",
+                tools_used: [{ name: "move", arguments: { position: "proposed", confirm: true }, ok: true }],
+              });
+            },
+            onRetry: (message) => {
+              if (busy || els.chatInput.value.trim()) return false;
+              pendingRetryOf = payload.proposal.id;
+              els.chatInput.value = message;
+              els.chatForm.requestSubmit();
+              return true;
+            },
+          }),
+        );
+      }
+      // The model corrected itself → verify the NEW ghost too, within budget.
+      if (payload.proposal && used.some((t) => t.name === "propose_arm_pose") && twinCheckRounds < TWIN_CHECK_MAX_ROUNDS) {
+        twinCheckRounds++;
+        scheduleTwinCheck();
+      }
+    } catch (error) {
+      // Self-checks are best-effort: withdraw quietly, never surface an error.
+      pending.card.remove();
+      history.pop();
+    } finally {
+      busy = false;
+      els.chatSend.disabled = false;
+      els.chatLog.scrollTop = els.chatLog.scrollHeight;
+    }
+  }
 
   const MIMIC_MAX_EDGE = 1024; // longest side after downscale — keeps upload small
   const MIMIC_JPEG_QUALITY = 0.85;
@@ -2854,6 +2937,7 @@ function setupChat() {
     clearMimic();
     const retryOf = pendingRetryOf;
     pendingRetryOf = null;
+    twinCheckRounds = 0; // fresh self-check budget per operator request
     const viaVoice = sendViaVoice;
     sendViaVoice = false;
     busy = true;
@@ -2936,6 +3020,13 @@ function setupChat() {
             },
           }),
         );
+        // Closed loop: let the vision model SEE its own green ghost and correct
+        // itself before the operator judges. Only when a vision backend is in
+        // play (Claude toggle on, or this turn carried an image → routed there).
+        if ((chatBackend() === "claude" || mimicImage) && twinCheckRounds < TWIN_CHECK_MAX_ROUNDS) {
+          twinCheckRounds++;
+          scheduleTwinCheck();
+        }
       }
       // Keep which tools ran with this reply: the server replays them to the
       // LLM as real tool calls so later motion commands aren't answered with

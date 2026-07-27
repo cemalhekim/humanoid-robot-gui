@@ -1252,6 +1252,56 @@ class MimicImageTest(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertIn("vision", response["error"].lower())
 
+    def test_twin_check_routes_to_claude_and_attaches_screenshot(self) -> None:
+        captured = {}
+        shot = "data:image/jpeg;base64," + base64.b64encode(b"twinrender").decode()
+
+        def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
+            captured["messages"] = messages
+            return 200, {"ok": True, "reply": "Verified — approve?"}
+
+        payload = {
+            "messages": [{"role": "user", "content": "(automatic twin check)"}],
+            "twin_check": True,
+            "twin_evidence": {
+                "spatial": {"hands": {"right": {
+                    "ground_m": {"x": 0.4, "y": -0.3, "z": 1.4},
+                    "direction": {"forward": "front", "lateral": "right", "height": "high"},
+                }}},
+                "screenshot": shot,
+            },
+        }
+        # Vision flag deliberately OFF: a claude-routed twin check attaches anyway.
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", "http://192.0.2.9:8399"), \
+             mock.patch.object(server, "LLM_TWIN_VISION_ENABLED", False), \
+             mock.patch.object(server, "LLM_TOOLS_ENABLED", True), \
+             mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            status, response = self._chat(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(response.get("backend"), "claude")
+        self.assertIn("TWIN VISUAL CHECK", captured["messages"][0]["content"])
+        content = captured["messages"][-1]["content"]
+        self.assertEqual(content[1]["image_url"]["url"], shot)
+
+    def test_twin_check_without_bridge_degrades_to_text_turn(self) -> None:
+        captured = {}
+
+        def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
+            captured["messages"] = messages
+            return 200, {"ok": True, "reply": "ok"}
+
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", ""), \
+             mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            status, response = self._chat({
+                "messages": [{"role": "user", "content": "(automatic twin check)"}],
+                "twin_check": True,
+            })
+        self.assertEqual(status, 200)
+        self.assertEqual(response.get("backend"), "default")
+        # No vision prompt, no image blocks — a plain text turn for qwen.
+        self.assertNotIn("TWIN VISUAL CHECK", captured["messages"][0]["content"])
+        self.assertIsInstance(captured["messages"][-1]["content"], str)
+
     def test_invalid_mimic_image_degrades_to_normal_chat(self) -> None:
         captured = {}
 

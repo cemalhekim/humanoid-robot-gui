@@ -4947,6 +4947,15 @@ class TelemetryStore:
             backend, base_url, model = "claude", CLAUDE_BRIDGE_URL, CLAUDE_BRIDGE_MODEL
             auth_token = CLAUDE_BRIDGE_TOKEN or None
 
+        # Visual self-check turn: after staging a proposal the browser auto-sends
+        # the 3D-viewer render so the model can SEE its green ghost next to the
+        # live pose and correct itself before the operator judges. Vision-only,
+        # so it rides the Claude bridge; without one it degrades to a normal turn.
+        twin_check = payload.get("twin_check") is True
+        if twin_check and not chat_image and CLAUDE_BRIDGE_URL:
+            backend, base_url, model = "claude", CLAUDE_BRIDGE_URL, CLAUDE_BRIDGE_MODEL
+            auth_token = CLAUDE_BRIDGE_TOKEN or None
+
         cleaned: list[dict[str, Any]] = []
         for item in raw_messages:
             if not isinstance(item, dict):
@@ -5058,13 +5067,24 @@ class TelemetryStore:
                     "approval — so the operator can verify you read the image correctly before "
                     "approving. Otherwise just answer about the image — do NOT propose a pose."
                 )
+        if twin_check and backend == "claude" and LLM_TOOLS_ENABLED:
+            system += (
+                "\n\nTWIN VISUAL CHECK (an automated turn, not the operator typing): the attached "
+                "screenshot is the live 3D viewer — the SOLID model is the robot's actual pose, the "
+                "TRANSPARENT GREEN ghost is your staged proposal. Compare the green pose against the "
+                "operator's ORIGINAL request earlier in this conversation. If it clearly matches, "
+                "reply in ONE short sentence that the preview is verified and ask for approval. If it "
+                "does not match, call propose_arm_pose ONCE with corrected angles and briefly say "
+                "what you fixed. NEVER call move in this turn."
+            )
         # Attach images to the final user turn. The operator's photo comes first so
-        # it reads as the primary subject; the twin render, if the vision flag is on,
-        # follows as a self-view cross-check.
+        # it reads as the primary subject; the twin render follows as a self-view
+        # cross-check (always attached for a claude-routed twin check, else gated
+        # by the vision flag because the on-prem model cannot see).
         image_blocks: list[dict[str, Any]] = []
         if chat_image:
             image_blocks.append({"type": "image_url", "image_url": {"url": chat_image}})
-        if twin_image and LLM_TWIN_VISION_ENABLED:
+        if twin_image and (LLM_TWIN_VISION_ENABLED or (twin_check and backend == "claude")):
             image_blocks.append({"type": "image_url", "image_url": {"url": twin_image}})
         if image_blocks:
             last = cleaned[-1]

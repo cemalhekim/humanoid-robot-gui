@@ -59,8 +59,8 @@ chat proxy uses ([[05 - Chat & MCP Tools]]).
 The token was set on the robot in the `robot-telemetry-web.service` environment
 (README documented a systemd `Environment=HA_TOKEN=…` override, then
 `daemon-reload` + `restart`) so it lived only on the robot PC, never in the
-repo or the page. See [[22 - Deployment & Runtime Services]] and
-[[02 - Network & Hosts]] for host `10.2.200.100`.
+repo or the page. See 22 - Deployment & Runtime Services and
+02 - Network & Hosts for host `10.2.200.100`.
 
 ## The endpoints
 
@@ -122,9 +122,9 @@ entity is absent from the service reply.
 > tracking), because there is no robot motion to gate. The only real guardrail
 > is that the HA token is held server-side and the feature is inert until a
 > token is provisioned. For the genuinely dangerous surfaces see
-> [[03 - Safety Interlocks]], [[15 - Locomotion Control]] and
-> [[16 - Arm Control & Command Surfaces]].
+> 03 - Safety Interlocks, 15 - Locomotion Control and
+> 16 - Arm Control & Command Surfaces.
 
 ## Related
 
-[[02 - Network & Hosts]] · [[22 - Deployment & Runtime Services]] · [[04 - HTTP API Reference]] · [[05 - Chat & MCP Tools]] · [[03 - Safety Interlocks]] · [[25 - Known Issues & Optimization Audit]] · [[09 - Glossary]]
+[[05 - Chat & MCP Tools]]

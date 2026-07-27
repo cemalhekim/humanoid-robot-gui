@@ -12,8 +12,8 @@ summary: How the server subscribes to rt/lowstate (and rt/inspire/state for the 
 > **analysis/health** summary — then hand it to the dashboard through
 > `/api/state` (one-shot) and `/events` (Server-Sent Events). This is the read
 > side of the system: everything here is telemetry, not command. The recording
-> path ([[13 - Telemetry Recording & Pose Editor]]) and digital-twin replay
-> ([[14 - Recording Replay & Digital Twin]]) consume the same structures.
+> path (13 - Telemetry Recording & Pose Editor) and digital-twin replay
+> (14 - Recording Replay & Digital Twin) consume the same structures.
 
 Sources: `server.py` — `TelemetryStore.__init__` / `_run` / `snapshot`,
 `lowstate_to_dict`, `handstate_to_dict`, `motor_to_dict`, `hand_motor_to_dict`,
@@ -209,7 +209,7 @@ warning-level) or `"ok"`, plus a `flags` list:
 | hands not connected | `info` | Hand telemetry offline on `rt/inspire/state` |
 | battery marker present | `info` | Battery details not exposed by firmware |
 
-This summary is what the chat/[[05 - Chat & MCP Tools|LLM]] read-only tools and
+This summary is what the chat/LLM read-only tools and
 the dashboard health strip surface, and what the "full information flow" text
 renderer (`server.py` ~L1355) folds into the model prompt.
 
@@ -241,7 +241,7 @@ hand** (right first, then left):
 > their own serial-backed `inspire_h1` service publishing `rt/inspire/state`. If
 > that service is down the body telemetry is still fully live; only the `hands`
 > block reports `connected: False`. Finger **commands** ride `rt/inspire/cmd`
-> (`HAND_COMMAND_TOPIC`) — see [[16 - Arm Control & Command Surfaces]].
+> (`HAND_COMMAND_TOPIC`) — see 16 - Arm Control & Command Surfaces.
 
 ## Snapshot trimming (the 5 Hz optimization)
 
@@ -279,6 +279,3 @@ the loop.
 > **not** supported by `server.py`. (The internal snapshot *rebuild* is the
 > faster stage at 30 Hz; the *stream* to clients is 5 Hz.)
 
-## Related
-
-[[13 - Telemetry Recording & Pose Editor]] · [[14 - Recording Replay & Digital Twin]] · [[16 - Arm Control & Command Surfaces]] · [[04 - HTTP API Reference]] · [[01 - Architecture]] · [[03 - Safety Interlocks]] · [[24 - Control Gains, PID & Shared Mechanisms]] · [[05 - Chat & MCP Tools]] · [[09 - Glossary]] · [[00 - Project Overview]]

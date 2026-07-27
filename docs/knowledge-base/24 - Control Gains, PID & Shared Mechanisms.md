@@ -9,9 +9,9 @@ summary: The two control layers (high-level LocoClient vs low-level PD), every k
 > Explain the robot's control gains in one place, because they are **cross-cutting**:
 > the same low-level PD gain tables and the same closed-loop arm-replay PID are
 > reused by every feature that moves the arms — the High Level Controller
-> ([[13 - Telemetry Recording & Pose Editor]] / [[14 - Recording Replay & Digital Twin]]),
-> the [[05 - Chat & MCP Tools|LLM agent]] ([[20 - LLM Arm Pose Proposals & Mimic]]),
-> and [[19 - Sentry Mode & Head-Lock|Sentry Mode]] person-following. A gain change
+> (13 - Telemetry Recording & Pose Editor / 14 - Recording Replay & Digital Twin),
+> the LLM agent (20 - LLM Arm Pose Proposals & Mimic),
+> and Sentry Mode person-following. A gain change
 > here affects all three.
 
 Sources: `server.py` (`ARM_SDK_KP`/`ARM_SDK_KD`, `ARM_SDK_GAIN_BY_INDEX`,
@@ -38,7 +38,7 @@ flowchart TB
 
 | Layer | Path | Who owns the gains |
 | --- | --- | --- |
-| **High-level** | `LocoClient` ([[15 - Locomotion Control]]) | Unitree's on-board controller — the dashboard sends *commands* (velocity, posture), **not** gains |
+| **High-level** | `LocoClient` (15 - Locomotion Control) | Unitree's on-board controller — the dashboard sends *commands* (velocity, posture), **not** gains |
 | **Low-level PD** | `arm_sdk` (arms+waist, base stationary) | **`server.py` sets `kp`/`kd` per joint** |
 | **Low-level PD** | `lowcmd` (direct motor) | `server.py` sets `kp`/`kd`; used for a waist twist today, reserved for future full-body playback |
 
@@ -112,14 +112,14 @@ below). Its control stack, from the gains above:
   **flagged safe-hold** that reports `converged=false` rather than claiming success.
 - **Response slider** — `ARM_REPLAY_RESPONSE_*` scales the PID aggressiveness
   (legacy top at 2.5 = the UI 50% mark; overdrive to 5.0), capped so effective
-  speed stays within the validated velocity envelope (see [[03 - Safety Interlocks]]).
+  speed stays within the validated velocity envelope (see 03 - Safety Interlocks).
 
 > [!warning] Gravity feed-forward on contact
 > The feed-forward is built from *measured* torque, which already contains the
 > PD reaction — safe for free-space holding, but **unsafe on hard contact**
 > (a contact torque spike feeds forward as a push). Model-based gravity +
 > collision detection is the recommended hardware-validated follow-up. See
-> [[25 - Known Issues & Optimization Audit]].
+> 25 - Known Issues & Optimization Audit.
 
 ## Why this is cross-cutting — one primitive, three callers
 
@@ -130,19 +130,19 @@ below). Its control stack, from the gains above:
 
 | Caller | How it reaches the shared gains |
 | --- | --- |
-| **High Level Controller** ([[13 - Telemetry Recording & Pose Editor]] / [[14 - Recording Replay & Digital Twin]]) | Dashboard "Move" / replay planning → `execute_arm_sdk_replay` with the arm-replay PID + `arm_sdk` gains; `dry_run` reports the per-joint `kp`/`kd` plan |
-| **LLM agent** ([[05 - Chat & MCP Tools]] / [[20 - LLM Arm Pose Proposals & Mimic]]) | `move` tool and approved `propose_arm_pose` poses execute through the **same** `execute_arm_sdk_replay` — the LLM never sets gains, it only chooses the target pose |
-| **Sentry Mode** ([[19 - Sentry Mode & Head-Lock]] / [[06 - Person Tracking (CV Feature)]]) | Person-following drives the arm toward the target and the **wrist fine-aim** uses `_auto_wrist_gains` on the same `arm_sdk` / `lowcmd` wrist PD (`_build_arm_sdk_cmd` / `_build_lowcmd_wrist_cmd`) |
+| **High Level Controller** (13 - Telemetry Recording & Pose Editor / 14 - Recording Replay & Digital Twin) | Dashboard "Move" / replay planning → `execute_arm_sdk_replay` with the arm-replay PID + `arm_sdk` gains; `dry_run` reports the per-joint `kp`/`kd` plan |
+| **LLM agent** (05 - Chat & MCP Tools / 20 - LLM Arm Pose Proposals & Mimic) | `move` tool and approved `propose_arm_pose` poses execute through the **same** `execute_arm_sdk_replay` — the LLM never sets gains, it only chooses the target pose |
+| **Sentry Mode** (19 - Sentry Mode & Head-Lock / 06 - Person Tracking (CV Feature)) | Person-following drives the arm toward the target and the **wrist fine-aim** uses `_auto_wrist_gains` on the same `arm_sdk` / `lowcmd` wrist PD (`_build_arm_sdk_cmd` / `_build_lowcmd_wrist_cmd`) |
 
 Because they share one path, all three inherit the **same guards** — arm-scope
 only, non-finite rejection, velocity/delta gates, XR-publisher suspend, and the
-convergence/safe-hold discipline. See [[03 - Safety Interlocks]] and
-[[16 - Arm Control & Command Surfaces]].
+convergence/safe-hold discipline. See 03 - Safety Interlocks and
+16 - Arm Control & Command Surfaces.
 
 ## Gain-selection policy (future `lowcmd` trajectory execution)
 
 `docs/gain_selection_research.md` defines the conservative policy for the
-not-yet-enabled full-body `lowcmd` playback ([[14 - Recording Replay & Digital Twin]]):
+not-yet-enabled full-body `lowcmd` playback (14 - Recording Replay & Digital Twin):
 
 1. Pick the command path: `arm_sdk` when the base is stationary, `lowcmd` when it moves.
 2. Pick a base gain table by path + joint group (`LOWCMD_BASE_GAINS`).
@@ -159,6 +159,3 @@ not-yet-enabled full-body `lowcmd` playback ([[14 - Recording Replay & Digital T
 > answer is to move slower." Gains are bounded; safety comes from slowing,
 > rejecting, and aborting — not from stiffness.
 
-## Related
-
-[[03 - Safety Interlocks]] · [[14 - Recording Replay & Digital Twin]] · [[16 - Arm Control & Command Surfaces]] · [[13 - Telemetry Recording & Pose Editor]] · [[15 - Locomotion Control]] · [[19 - Sentry Mode & Head-Lock]] · [[20 - LLM Arm Pose Proposals & Mimic]] · [[18 - Body, IMU, Battery & Hand Telemetry]] · [[25 - Known Issues & Optimization Audit]] · [[09 - Glossary]]

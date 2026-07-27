@@ -13,18 +13,18 @@ robot command surface + Vision Pro / XR service deployment** for the
 
 The project is designed to:
 
-- Read Unitree **DDS** telemetry from the robot PC (see [[09 - Glossary#DDS]]).
+- Read Unitree **DDS** telemetry from the robot PC (see 09 - Glossary).
 - Show H1-2 robot state — joints, IMU, battery, hands, camera, command history — in a browser dashboard.
-- Expose **guarded** right-wrist and H1 locomotion commands with explicit operator intent and runtime limits (see [[03 - Safety Interlocks]]).
-- Run Vision Pro / XR teleoperation services on the robot PC as user-level systemd services (see [[02 - Network & Hosts]]).
+- Expose **guarded** right-wrist and H1 locomotion commands with explicit operator intent and runtime limits (see 03 - Safety Interlocks).
+- Run Vision Pro / XR teleoperation services on the robot PC as user-level systemd services (see 02 - Network & Hosts).
 - Let a development laptop test the UI and static assets **without** live robot telemetry.
 
 > [!warning] Not a read-only application
 > Some HTTP endpoints can move the robot. Run it only on trusted networks and
 > only with an operator who can physically observe the robot and understands
 > the risk. There is **no authentication** — anyone who can reach the dashboard
-> host can send HTTP requests to exposed endpoints. See [[03 - Safety Interlocks]]
-> and [[04 - HTTP API Reference]].
+> host can send HTTP requests to exposed endpoints. See 03 - Safety Interlocks
+> and 04 - HTTP API Reference.
 
 ## The Unitree H1-2 robot
 
@@ -45,8 +45,8 @@ The **RH56BFX / Inspire hands** are a separate 12-joint system (6 per hand)
 reported on `rt/inspire/state`. Body telemetry and hand telemetry are
 independent — the body can be connected while the hand panel is disconnected.
 
-See the full joint tables in [[09 - Glossary]] and the arm subset used for
-motion in [[03 - Safety Interlocks#arm_sdk joint set]].
+See the full joint tables in 09 - Glossary and the arm subset used for
+motion in 03 - Safety Interlocks.
 
 ## The dashboard's purpose
 
@@ -60,7 +60,7 @@ The browser dashboard (`static/index.html` + `app.js` + `viewer.js`) shows:
 - A **TeleImager camera** panel and links to the XR / Vuer page.
 - **Command surfaces**: Release (damp), Home (arm_sdk hold), Stand Up, Loco control, wrist commands.
 - A **telemetry recorder** (sequence JSONL + pose-point) with a 3-model replay digital twin.
-- An on-prem **LLM chat** ("Command Center assistant") with guarded tools — see [[05 - Chat & MCP Tools]].
+- An on-prem **LLM chat** ("Command Center assistant") with guarded tools — see 05 - Chat & MCP Tools.
 - A **Smart Plug** card that toggles a showcase Sonoff plug via Home Assistant.
 
 ## Command surfaces (dashboard buttons)
@@ -95,5 +95,4 @@ with vendored Three.js, so deployment on robot PCs needs no extra tooling.
 
 ## Related
 
-[[01 - Architecture]] · [[03 - Safety Interlocks]] · [[06 - Person Tracking (CV Feature)]] · [[09 - Glossary]]
-</content>
+[[01 - Architecture]]

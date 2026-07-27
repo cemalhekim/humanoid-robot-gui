@@ -11,7 +11,7 @@ summary: Hosts, IP addresses, ports, service map, and the 60 s auto-update timer
 | --- | --- | --- | --- |
 | Robot PC (Ethernet / DDS) | `192.168.123.164` | DDS control link (`eth0`), dashboard | **Reliable** path; H1-2 body DDS traffic is on this link |
 | Robot PC (Wi-Fi) | `10.2.100.142` | Dashboard, XR, camera over Wi-Fi | **Flaky** — reachable ≠ DDS-visible |
-| AI host ("AI-DEV") | `10.2.125.3` | On-prem LLM + STT/TTS + YOLO detection | Ollama, faster-whisper, TTS, [[07 - Detection Service (YOLO)\|detect]] |
+| AI host ("AI-DEV") | `10.2.125.3` | On-prem LLM + STT/TTS + YOLO detection | Ollama, faster-whisper, TTS, detect |
 | Home Assistant | `10.2.200.100` | Showcase Sonoff smart plug | Proxied via `/api/smartplug/*` |
 
 - Robot SSH user: `unitree` (`ssh unitree@10.2.100.142` or `@192.168.123.164`).
@@ -23,7 +23,7 @@ summary: Hosts, IP addresses, ports, service map, and the 60 s auto-update timer
 > guarantee DDS visibility. H1-2 body DDS is on the robot PC's `eth0` control
 > link, so the robot runtime uses `--robot-host 192.168.123.164` and
 > `--camera-source eth0`. The Wi-Fi link is known to be flaky — this is a
-> central design constraint for the [[06 - Person Tracking (CV Feature)|tracking feature]]'s
+> central design constraint for the tracking feature's
 > staleness handling.
 
 ## Ports
@@ -67,14 +67,14 @@ User-level systemd services under the `unitree` user (installed by
 | `xr-home-watchdog.service` | Watchdog for lost XR home/pose packets | `:8012` + API `:8088` |
 
 `XR_MOTION_SERVICES = ("xr-home-watchdog.service", "xr-teleop.service")` are the
-two units suspended before dashboard motion — see [[03 - Safety Interlocks#XR publisher suspension]].
+two units suspended before dashboard motion — see 03 - Safety Interlocks.
 
 Logs: `/home/unitree/logs/` (dashboard: `robot_telemetry_web.log`, watchdog: `xr_home_watchdog.log`).
 
 ## Auto-update timer (auto-deploy)
 
 The robot **pulls and redeploys `origin/main` every ~60 seconds**. This is how
-code reaches the robot — see [[08 - Development Workflow]].
+code reaches the robot — see 08 - Development Workflow.
 
 `deployment/systemd/robot-telemetry-web-autoupdate.timer`:
 
@@ -96,10 +96,6 @@ The oneshot service runs `deployment/robot_autoupdate.sh`, which:
 > Anything pushed to `main` reaches the robot within ~60 s and restarts
 > services. This is why risky features ship **dark** behind default-off flags
 > (e.g. `MCP_ENABLED=0`, and the planned `TRACKING_ENABLED=0`) so an autoupdate
-> deploy never silently opens a new surface. See [[05 - Chat & MCP Tools]] and
-> [[06 - Person Tracking (CV Feature)]].
+> deploy never silently opens a new surface. See 05 - Chat & MCP Tools and
+> 06 - Person Tracking (CV Feature).
 
-## Related
-
-[[01 - Architecture]] · [[03 - Safety Interlocks]] · [[07 - Detection Service (YOLO)]] · [[08 - Development Workflow]]
-</content>

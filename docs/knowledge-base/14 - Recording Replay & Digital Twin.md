@@ -22,7 +22,7 @@ Sources: `server.py` (`request_robot_replay`, `plan_replay_control_path`,
 
 ## The digital twin: three ghost models
 
-The 3D viewer ([[17 - 3D URDF Viewer]]) renders overlaid ghost models so the
+The 3D viewer (17 - 3D URDF Viewer) renders overlaid ghost models so the
 operator sees intent vs. reality before any command
 (`docs/trajectory_executor_integration.md`):
 
@@ -34,7 +34,7 @@ operator sees intent vs. reality before any command
 
 The green simulation is a pure preview; nothing is published while it plays. The
 LLM pose-proposal green preview works the same way — the operator approves the
-**green** ghost before the red/live arms move ([[20 - LLM Arm Pose Proposals & Mimic]]).
+**green** ghost before the red/live arms move (20 - LLM Arm Pose Proposals & Mimic).
 
 ## `/api/recording/replay/robot` — one endpoint, three outcomes
 
@@ -209,13 +209,13 @@ go limp between Moves.
 when `command_scope=all`; scoped arm replays disable it. **Publishing on
 `rt/inspire/cmd` is not implemented** — if any finger moves (`hand_plan.enabled`),
 Gate 3 refuses execution rather than moving the body without the hand. See
-[[18 - Body, IMU, Battery & Hand Telemetry]] and
+18 - Body, IMU, Battery & Hand Telemetry and
 `docs/trajectory_executor_integration.md` §Not Yet Implemented.
 
 ## Flow diagram
 
 The canonical end-to-end flow lives in `docs/arm_sdk_replay_flow.drawio` (viewable
-via the docs diagram viewer, [[17 - 3D URDF Viewer]] / `static/diagram.js`). It
+via the docs diagram viewer, 17 - 3D URDF Viewer / `static/diagram.js`). It
 diagrams `request_robot_replay → execute_arm_sdk_replay → run_replay`, the gate
 stack, the `LowState_`/`LowCmd_` DDS structs, and the plan/tuning/pid-state structs.
 
@@ -227,8 +227,8 @@ stack, the `LowState_`/`LowCmd_` DDS structs, and the plan/tuning/pid-state stru
 > **convergence + a 90 s ceiling** (not a 10 s timeout); gravity uses the
 > continuous `0.95/0.5` stationarity ramp plus an adaptive learn term. Trust
 > `server.py` over the diagram where they disagree; the diagram's teardown-release
-> observation is tracked in [[25 - Known Issues & Optimization Audit]].
+> observation is tracked in 25 - Known Issues & Optimization Audit.
 
 ## Related
 
-[[13 - Telemetry Recording & Pose Editor]] · [[16 - Arm Control & Command Surfaces]] · [[24 - Control Gains, PID & Shared Mechanisms]] · [[20 - LLM Arm Pose Proposals & Mimic]] · [[17 - 3D URDF Viewer]] · [[18 - Body, IMU, Battery & Hand Telemetry]] · [[11 - Teleoperation (Vision Pro & XR)]] · [[03 - Safety Interlocks]] · [[04 - HTTP API Reference]] · [[25 - Known Issues & Optimization Audit]] · [[09 - Glossary]]
+[[13 - Telemetry Recording & Pose Editor]] · [[16 - Arm Control & Command Surfaces]] · [[24 - Control Gains, PID & Shared Mechanisms]] · [[03 - Safety Interlocks]]

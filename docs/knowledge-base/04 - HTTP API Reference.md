@@ -8,7 +8,7 @@ summary: Complete table of server.py HTTP routes (read, motion, recording, chat/
 All routes are served by `server.py` on `:8088`. Route strings below were
 extracted directly from `server.py` (dispatch around lines 5487–5618). There is
 **no authentication** except optional `MCP_TOKEN` on `/mcp` — see
-[[03 - Safety Interlocks]].
+03 - Safety Interlocks.
 
 ## Read / GET endpoints
 
@@ -27,8 +27,8 @@ extracted directly from `server.py` (dispatch around lines 5487–5618). There i
 | `/api/recording/files` | JSON | Available JSONL/pose recording files |
 | `/api/recording/files/<name>` | JSONL | A single recording file for replay |
 | `/api/diagrams` , `/api/diagrams/<name>` | JSON | `.drawio` docs for the diagram viewer |
-| `/api/chat/status` | JSON | Chat assistant availability/config (see [[05 - Chat & MCP Tools]]) |
-| `/api/spatial/pose` | JSON | Shared digital-twin spatial pose (hand coords) — see [[20 - LLM Arm Pose Proposals & Mimic]] |
+| `/api/chat/status` | JSON | Chat assistant availability/config (see 05 - Chat & MCP Tools) |
+| `/api/spatial/pose` | JSON | Shared digital-twin spatial pose (hand coords) — see 20 - LLM Arm Pose Proposals & Mimic |
 | `/api/motion/active` | JSON | Is a replay/track running? (gates deploy restarts) |
 | `/api/pose/feedback/data` | JSON | Pose-feedback rollup for the plot page |
 | `/api/pose/feedback/image/<name>` | image | A collected reference image (basename-guarded) |
@@ -68,7 +68,7 @@ several `get_*` state queries. Bounds are in `LOCO_LIMITS` (e.g. `vx ∈ [-1,1]`
 | `/api/recording/pose` | Capture current full-body pose as one target point (`.pose.json`) |
 | `/api/recording/sequence` | Sequence-mode recording control |
 | `/api/recording/rename` | Rename a recording file |
-| `/api/recording/replay/robot` | **Locked** robot playback — dry-run planning only; refuses physical playback (see [[03 - Safety Interlocks]]) |
+| `/api/recording/replay/robot` | **Locked** robot playback — dry-run planning only; refuses physical playback (see 03 - Safety Interlocks) |
 
 `/api/recording/replay/robot` with `dry_run=true` reports the planned command
 path (`arm_sdk` or `lowcmd`), trajectory validity, moving joints, velocity/delta
@@ -79,12 +79,12 @@ does **not** publish motor commands.
 
 > [!note] Smart plug removed
 > The `/api/smartplug/*` Home Assistant proxy was **removed** on 2026-07-23 and
-> no longer exists on the current build — see [[23 - Smart Plug & Home Assistant]]
+> no longer exists on the current build — see 23 - Smart Plug & Home Assistant
 > for the historical record.
 
 | Path | Method | Purpose |
 | --- | --- | --- |
-| `/api/chat` | POST | Command Center LLM chat + tool loop; optional `image` (attach an image to ask about it / mimic — routed to the vision bridge, see [[20 - LLM Arm Pose Proposals & Mimic]]; legacy `mimic_image` accepted) and `backend` (`default`/`claude`) |
+| `/api/chat` | POST | Command Center LLM chat + tool loop; optional `image` (attach an image to ask about it / mimic — routed to the vision bridge, see 20 - LLM Arm Pose Proposals & Mimic; legacy `mimic_image` accepted) and `backend` (`default`/`claude`) |
 | `/api/spatial/pose` | POST | Update the shared digital-twin spatial pose |
 | `/api/pose/feedback` | POST | Record a pose verdict (`proposal_id`, `event`, `comment`); 👍 also executes the staged pose |
 | `/api/pose/proposal/restage` | POST | Restage an earlier proposal as the green preview (candidates gallery; staging only) |
@@ -99,7 +99,7 @@ does **not** publish motor commands.
 > (idempotent), and `GET /api/track/status` (`{"ok": true, "tracking": {...}}`) are
 > now wired in `server.py`. They are gated by `TRACKING_ENABLED` (default `0`), so
 > the feature ships dark until enabled on the robot. See
-> [[06 - Person Tracking (CV Feature)#Implementation status]].
+> 06 - Person Tracking (CV Feature).
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -117,7 +117,3 @@ curl -sS -X POST http://10.2.100.142:8088/api/recording/start \
   -H 'Content-Type: application/json' -d '{"label":"h1_2_full_body_hands"}'
 ```
 
-## Related
-
-[[01 - Architecture]] · [[03 - Safety Interlocks]] · [[05 - Chat & MCP Tools]] · [[06 - Person Tracking (CV Feature)]]
-</content>

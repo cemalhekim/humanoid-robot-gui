@@ -115,13 +115,13 @@ retargeting-relevant components are:
 | `robot_control/dex-retargeting/` | **Dexterous hand retargeting** library — human finger pose → robot hand joints |
 | `robot_control/hand_retargeting.py`, `robot_hand_{inspire,unitree,brainco}.py` | Hand drivers / retarget glue for the different end-effectors |
 | `teleop/televuer/` | The **Vuer/WebXR** bridge — serves the headset page, streams tracked poses in |
-| `teleop/teleimager/` | **TeleImager** camera image server/client for the headset video feed ([[12 - Camera & Video Streaming]]) |
+| `teleop/teleimager/` | **TeleImager** camera image server/client for the headset video feed (12 - Camera & Video Streaming) |
 
 > [!note] Where retargeting happens
 > Retargeting (tracked human pose → robot joints, incl. `dex-retargeting` for
 > fingers) lives entirely in the **vendored** `xr_teleoperate` code, not in
 > `server.py`. The dashboard's own IK is a separate, preview-only path in the 3D
-> viewer ([[13 - Telemetry Recording & Pose Editor]]). Both ultimately target the
+> viewer (13 - Telemetry Recording & Pose Editor). Both ultimately target the
 > same H1-2 arm joints and the same `rt/arm_sdk` topic — which is exactly why
 > only one may own the arm at a time ([[16 - Arm Control & Command Surfaces]]).
 
@@ -162,7 +162,7 @@ listing:
 > high-level walking controller. The bundled demos (stand+handshake, two-step
 > walk, jump) are "**simulation-only** SDK2 low-level command demos … not
 > certified real-robot behavior" and must not go to hardware without limits and
-> an e-stop path. See [[03 - Safety Interlocks]].
+> an e-stop path. See 03 - Safety Interlocks.
 
 First-party glue for this leg lives in **`simulation/.../scripts/`** (below), not
 in `execution/` — e.g. `h1_mujoco_*.py`, `h1_loco_set_velocity_walk.py`, the
@@ -214,7 +214,7 @@ flowchart LR
   publish to `rt/arm_sdk`. The dashboard treats XR as a competing owner: every
   guarded arm entry point calls `_suspend_xr_motion_publishers()` **first**, which
   stops/kills `xr-teleop.service` before the dashboard touches the arm. See
-  [[11 - Teleoperation (Vision Pro & XR)]] and [[03 - Safety Interlocks]].
+  [[11 - Teleoperation (Vision Pro & XR)]] and 03 - Safety Interlocks.
 - **The dashboard does not run the semantic/execution legs.** `server.py` does not
   import or launch `execution/` or `simulation/` code. Those are standalone dev
   workspaces for off-robot experimentation and low-level SDK/ROS 2 development.
@@ -226,15 +226,15 @@ flowchart LR
 - **Simulation as the safe rehearsal path.** MuJoCo (DDS-accurate) and Isaac Lab
   are the intended places to validate motion before it reaches hardware, matching
   the dashboard's own "sim/validate before raw replay on the real robot" posture
-  ([[13 - Telemetry Recording & Pose Editor]]).
+  (13 - Telemetry Recording & Pose Editor).
 
 > [!warning] Deployment scope
 > Only the **dashboard** and the **XR teleop** service are deployed as robot
-> systemd units (`deployment/systemd/`, [[22 - Deployment & Runtime Services]]).
+> systemd units (`deployment/systemd/`, 22 - Deployment & Runtime Services).
 > The `execution/` and `simulation/` legs are **not** installed as robot services
 > — they are developer tooling that runs off-robot (or manually). No evidence in
 > `deployment/` was found of a semantic/MuJoCo/Gazebo runtime service.
 
 ## Related
 
-[[00 - Project Overview]] · [[01 - Architecture]] · [[11 - Teleoperation (Vision Pro & XR)]] · [[12 - Camera & Video Streaming]] · [[16 - Arm Control & Command Surfaces]] · [[22 - Deployment & Runtime Services]] · [[13 - Telemetry Recording & Pose Editor]] · [[03 - Safety Interlocks]] · [[09 - Glossary]]
+[[11 - Teleoperation (Vision Pro & XR)]] · [[16 - Arm Control & Command Surfaces]]

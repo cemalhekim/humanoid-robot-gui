@@ -49,7 +49,7 @@ flowchart LR
    targets, smooths (EMA), and swaps setpoints into the arm controller under
    `command_lock` — exactly like `_pose_targets` retargeting.
 3. **Control surface** (planned) — HTTP (`/api/track/*`), a dashboard card, and
-   a chat/[[05 - Chat & MCP Tools|MCP]] `track_person` tool.
+   a chat/MCP `track_person` tool.
 
 The **120 Hz arm controller does the hard part** (interpolation, velocity
 bounding, PID + gravity feed-forward). The tracking loop only ever moves the
@@ -182,7 +182,7 @@ The 7-task plan (`docs/superpowers/plans/2026-07-21-person-pointing.md`):
 
 - **Present**: `tests/test_tracking_math.py` — mapper (center → template,
   left/right yaw, always-in-limits, dead band), rate limiter, association, and
-  the staleness state machine. Runs fully offline. See [[10 - Testing]].
+  the staleness state machine. Runs fully offline. See 10 - Testing.
 - **Present**: `tests/test_tracking_endpoints.py` — gating (risk-ack → 403,
   disabled → 409, no DDS → 503, stop idempotent), route presence, and
   `track_person` tool spec/dispatch (hidden when disabled, requires confirm).
@@ -199,5 +199,4 @@ The 7-task plan (`docs/superpowers/plans/2026-07-21-person-pointing.md`):
 
 ## Related
 
-[[07 - Detection Service (YOLO)]] · [[03 - Safety Interlocks]] · [[05 - Chat & MCP Tools]] · [[10 - Testing]] · [[09 - Glossary]]
-</content>
+[[07 - Detection Service (YOLO)]] · [[03 - Safety Interlocks]]

@@ -13,8 +13,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'   # or: make test
 ```
 
 All tests run **fully offline** — no DDS, no robot, no network. This is a hard
-requirement (the [[06 - Person Tracking (CV Feature)|tracking]] plan and
-CLAUDE.md both state it). See also [[08 - Development Workflow]].
+requirement (the tracking plan and
+CLAUDE.md both state it). See also 08 - Development Workflow.
 
 ## Test files
 
@@ -34,7 +34,7 @@ command limits, and API behavior (called out in the README as the key test).
 ## `test_tracking_math.py` coverage
 
 Exercises `tracking.py` (the implemented half of the
-[[06 - Person Tracking (CV Feature)|person-pointing]] feature):
+person-pointing feature):
 
 - **`MapperTests`** — center of image → template pose; person left/center/right
   swings yaw monotonically; targets **always inside `TRACK_LIMITS`** at all four
@@ -70,7 +70,7 @@ Offline gate: compiles owned Python (`server.py`, `tests/`, `deployment/`,
 syntax check — there is **no JS test harness**), excludes `execution/`,
 `simulation/`, external teleop, and `vendor/`. `--live` adds an explicit robot
 reachability check. Must pass **before every push**. Details in
-[[08 - Development Workflow#The production gate]].
+08 - Development Workflow.
 
 ## Offline vs on-robot
 
@@ -86,7 +86,3 @@ Person-tracking on-robot bring-up (plan Task 7) is a deliberately ordered,
 operator-present checklist: reachability + latency → status-only dry run → arms
 at reduced limits → FOV calibration → failure drills → enable chat tool.
 
-## Related
-
-[[08 - Development Workflow]] · [[06 - Person Tracking (CV Feature)]] · [[05 - Chat & MCP Tools]] · [[03 - Safety Interlocks]]
-</content>

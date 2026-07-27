@@ -12,7 +12,7 @@ summary: Vuer/WebXR arm+hand teleoperation for the H1-2 — the xr-teleop servic
 > the robot; the teleop process retargets tracked hand/arm poses to the H1-2 arm
 > joints and publishes them on DDS `rt/arm_sdk`. This is a **different control
 > surface** from the dashboard's guarded arm endpoints, and the two must never
-> publish to the arm path at the same time — see [[03 - Safety Interlocks]] and
+> publish to the arm path at the same time — see 03 - Safety Interlocks and
 > the suspension logic below.
 
 Sources: `README.md` "Camera and XR" / "Services" / "Troubleshooting"; the
@@ -39,7 +39,7 @@ The two submodules are declared in
 `teleoperation/vision_pro_control/.gitmodules` (URLs
 `github.com/unitreerobotics/xr_teleoperate` and `.../unitree_sim_isaaclab`).
 The related **semantic** teleop submodules are a separate topic — see
-[[21 - Semantic Teleoperation Pipeline]].
+21 - Semantic Teleoperation Pipeline.
 
 ## The launch command
 
@@ -64,7 +64,7 @@ input mode `hand`, display `immersive`, image server `192.168.123.164`.
 > shoulder roll, 22 shoulder yaw, 23 elbow pitch, 24 elbow roll, 25 wrist pitch,
 > 26 wrist yaw. Right wrist yaw = index **26** — the same index the dashboard's
 > guarded wrist path uses (see [[16 - Arm Control & Command Surfaces]] and
-> [[03 - Safety Interlocks]]).
+> 03 - Safety Interlocks).
 
 ## The Vuer / XR page (headset entry point)
 
@@ -103,7 +103,7 @@ to the robot. Modes (each toggles env vars on the service):
 
 Any other value → **400**. The switch does `daemon-reload`, `kill --signal=KILL
 xr-teleop.service`, then `restart --no-block`. Related locomotion coupling is in
-[[15 - Locomotion Control]].
+15 - Locomotion Control.
 
 ## XR IPC — home / straight commands
 
@@ -125,7 +125,7 @@ path is the legacy fallback (see [[16 - Arm Control & Command Surfaces]]).
 
 The XR teleop `--motion` process publishes to `rt/arm_sdk` continuously. If a
 **dashboard** arm session (arm replay, Home hold, or the planned
-[[06 - Person Tracking (CV Feature)|person tracking]]) also published, two
+person tracking) also published, two
 controllers would fight over the same joints. So every guarded arm entry point
 calls `_suspend_xr_motion_publishers()` **first**:
 
@@ -149,13 +149,13 @@ flowchart TD
 - Callers gate on `ok`: arm replay returns **409** if suspend failed
   (`server.py` ~L2717); Home hold returns **409** (~L4912); track start returns
   **503** (~L4273). This is **Layer 3** of the safety model —
-  [[03 - Safety Interlocks#Layer 3 — XR publisher suspension]].
+  03 - Safety Interlocks.
 
 > [!warning] Suspending XR ends the headset session
 > Because suspension `KILL`s `xr-teleop.service`, an operator wearing the headset
 > loses teleop the moment anyone presses Home / starts a replay / starts
 > tracking. This is intentional — only one owner of `rt/arm_sdk` at a time
-> ([[03 - Safety Interlocks#Layer 4 — Cancel-Event mutual exclusion]]).
+> (03 - Safety Interlocks).
 
 ## Home watchdog (`xr-home-watchdog.service`)
 
@@ -188,8 +188,8 @@ wherever teleop last commanded them.
 `XR_TELEOP_CERT` / `XR_TELEOP_KEY` (shared with TeleImager —
 [[12 - Camera & Video Streaming]]). The robot checkout is patched on install by
 the `deployment/patch_xr_*.py` / `.sh` scripts (hand input swap, dex-retargeting,
-head-tilt loco, image client/server, etc.). See [[22 - Deployment & Runtime Services]].
+head-tilt loco, image client/server, etc.). See 22 - Deployment & Runtime Services.
 
 ## Related
 
-[[03 - Safety Interlocks]] · [[06 - Person Tracking (CV Feature)]] · [[12 - Camera & Video Streaming]] · [[15 - Locomotion Control]] · [[16 - Arm Control & Command Surfaces]] · [[21 - Semantic Teleoperation Pipeline]] · [[22 - Deployment & Runtime Services]] · [[04 - HTTP API Reference]] · [[09 - Glossary]]
+[[12 - Camera & Video Streaming]] · [[16 - Arm Control & Command Surfaces]]

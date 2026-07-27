@@ -25,7 +25,7 @@ summary: Git workflow (commit+push every change to main → auto-deploys), the p
 Pushing to `main` **is** the deploy mechanism. The robot's
 `robot-telemetry-web-autoupdate.timer` pulls `origin/main` every ~60 s and, on
 change, re-runs the installer and restarts services (see
-[[02 - Network & Hosts#Auto-update timer (auto-deploy)]]).
+02 - Network & Hosts).
 
 ```mermaid
 flowchart LR
@@ -41,7 +41,7 @@ flowchart LR
 > Anything on `main` reaches the robot within ~60 s and restarts services. Ship
 > risky features **dark** behind default-off flags (`MCP_ENABLED=0`, planned
 > `TRACKING_ENABLED=0`) so an autoupdate deploy never silently opens a surface.
-> See [[05 - Chat & MCP Tools]] and [[06 - Person Tracking (CV Feature)]].
+> See 05 - Chat & MCP Tools and 06 - Person Tracking (CV Feature).
 
 ## Running tests
 
@@ -107,5 +107,4 @@ services manually (see README "Running on the Robot").
 
 ## Related
 
-[[02 - Network & Hosts]] · [[10 - Testing]] · [[03 - Safety Interlocks]] · [[06 - Person Tracking (CV Feature)]]
-</content>
+[[10 - Testing]]

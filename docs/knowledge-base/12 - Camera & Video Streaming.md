@@ -79,7 +79,7 @@ connects to `TELEIMAGER_HOST` (default `127.0.0.1`, `request_bgr=False`), polls
 `get_head_frame()` at ~25 Hz (`time.sleep(0.04)`), and only accepts frames that
 start with the JPEG magic `\xff\xd8`. On any exception it closes the client and
 retries after 1 s. Its `camera_topic` label is set to `teleimager/head`. See
-[[21 - Semantic Teleoperation Pipeline]] and [[11 - Teleoperation (Vision Pro & XR)]].
+21 - Semantic Teleoperation Pipeline and 11 - Teleoperation (Vision Pro & XR).
 
 ### ROS2 H.264 bridge
 
@@ -109,7 +109,7 @@ subprocess** (`sys.executable … --camera-bridge`) running `camera_bridge_main`
 > the subprocess exits, `camera_file_watcher` keeps reporting *"Waiting for
 > camera bridge frame."* indefinitely and the head feed goes dark until the
 > whole server is restarted. Restarting the server (see
-> [[22 - Deployment & Runtime Services]]) is currently the only recovery.
+> 22 - Deployment & Runtime Services) is currently the only recovery.
 
 ## USB webcam worker
 
@@ -155,7 +155,7 @@ the error, and `notify_all()` waiting stream loops.
 | `/camera.mjpg` | GET | Head-camera MJPEG stream |
 | `/webcam.mjpg` | GET | USB-webcam MJPEG stream |
 
-See the consolidated list in [[04 - HTTP API Reference]].
+See the consolidated list in 04 - HTTP API Reference.
 
 ## Startup, interface & disabling
 
@@ -172,11 +172,8 @@ See the consolidated list in [[04 - HTTP API Reference]].
 
 > [!note] The head camera also feeds person tracking
 > `TRACKING_CAMERA` (default `head`) selects which feed drives the sentry /
-> person-following detector — see [[06 - Person Tracking (CV Feature)]],
-> [[07 - Detection Service (YOLO)]] and [[19 - Sentry Mode & Head-Lock]]. The
+> person-following detector — see 06 - Person Tracking (CV Feature),
+> 07 - Detection Service (YOLO) and 19 - Sentry Mode & Head-Lock. The
 > `robot_telemetry_front_video_bridge` ROS2 node name and `/frontvideostream`
-> topic show up in the ROS graph tools ([[05 - Chat & MCP Tools]]).
+> topic show up in the ROS graph tools (05 - Chat & MCP Tools).
 
-## Related
-
-[[11 - Teleoperation (Vision Pro & XR)]] · [[21 - Semantic Teleoperation Pipeline]] · [[06 - Person Tracking (CV Feature)]] · [[07 - Detection Service (YOLO)]] · [[19 - Sentry Mode & Head-Lock]] · [[04 - HTTP API Reference]] · [[02 - Network & Hosts]] · [[22 - Deployment & Runtime Services]] · [[25 - Known Issues & Optimization Audit]] · [[17 - 3D URDF Viewer]] · [[09 - Glossary]]

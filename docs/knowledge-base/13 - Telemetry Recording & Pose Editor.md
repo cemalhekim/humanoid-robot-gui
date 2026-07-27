@@ -110,7 +110,7 @@ Each `telemetry_sample` carries (README §562):
 | `/api/recording/rename` | POST | Rename a recording (`name` + new `label`) |
 | `/api/recording/replay/robot` | POST | Replay planning / locked playback → [[14 - Recording Replay & Digital Twin]] |
 
-See the consolidated table in [[04 - HTTP API Reference]].
+See the consolidated table in 04 - HTTP API Reference.
 
 ## Named positions (rename → the `move` target set)
 
@@ -118,7 +118,7 @@ See the consolidated table in [[04 - HTTP API Reference]].
 counts as **`custom_named`** once its label is no longer in
 `AUTO_RECORDING_LABELS`. `named_positions()` maps each custom-named recording to
 a normalized position name (newest wins on collision) — **exactly the targets the
-chat/[[05 - Chat & MCP Tools|MCP]] `move` tool can drive to** and the dashboard
+chat/MCP `move` tool can drive to** and the dashboard
 "Move" button replays. So *renaming a saved pose is what turns it into a
 commandable position*. See [[14 - Recording Replay & Digital Twin#Closed-loop arm replay (the allowed path)]].
 
@@ -147,7 +147,7 @@ README §134:
 > `.sequence.json`) and, for the `move` tool, **renamed**. The pose editor itself
 > never publishes a motor command; the arm only moves through the guarded
 > closed-loop arm replay path — see [[14 - Recording Replay & Digital Twin]] and
-> [[16 - Arm Control & Command Surfaces]].
+> 16 - Arm Control & Command Surfaces.
 
 ## Safety posture
 
@@ -157,8 +157,8 @@ README §134:
 > — it needs controller-ownership checks, interpolation, velocity/torque limits,
 > emergency-stop supervision, and simulation validation first. The only motion a
 > recording can drive is the **closed-loop arm replay to a saved pose**
-> ([[14 - Recording Replay & Digital Twin]]). See [[03 - Safety Interlocks]].
+> ([[14 - Recording Replay & Digital Twin]]). See 03 - Safety Interlocks.
 
 ## Related
 
-[[14 - Recording Replay & Digital Twin]] · [[16 - Arm Control & Command Surfaces]] · [[17 - 3D URDF Viewer]] · [[18 - Body, IMU, Battery & Hand Telemetry]] · [[04 - HTTP API Reference]] · [[05 - Chat & MCP Tools]] · [[03 - Safety Interlocks]] · [[09 - Glossary]]
+[[14 - Recording Replay & Digital Twin]] · [[17 - 3D URDF Viewer]] · [[18 - Body, IMU, Battery & Hand Telemetry]]

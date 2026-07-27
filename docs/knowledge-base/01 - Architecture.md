@@ -9,16 +9,16 @@ summary: Components (server.py, static dashboard, DDS telemetry, arm_sdk control
 
 | Component | Where | Responsibility |
 | --- | --- | --- |
-| **`server.py`** | Robot PC (`/home/unitree/robot_telemetry_web`) | Python stdlib HTTP server + SSE, DDS subscribers, camera bridge, dashboard APIs, guarded command endpoints, closed-loop arm replay, chat/[[05 - Chat & MCP Tools\|MCP]] proxy |
+| **`server.py`** | Robot PC (`/home/unitree/robot_telemetry_web`) | Python stdlib HTTP server + SSE, DDS subscribers, camera bridge, dashboard APIs, guarded command endpoints, closed-loop arm replay, chat/MCP proxy |
 | **Static dashboard** | Served by `server.py` → browser | `index.html`, `app.js` (state/API/SSE/controls), `viewer.js` (Three.js URDF viewer), `styles.css`, `diagram.js` (.drawio viewer) |
 | **DDS telemetry** | Robot DDS network (`eth0`, `192.168.123.164`) | `rt/lowstate`, `rt/inspire/state` subscribed; `rt/arm_sdk`, `rt/lowcmd`, `rt/inspire/cmd` command topics |
 | **arm_sdk controller** | Inside `server.py` | 120 Hz closed-loop arm/waist pose controller (PID + gravity feed-forward) publishing to `rt/arm_sdk` — used by Home hold and arm replay; see [[03 - Safety Interlocks#arm_sdk joint set]] |
 | **TeleImager** | `teleimager.service` on robot PC | WebRTC head-camera server (`:60001`); frames also reach `server.py` for the MJPEG bridge |
 | **XR / Vuer teleop** | `xr-teleop.service` on robot PC | Vision Pro / WebXR teleoperation (`:8012`); can publish motion — suspended before dashboard motion (see [[03 - Safety Interlocks#XR publisher suspension]]) |
-| **AI host** | `10.2.125.3` | On-prem **Ollama** LLM (`:11434`), optional STT (`:8001`) / TTS (`:8002`), and the **YOLOv8n** [[07 - Detection Service (YOLO)\|detection service]] (`:8188`) |
+| **AI host** | `10.2.125.3` | On-prem **Ollama** LLM (`:11434`), optional STT (`:8001`) / TTS (`:8002`), and the **YOLOv8n** detection service (`:8188`) |
 | **Home Assistant** | `10.2.200.100` | Showcase Sonoff smart plug, proxied via `/api/smartplug/*` |
 
-See [[02 - Network & Hosts]] for exact addresses and ports.
+See 02 - Network & Hosts for exact addresses and ports.
 
 ## System diagram
 
@@ -94,7 +94,7 @@ flowchart TB
 
 - `teleimager.service` serves the WebRTC preview at `:60001`.
 - `server.py` bridges frames to `/camera.mjpg` (MJPEG) for the dashboard panel.
-- The planned [[06 - Person Tracking (CV Feature)|tracking loop]] reads the freshest head-camera JPEG and forwards it to the AI-host [[07 - Detection Service (YOLO)|YOLO service]].
+- The planned tracking loop reads the freshest head-camera JPEG and forwards it to the AI-host YOLO service.
 
 ## The `TelemetryStore` object
 
@@ -111,5 +111,4 @@ This is the coordination point for all the interlocks in [[03 - Safety Interlock
 
 ## Related
 
-[[00 - Project Overview]] · [[02 - Network & Hosts]] · [[03 - Safety Interlocks]] · [[04 - HTTP API Reference]] · [[06 - Person Tracking (CV Feature)]]
-</content>
+[[03 - Safety Interlocks]]

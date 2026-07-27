@@ -23,9 +23,9 @@ def has_risk_ack(payload):
 - Both `armed=true` **and** `i_understand_risk=true` are required (strict `is True`).
 - `command_wrist` (`/api/wrist/command`) returns **400** without it.
 - The dashboard mirrors this as two checkboxes on the wrist card; the planned
-  [[06 - Person Tracking (CV Feature)|tracking card]] reuses the same pattern and gates
+  tracking card reuses the same pattern and gates
   `/api/track/start` on `has_risk_ack` (**403** without it).
-- Chat/[[05 - Chat & MCP Tools|MCP]] actions carry the ack implicitly but are
+- Chat/MCP actions carry the ack implicitly but are
   double-gated by their feature flag **and** a required `confirm=true`.
 
 ## Layer 2 — `JOINT_LIMITS` clamping
@@ -52,7 +52,7 @@ against `JOINT_LIMITS` before publishing. Arm/waist limits (radians):
 | 26 | RightWristYaw | (-1.27, 1.27) |
 
 - `WRIST_LIMITS = (-1.2, 1.2)` for the standalone wrist path.
-- The [[06 - Person Tracking (CV Feature)|tracking module]] `tracking.py` uses a
+- The tracking module `tracking.py` uses a
   **tighter** `TRACK_LIMITS` envelope (e.g. RightShoulderYaw `(-1.0, 1.0)` vs
   JOINT_LIMITS `(-3.01, 2.66)`) — and `server.py` **re-clamps against
   `JOINT_LIMITS` anyway** (defense in depth).
@@ -131,7 +131,7 @@ simultaneously.
 ## Layer 6 — Staleness → neutral (fail-safe)
 
 The robot must **never keep aiming with dead data**. In the person-tracking
-design (see [[06 - Person Tracking (CV Feature)]]):
+design (see 06 - Person Tracking (CV Feature)):
 
 - Detection age **> 1.5 s** → ramp arm to the **neutral** template pose (velocity-bounded), state `stale`.
 - DDS `rt/lowstate` older than **0.5 s** → treat as stale, do **not** publish blindly.
@@ -139,7 +139,7 @@ design (see [[06 - Person Tracking (CV Feature)]]):
 - Setpoint changes rate-limited to **≤ 0.35 rad/s** at the tracking layer (below controller caps).
 
 The `TrackState` state machine (`tracking.py`) enforces phases
-`tracking → hold → stale → aborted`. See [[10 - Testing]] for the offline tests.
+`tracking → hold → stale → aborted`. See 10 - Testing for the offline tests.
 
 ## Command surface risk levels
 
@@ -162,9 +162,5 @@ The `TrackState` state machine (`tracking.py`) enforces phases
 
 There is **no auth** on the dashboard. Anyone who can reach the host can read
 state and hit endpoints. Use only on a trusted robot network. (MCP can add a
-bearer token via `MCP_TOKEN` — see [[05 - Chat & MCP Tools]].)
+bearer token via `MCP_TOKEN` — see 05 - Chat & MCP Tools.)
 
-## Related
-
-[[01 - Architecture]] · [[04 - HTTP API Reference]] · [[05 - Chat & MCP Tools]] · [[06 - Person Tracking (CV Feature)]] · [[10 - Testing]]
-</content>

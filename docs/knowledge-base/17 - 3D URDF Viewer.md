@@ -17,7 +17,7 @@ Sources: `static/viewer.js` (`RobotViewer`, `buildRobot`, `loadRobot`,
 `loadVisualMeshes`, `solveArmTo`, `armSelfCollision`, the 6-DOF panel methods,
 `animate`), `static/index.html` (`#robotCanvas`, importmap, lazy `import`),
 `static/app.js` (viewer wiring). The pose-editing surface is documented in
-[[13 - Telemetry Recording & Pose Editor]].
+13 - Telemetry Recording & Pose Editor.
 
 ## Vendored Three.js + model assets
 
@@ -52,7 +52,7 @@ recorder). Which models exist depends on the mode (`loadRobot`,
 | **reference** | faint **blue** `0x7fb8ff`, opacity 0.24 | compare viewer | Translucent reference silhouette (a loaded file frame) |
 | **trajectory** | **green** `0x1dff75`, opacity 0.62 | compare viewer | Simulated-trajectory ghost — hidden unless *Simulate Trajectory* is running |
 | **replay** | **red** `0xff3b30`, opacity 0.78 | compare viewer | The editable / replay **target** model (`robotRoot`, `jointGroups`) |
-| **proposal** (tone `trajectory`, green) | **green** `0x1dff75` | live viewer, lazily | LLM arm-pose-proposal twin — see [[20 - LLM Arm Pose Proposals & Mimic]] |
+| **proposal** (tone `trajectory`, green) | **green** `0x1dff75` | live viewer, lazily | LLM arm-pose-proposal twin — see 20 - LLM Arm Pose Proposals & Mimic |
 
 > [!note] The proposal ghost is built lazily
 > To avoid keeping a second robot's meshes/GPU buffers resident for a feature
@@ -112,7 +112,7 @@ CCD-style IK solver** (`solveArmTo`):
   (`emitIkStatus`: `error`, `limited`, `collision`, `blocked`, `reachable`),
   which the recorder UI renders as *IK solved · N cm* / *near limit* /
   *unreachable* / **Blocked: self-collision** — see
-  [[13 - Telemetry Recording & Pose Editor]].
+  13 - Telemetry Recording & Pose Editor.
 
 ### 6-DOF hand-target panel
 
@@ -137,8 +137,8 @@ per-joint sign flips, also collision-checked.
 > `recording-edited-pose` (a telemetry-shaped snapshot with the edited arm/torso
 > joints) for the recorder/app to save or replay — no motor command is ever
 > published from here. The arm only moves through the guarded closed-loop replay
-> path in [[16 - Arm Control & Command Surfaces]] and
-> [[14 - Recording Replay & Digital Twin]]. See [[03 - Safety Interlocks]].
+> path in 16 - Arm Control & Command Surfaces and
+> 14 - Recording Replay & Digital Twin. See 03 - Safety Interlocks.
 
 ## Live spatial evidence
 
@@ -146,9 +146,6 @@ The live viewer can produce a compact **spatial snapshot** of hand positions
 (`liveSpatialEvidence`): each hand's robot-ground coordinates plus coarse labels
 (forward/behind, left/right/center, high/mid/low). It optionally attaches a
 JPEG screenshot of the canvas (`toDataURL`) — this feeds the chatbot's
-digital-twin evidence and the shared-pose publish. See [[05 - Chat & MCP Tools]]
-and [[20 - LLM Arm Pose Proposals & Mimic]].
+digital-twin evidence and the shared-pose publish. See 05 - Chat & MCP Tools
+and 20 - LLM Arm Pose Proposals & Mimic.
 
-## Related
-
-[[13 - Telemetry Recording & Pose Editor]] · [[14 - Recording Replay & Digital Twin]] · [[16 - Arm Control & Command Surfaces]] · [[20 - LLM Arm Pose Proposals & Mimic]] · [[18 - Body, IMU, Battery & Hand Telemetry]] · [[12 - Camera & Video Streaming]] · [[03 - Safety Interlocks]] · [[25 - Known Issues & Optimization Audit]] · [[09 - Glossary]]

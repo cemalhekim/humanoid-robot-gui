@@ -9,8 +9,8 @@ Added 2026-07-27. The topbar **Mimic Mode** button (`#mimicModeToggle`, blue
 accent — the red one is [[19 - Sentry Mode & Head-Lock|Bullseye]]) makes the
 robot mirror the person in front of the webcam with **both arms**, live.
 
-Not to be confused with [[20 - LLM Arm Pose Proposals & Mimic|photo-pose
-mimic]], which copies one static pose from an attached image via the LLM.
+Not to be confused with [[20 - LLM Arm Pose Proposals & Mimic|photo-pose mimic]],
+which copies one static pose from an attached image via the LLM.
 
 ## How it works (chain)
 
@@ -90,7 +90,7 @@ First live attempt "did nothing"; two independent causes, both fixed:
 1. **No elbow/wrist keypoints reaching the robot** — the AI-host service
    was serving OLD code from a **rogue process squatting on :8188** (boot-era
    PID) while the freshly restarted systemd unit crash-looped on bind — the
-   exact [[25 - Known Issues & Optimization Audit|known gotcha]]. Diagnosis:
+   exact known gotcha. Diagnosis:
    hips present but elbows absent (hips come AFTER elbows in COCO order →
    impossible with new code), `ss -ltnp | grep 8188` PID ≠ `ExecMainPID`.
    Fix: kill the rogue PID, restart `person-detect.service`, verify the

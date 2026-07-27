@@ -183,7 +183,7 @@ robot-side LocoClient is not" available. Response codes at a glance:
   the coerced values plus `call_code`, `stop_code`, `motion_mode` and any
   `result`/`error`. `_set_loco_status` stamps `updated_at` on every change.
 
-See the consolidated route list in [[04 - HTTP API Reference]].
+See the consolidated route list in 04 - HTTP API Reference.
 
 ## How the dashboard drives it
 
@@ -211,8 +211,8 @@ duration, stand/swing height, target x/y/yaw, `continuous_move`,
 > long `duration`. The **live real-robot run history** of specific loco actions
 > is beyond what the code proves — validate on hardware under supervision before
 > trusting any single action. See [[03 - Safety Interlocks]] and
-> [[22 - Deployment & Runtime Services]].
+> 22 - Deployment & Runtime Services.
 
 ## Related
 
-[[03 - Safety Interlocks]] · [[16 - Arm Control & Command Surfaces]] · [[19 - Sentry Mode & Head-Lock]] · [[04 - HTTP API Reference]] · [[05 - Chat & MCP Tools]] · [[24 - Control Gains, PID & Shared Mechanisms]] · [[22 - Deployment & Runtime Services]] · [[09 - Glossary]]
+[[03 - Safety Interlocks]]

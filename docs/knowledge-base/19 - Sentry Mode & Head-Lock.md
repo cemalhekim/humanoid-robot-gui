@@ -107,7 +107,7 @@ Sentry state lives on `TelemetryStore` (`server.py` L2655–2671):
 | `/api/sentry/stream` | GET (SSE) | `text/event-stream`; subscribes to the shared worker and pushes each new `sentry_detect("webcam")` result as `data: {…}`; sends `: ping` keepalive comments when detection is stalled; unsubscribes on disconnect. |
 | `/api/sentry/mode` | POST | `set_sentry_mode({"on": bool})`. Non-bool body → 400. Turning off calls `request_track_stop()`. Returns `{ok, sentry_mode, tracking: track_snapshot()}`. |
 
-See the consolidated table in [[04 - HTTP API Reference]]. Note that
+See the consolidated table in 04 - HTTP API Reference. Note that
 `/api/sentry/mode` is registered in the POST allow-list and JSON-body list
 (`server.py` L7025, L7057); the two GET routes dispatch in `do_GET`.
 
@@ -268,7 +268,7 @@ L5363–5425). See [[03 - Safety Interlocks]].
 > operator must re-toggle Sentry on and re-click the lock. The `SENTRY_*`
 > calibration constants come from `Environment=` in
 > `robot-telemetry-web.service` — a restart is required between tweaks (spec
-> §Bring-up). See [[22 - Deployment & Runtime Services]].
+> §Bring-up). See 22 - Deployment & Runtime Services.
 
 > [!warning] Unverified on real hardware
 > Per the project memory, robot deploys have been **frozen since 2026-07-23**
@@ -290,11 +290,9 @@ L5363–5425). See [[03 - Safety Interlocks]].
   `associate`, `TrackState`). Sentry supplies the frames, the master switch,
   and the webcam-specific tuning/constant-Z wrapper; the math is unchanged.
 - [[12 - Camera & Video Streaming]] supplies the head and webcam JPEG caches
-  Sentry reads. [[16 - Arm Control & Command Surfaces]] owns the arm_sdk
+  Sentry reads. 16 - Arm Control & Command Surfaces owns the arm_sdk
   publish path the pointing session drives.
 
 ## Related
 
-[[06 - Person Tracking (CV Feature)]] · [[07 - Detection Service (YOLO)]] · [[03 - Safety Interlocks]] · [[04 - HTTP API Reference]] · [[12 - Camera & Video Streaming]] · [[16 - Arm Control & Command Surfaces]] · [[22 - Deployment & Runtime Services]] · [[24 - Control Gains, PID & Shared Mechanisms]] · [[05 - Chat & MCP Tools]] · [[09 - Glossary]]
-</content>
-</invoke>
+[[06 - Person Tracking (CV Feature)]] · [[07 - Detection Service (YOLO)]] · [[03 - Safety Interlocks]] · [[12 - Camera & Video Streaming]] · [[24 - Control Gains, PID & Shared Mechanisms]]

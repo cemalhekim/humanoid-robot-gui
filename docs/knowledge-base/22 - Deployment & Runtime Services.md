@@ -7,8 +7,8 @@ summary: The robot's user-level systemd unit set, the 60 s auto-deploy flow, the
 
 How the dashboard and its sibling services actually run on the robot PC, how a
 `git push` to `main` reaches the robot, and the helper scripts that keep it all
-alive. See [[08 - Development Workflow]] for the git side and
-[[02 - Network & Hosts]] for the host/port map.
+alive. See 08 - Development Workflow for the git side and
+02 - Network & Hosts for the host/port map.
 
 ## Overview
 
@@ -57,7 +57,7 @@ Both `robot-telemetry-web.service` and `teleimager.service` have an
 `192.168.123.x` address before starting, so DDS binds to the correct interface
 (a not-yet-ready `eth0` at boot otherwise leaves telemetry "disconnected" until
 a manual restart). See the Wi-Fi vs Ethernet warning in
-[[02 - Network & Hosts]].
+02 - Network & Hosts.
 
 `teleimager.service` adds two more `ExecStartPre` steps:
 
@@ -67,14 +67,14 @@ a manual restart). See the Wi-Fi vs Ethernet warning in
 - `deployment/patch_teleimager_config.py` — re-applies
   `head_camera.enable_zmq: true` on **every** start, because the `~/teleimager`
   checkout is reset by update flows and would otherwise revert (see
-  [[12 - Camera & Video Streaming]]).
+  12 - Camera & Video Streaming).
 
 ### Service dependencies
 
 - `xr-teleop.service`: `After=/Wants= teleimager.service inspire-hands.service`.
 - The watchdog and XR teleop units are the pair suspended before dashboard
   motion: `XR_MOTION_SERVICES = ("xr-home-watchdog.service", "xr-teleop.service")`
-  — see [[03 - Safety Interlocks]] and [[11 - Teleoperation (Vision Pro & XR)]].
+  — see 03 - Safety Interlocks and 11 - Teleoperation (Vision Pro & XR).
 
 ### The XR home watchdog
 
@@ -82,8 +82,8 @@ a manual restart). See the Wi-Fi vs Ethernet warning in
 (`ss -Htan`) plus the XR IPC state (`START` flag). When an armed, active session
 is lost it first POSTs `stop_move` to `/api/loco/command`, then after
 `--lost-seconds` POSTs `/api/robot/home` — both against the local dashboard on
-`127.0.0.1:8088`. See [[15 - Locomotion Control]] and
-[[04 - HTTP API Reference]].
+`127.0.0.1:8088`. See 15 - Locomotion Control and
+04 - HTTP API Reference.
 
 ## Auto-deploy flow (push to main → ~60 s → restart)
 
@@ -122,8 +122,8 @@ Key points, verified against the scripts:
 > [!warning] Consequence
 > Anything on `main` reaches the robot within ~60 s and restarts services. Ship
 > risky features **dark** behind default-off flags (e.g. `MCP_ENABLED=0`, the
-> planned `TRACKING_ENABLED=0`) — see [[08 - Development Workflow]],
-> [[05 - Chat & MCP Tools]], [[06 - Person Tracking (CV Feature)]].
+> planned `TRACKING_ENABLED=0`) — see 08 - Development Workflow,
+> 05 - Chat & MCP Tools, 06 - Person Tracking (CV Feature).
 
 ## The installer: `install_robot_services.sh`
 
@@ -145,7 +145,7 @@ These re-apply local modifications to the vendored `xr_teleoperate` checkout
 
 | Script | Notes |
 | --- | --- |
-| `patch_xr_teleop_launcher.sh` | XR teleop launcher — see [[11 - Teleoperation (Vision Pro & XR)]] |
+| `patch_xr_teleop_launcher.sh` | XR teleop launcher — see 11 - Teleoperation (Vision Pro & XR) |
 | `patch_xr_camera_config.py` | XR camera config |
 | `patch_xr_image_server.py` | XR image server |
 | `patch_xr_dex_retargeting.py` | Dex-retargeting for the hands |
@@ -173,7 +173,7 @@ Lives in `deployment/ai_host/` and runs on the AI host (`10.2.125.3`) under the
 
 The robot's tracking loop reaches it at `http://10.2.125.3:8188/detect`
 (`TRACKING_DETECT_URL`). Full contract in [[07 - Detection Service (YOLO)]] and
-[[06 - Person Tracking (CV Feature)]].
+06 - Person Tracking (CV Feature).
 
 ## Local dev helpers: `run_servers.py` / `kill_servers.py`
 
@@ -196,7 +196,7 @@ The robot's tracking loop reaches it at `http://10.2.125.3:8188/detect`
 - `--include-all-python` is broader ("python" + "server") — robot dashboard host
   only.
 
-See the Local development section of [[08 - Development Workflow]].
+See the Local development section of 08 - Development Workflow.
 
 ## macOS LaunchAgents (showcase tunnel)
 
@@ -214,4 +214,4 @@ Per its README these are a reference/backup copy; the live files stay in
 
 ## Related
 
-[[02 - Network & Hosts]] · [[08 - Development Workflow]] · [[03 - Safety Interlocks]] · [[11 - Teleoperation (Vision Pro & XR)]] · [[12 - Camera & Video Streaming]] · [[07 - Detection Service (YOLO)]] · [[23 - Smart Plug & Home Assistant]]
+[[07 - Detection Service (YOLO)]]

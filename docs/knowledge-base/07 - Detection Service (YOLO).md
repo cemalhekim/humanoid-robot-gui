@@ -7,11 +7,11 @@ summary: The YOLOv8n person-detection microservice on the AI host — HTTP contr
 
 A minimal HTTP microservice that runs **YOLOv8n** on the AI host GPU and returns
 normalized person bounding boxes. It is the detection half of the
-[[06 - Person Tracking (CV Feature)|person-pointing feature]]. Canonical source
+person-pointing feature. Canonical source
 lives in the repo at `deployment/ai_host/detect_service.py` (Task 2 of the plan —
 already landed).
 
-- **Host**: `10.2.125.3` (AI host / "AI-DEV") — see [[02 - Network & Hosts]].
+- **Host**: `10.2.125.3` (AI host / "AI-DEV") — see 02 - Network & Hosts.
 - **Port**: `8188` (`ThreadingHTTPServer` on `0.0.0.0`).
 - **Model**: `YOLO("yolov8n.pt")` (ultralytics), person class only (`classes=[0]`), `conf=0.4`.
 - **GPU**: NVIDIA A40, ~6.8–7 ms/frame steady state (first request ~2 s for model load).
@@ -53,7 +53,7 @@ Anything else on GET → `404 {"error": "not found"}`.
 Keypoints exposed (conf ≥ 0.3, normalized 0..1): `nose`, `l_eye`/`r_eye`,
 `l_ear`/`r_ear`, `l_shoulder`/`r_shoulder`, `l_elbow`/`r_elbow`,
 `l_wrist`/`r_wrist`, `l_hip`/`r_hip`. Elbows/wrists added + deployed
-2026-07-27 for [[27 - Mimic Mode (Live Motion)]]. `head` is the nose, else
+2026-07-27 for 27 - Mimic Mode (Live Motion). `head` is the nose, else
 eye midpoint, else ear midpoint (each at `DETECT_HEAD_CONF`, default 0.15);
 with `DETECT_REQUIRE_HEAD=1` (default) headless boxes are dropped at the
 source — that is how the robot's own arm is filtered out.
@@ -76,7 +76,7 @@ source — that is how the robot's own arm is filtered out.
 
 The tracking loop consumes `persons`; `associate()` in `tracking.py` picks the
 target (largest, then nearest-to-previous). See
-[[06 - Person Tracking (CV Feature)#Target selection policy (`associate`)]].
+06 - Person Tracking (CV Feature).
 
 > [!note] Implementation detail
 > The service normalizes coordinates itself (`x1/w`, `y1/h`, …) and computes
@@ -130,10 +130,6 @@ The robot reaches it at `http://10.2.125.3:8188/detect` (`TRACKING_DETECT_URL`).
 > [!info] Latency budget
 > The robot-side loop uses a **0.5 s** timeout per detect call. Over Wi-Fi the
 > expected round-trip with a real head-camera frame is well under 0.25 s
-> (bring-up step 1). If the service stalls, the [[03 - Safety Interlocks#Layer 6 — Staleness → neutral (fail-safe)|staleness fail-safe]]
+> (bring-up step 1). If the service stalls, the staleness fail-safe
 > ramps the arm to neutral and aborts after 10 consecutive failures.
 
-## Related
-
-[[06 - Person Tracking (CV Feature)]] · [[02 - Network & Hosts]] · [[03 - Safety Interlocks]]
-</content>

@@ -41,7 +41,7 @@ flowchart LR
    live model. Nothing has moved on the real robot.
 4. The operator rates it 👍/👎 (see feedback below). On approval the staged
    pose executes via the same **guarded closed-loop arm replay** as the `move`
-   tool — see [[03 - Safety Interlocks]] and [[13 - Telemetry Recording & Pose Editor]].
+   tool — see 03 - Safety Interlocks and [[13 - Telemetry Recording & Pose Editor]].
 
 > [!important] The preview is not a motion
 > A `propose_arm_pose` call **stages** a pose; it never publishes a motor
@@ -176,7 +176,7 @@ correctly before approving.
 | `/api/pose/feedback/data` | GET | Rollup JSON for the plot page (rows include `image`) |
 | `/api/pose/feedback/image/<name>` | GET | A collected reference image (basename-guarded) |
 | `/feedback`, `/feedback.html` | GET | The feedback plot page (with image thumbnails) |
-| `/api/chat` (`image`) | POST | Attach an image to ask about it / mimic — see [[04 - HTTP API Reference]] |
+| `/api/chat` (`image`) | POST | Attach an image to ask about it / mimic — see 04 - HTTP API Reference |
 
 | Flag / env | Default | Effect |
 | --- | --- | --- |
@@ -192,8 +192,8 @@ correctly before approving.
 `PoseFeedbackTest`, `MimicImageTest` (validation, vision-backend routing,
 fail-closed, graceful degradation). `tests/test_claude_bridge.py`:
 `VisionPathTest` (image extraction + stream-json command/parse). See
-[[10 - Testing]].
+10 - Testing.
 
 ## Related
 
-[[05 - Chat & MCP Tools]] · [[04 - HTTP API Reference]] · [[03 - Safety Interlocks]] · [[13 - Telemetry Recording & Pose Editor]] · [[01 - Architecture]] · [[10 - Testing]] · [[09 - Glossary]]
+[[05 - Chat & MCP Tools]] · [[13 - Telemetry Recording & Pose Editor]]

@@ -15,7 +15,7 @@ can invoke a small set of **guarded action tools**.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `LLM_ENABLED` | `1` | Enable the chat proxy |
-| `LLM_BASE_URL` | `http://10.2.125.3:11434` | Ollama endpoint ([[02 - Network & Hosts\|AI host]]) |
+| `LLM_BASE_URL` | `http://10.2.125.3:11434` | Ollama endpoint (AI host) |
 | `LLM_MODEL` | `qwen3:30b-a3b-instruct-2507-q4_K_M` | Model id |
 | `LLM_TEMPERATURE` | `0` | Deterministic — at 0.3, qwen3-30b intermittently skipped tool calls |
 | `LLM_MAX_TOKENS` | `1024` | Reply cap |
@@ -52,7 +52,7 @@ network traffic is the chat completion itself.
 | `ros2_topic_info` | read | Type + pub/sub counts of one topic (name-validated) |
 | `ros2_topic_echo` | read | Capture ONE message from a topic (name-validated, times out) |
 | `chill_motors` | **GUARDED ACTION** | Damp all motors (robot goes limp) — the dashboard "Release" |
-| `propose_arm_pose` | **STAGES A PREVIEW** | Propose joint angles → green digital-twin preview, awaiting approval (never moves on its own) — see [[20 - LLM Arm Pose Proposals & Mimic]] |
+| `propose_arm_pose` | **STAGES A PREVIEW** | Propose joint angles → green digital-twin preview, awaiting approval (never moves on its own) — see 20 - LLM Arm Pose Proposals & Mimic |
 | `move` | **GUARDED ACTION** | Move arms to a saved named position (or an approved proposed pose) via the validated arm replay |
 
 - `ros2_*` inputs pass `valid_ros2_name()` validation (rejects invalid names).
@@ -61,7 +61,7 @@ network traffic is the chat completion itself.
 - `move` requires `confirm=true` and a `position` from the **enum of saved
   named positions** (built live from `named_positions()`); it drives the same
   validated arm_sdk replay as the dashboard Move button (arms scope, closed-loop,
-  safety-checked — see [[03 - Safety Interlocks]]).
+  safety-checked — see 03 - Safety Interlocks).
 
 ### Tool feature flags
 
@@ -76,12 +76,12 @@ network traffic is the chat completion itself.
 | `ROS2_TOOL_TIMEOUT` | `6` | Timeout for `ros2` CLI tools |
 
 > [!note] `track_person` tool (live, dark by default)
-> The [[06 - Person Tracking (CV Feature)|tracking]] tool `track_person`
+> The tracking tool `track_person`
 > (`action: start|stop`, `confirm: true`) is now implemented in `server.py`
 > (`track_tool_spec` + `_tool_track`). It is double-gated: it only appears when
 > **both** `LLM_TOOL_TRACK_ENABLED` and `TRACKING_ENABLED` are on, and it refuses
 > unless `confirm=true`. MCP exposure is automatic. See
-> [[06 - Person Tracking (CV Feature)#Implementation status]].
+> 06 - Person Tracking (CV Feature).
 
 ## The MCP endpoint (`POST /mcp`)
 
@@ -131,7 +131,7 @@ vision-capable model (Opus). A toggle in the chat header selects it.
 | `CLAUDE_BRIDGE_MODEL` | `claude` | Model id passed to the bridge |
 | `CLAUDE_BRIDGE_TOKEN` | empty | Optional bearer for the bridge |
 
-The bridge is **required for the photo→pose [[20 - LLM Arm Pose Proposals & Mimic|mimic]] feature**:
+The bridge is **required for the photo→pose mimic feature**:
 the on-prem qwen is text-only, so any request carrying an image (`mimic_image`,
 or the twin render when `LLM_TWIN_VISION_ENABLED`) is routed to the bridge. The
 bridge delivers images to the CLI via `--input-format stream-json` — plain-text
@@ -148,7 +148,3 @@ stdin would drop them. Run it in the operator's own terminal so it persists.
 (60). TLS (`TLS_CERT`/`TLS_KEY`) is needed for the browser mic over a LAN IP
 (secure-context rule).
 
-## Related
-
-[[04 - HTTP API Reference]] · [[03 - Safety Interlocks]] · [[06 - Person Tracking (CV Feature)]] · [[10 - Testing]]
-</content>

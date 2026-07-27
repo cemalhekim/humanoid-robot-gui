@@ -13,7 +13,7 @@ summary: Every way the dashboard commands the H1-2 arms — the right-wrist test
 > slot, the per-joint **limits and gains**, the **XR-suspend** hand-off, and the
 > **forward kinematics** that give arm targets meaning. The heavy motion path —
 > the closed-loop arm replay to a pose — lives in
-> [[14 - Recording Replay & Digital Twin]]; this note is the surface map.
+> 14 - Recording Replay & Digital Twin; this note is the surface map.
 
 Sources: `server.py` (`command_wrist`, `stop_wrist`, `wrist_snapshot`,
 `request_home`, `request_straight`, `request_chill` / `chill_motors`,
@@ -30,10 +30,10 @@ Sources: `server.py` (`command_wrist`, `stop_wrist`, `wrist_snapshot`,
 | --- | --- | --- | --- | --- |
 | **Right-wrist test** | `POST /api/wrist/command` · `/api/wrist/stop` · `/api/wrist/status` | `rt/arm_sdk` **or** `rt/lowcmd` (per `control_path`) | `armed=true` + `i_understand_risk=true` | Only `RightWristYaw` (motor 26) |
 | **Posture presets** | `POST /api/robot/home` · `/straight` · `/chill` | home = arm_sdk replay; straight = XR IPC; chill = loco damp | See each below | Arms (home) / all motors (chill) |
-| **Closed-loop arm replay** | `POST /api/recording/replay/robot` (`execute_arm_sdk`) | `rt/arm_sdk` cascade | Full gate stack → [[14 - Recording Replay & Digital Twin]] | Both arms + (planned) waist |
+| **Closed-loop arm replay** | `POST /api/recording/replay/robot` (`execute_arm_sdk`) | `rt/arm_sdk` cascade | Full gate stack → 14 - Recording Replay & Digital Twin | Both arms + (planned) waist |
 
 All three ultimately publish a 35-slot `unitree_hg/msg/LowCmd` on either
-`rt/arm_sdk` or `rt/lowcmd`. See [[04 - HTTP API Reference]] for the consolidated
+`rt/arm_sdk` or `rt/lowcmd`. See 04 - HTTP API Reference for the consolidated
 endpoint table and [[03 - Safety Interlocks]] for the guards.
 
 ## The `rt/arm_sdk` publisher (shared substrate)
@@ -141,7 +141,7 @@ flowchart TD
 ### `/api/robot/home` — closed-loop move to the saved *home* pose
 
 `request_home()` looks up `named_positions()["home"]` (a renamed saved recording;
-see [[13 - Telemetry Recording & Pose Editor]]) and issues the **identical request
+see 13 - Telemetry Recording & Pose Editor) and issues the **identical request
 body** the dashboard Move button and chat `move` tool send:
 `execute_arm_sdk=True, command_scope="arms", closed_loop=True,
 hold_after_convergence=True, position_tolerance_rad=0.01, replay_response=2.5`. So
@@ -157,7 +157,7 @@ the DDS path is unavailable (**503**), it falls back to the legacy XR teleop
 > does not go through `plan_replay_control_path` / `execute_arm_sdk_replay`, so the
 > arm_sdk validation gates do **not** apply to it. It returns **202** on success or
 > 502/504 if the XR process rejects/times out. See
-> [[11 - Teleoperation (Vision Pro & XR)]].
+> 11 - Teleoperation (Vision Pro & XR).
 
 ### `/api/robot/chill` — damp all motors (safety release)
 
@@ -168,8 +168,8 @@ hold is dropped — otherwise the onboard controller would snap the arms toward 
 at full gains just before going limp. It then stops person-tracking and the wrist
 loop (both re-assert arm authority otherwise). Requires the H1 loco client (**503**
 if absent). `chill_motors()` = `request_chill({armed:True, i_understand_risk:True})`
-and is the chat/MCP `chill_motors` tool ([[05 - Chat & MCP Tools]]). See
-[[03 - Safety Interlocks]] and [[15 - Locomotion Control]].
+and is the chat/MCP `chill_motors` tool (05 - Chat & MCP Tools). See
+[[03 - Safety Interlocks]] and 15 - Locomotion Control.
 
 ## XR-suspend interplay
 
@@ -180,22 +180,22 @@ sequence (`server.py` ~L4190) runs `systemctl --user stop` + `kill --signal=KILL
 on `XR_MOTION_SERVICES`, then `pkill`/`pgrep` on `XR_TELEOP_PROCESS_PATTERN`, and
 reports `remaining_processes`. `RTW_SKIP_XR_SUSPEND=1` (or missing `systemctl`)
 skips it. This is the interlock that keeps two publishers off `rt/arm_sdk` at once.
-See [[11 - Teleoperation (Vision Pro & XR)]].
+See 11 - Teleoperation (Vision Pro & XR).
 
 ## The `move` path (chat / MCP → arm_sdk replay)
 
-The chat/MCP `move` tool (`_tool_move`, [[05 - Chat & MCP Tools]]) is a thin
+The chat/MCP `move` tool (`_tool_move`, 05 - Chat & MCP Tools) is a thin
 wrapper over the same arm_sdk replay:
 
 - `move {position:"home", confirm:true}` → `named_positions()["home"]` → replay.
 - `move {position:"proposed", confirm:true}` → the pending LLM
-  [[20 - LLM Arm Pose Proposals & Mimic|arm pose proposal]] is serialized to an
+  arm pose proposal is serialized to an
   ephemeral `.pose.json` snapshot (`command_scope="arms"`) and run through the
   **identical** validated pipeline. `confirm:true` is mandatory; a stale
   `proposal_id` is refused; proposals expire after `ARM_PROPOSAL_TTL_SECONDS=300`.
 
 Both feed `request_robot_replay(execute_arm_sdk=True, …)` → the gate stack in
-[[14 - Recording Replay & Digital Twin]].
+14 - Recording Replay & Digital Twin.
 
 ## Kinematics behind arm targets
 
@@ -204,8 +204,8 @@ in the pelvis frame (`x=forward, y=left, z=up`, meters). It is used two ways:
 
 1. **Pose-editor IK / preview** — the 3D viewer drags hand balls through
    `LEFT_ARM_IK_JOINTS` / `RIGHT_ARM_IK_JOINTS`; the wrist is kept **out** of the
-   position IK chain and set directly (see [[13 - Telemetry Recording & Pose Editor]],
-   [[17 - 3D URDF Viewer]]).
+   position IK chain and set directly (see 13 - Telemetry Recording & Pose Editor,
+   17 - 3D URDF Viewer).
 2. **LLM arm guide** — `arm_pose_guide()` probes each joint via FK to describe hand
    motion and emits **canonical anchor poses** for the LLM to interpolate from
    (right-arm angles; mirror Roll/Yaw sign for the left arm):
@@ -222,8 +222,8 @@ in the pelvis frame (`x=forward, y=left, z=up`, meters). It is used two ways:
 > [!note] Elbow convention
 > `Elbow 0` = the natural ~90° bend (forearm points forward at the zero pose);
 > `Elbow +1.57` = arm fully **straight**. Unspecified joints keep their current
-> angle. See [[20 - LLM Arm Pose Proposals & Mimic]] and
-> [[21 - Semantic Teleoperation Pipeline]].
+> angle. See 20 - LLM Arm Pose Proposals & Mimic and
+> 21 - Semantic Teleoperation Pipeline.
 
 > [!warning] Reference C++ example is a placeholder
 > `docs/reference/h1_2_arm_sdk_dds_example.cpp` is present but **empty (0 bytes)** —
@@ -239,10 +239,10 @@ in the pelvis frame (`x=forward, y=left, z=up`, meters). It is used two ways:
 > move) are the only surfaces that publish arm motor commands. Both require an
 > explicit risk acknowledgement or the full replay gate stack, both suspend XR
 > first, and neither uses `rt/lowcmd` for the arms (the `lowcmd` leg path is
-> locked — see [[14 - Recording Replay & Digital Twin]]). `straight` is an XR IPC
+> locked — see 14 - Recording Replay & Digital Twin). `straight` is an XR IPC
 > pause, and `chill` is a damp/release. See [[03 - Safety Interlocks]] and
-> [[25 - Known Issues & Optimization Audit]].
+> 25 - Known Issues & Optimization Audit.
 
 ## Related
 
-[[14 - Recording Replay & Digital Twin]] · [[13 - Telemetry Recording & Pose Editor]] · [[24 - Control Gains, PID & Shared Mechanisms]] · [[20 - LLM Arm Pose Proposals & Mimic]] · [[21 - Semantic Teleoperation Pipeline]] · [[11 - Teleoperation (Vision Pro & XR)]] · [[15 - Locomotion Control]] · [[17 - 3D URDF Viewer]] · [[03 - Safety Interlocks]] · [[04 - HTTP API Reference]] · [[05 - Chat & MCP Tools]] · [[09 - Glossary]]
+[[24 - Control Gains, PID & Shared Mechanisms]] · [[03 - Safety Interlocks]]

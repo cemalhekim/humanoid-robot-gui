@@ -826,6 +826,25 @@ class PoseFeedbackTest(unittest.TestCase):
         self.assertTrue(result["ok"], result)
         return result["proposal_id"]
 
+    def test_attached_image_is_collected_into_the_dataset(self) -> None:
+        img_dir = server.Path(self.tmp.name) / "images"
+        with mock.patch.object(server, "POSE_FEEDBACK_IMAGE_DIR", img_dir):
+            jpeg = "data:image/jpeg;base64," + base64.b64encode(b"jpegdata").decode()
+            self.store.last_chat_image = jpeg          # attached this turn
+            pid = self._propose("copy this pose")
+            self.store.last_chat_image = None          # cleared after the turn
+            self.store._append_pose_feedback_row(pid, "liked")
+            self.store._append_pose_feedback_row(pid, "executed")
+            saved = list(img_dir.glob("*.jpg"))
+            self.assertEqual(len(saved), 1, "image saved exactly once per proposal")
+            rows = self._rows()
+            self.assertTrue(all(r["image_path"] == f"images/{pid}.jpg" for r in rows), rows)
+
+    def test_no_image_leaves_image_path_blank(self) -> None:
+        pid = self._propose("raise your hand")
+        self.store._append_pose_feedback_row(pid, "liked")
+        self.assertEqual(self._rows()[-1]["image_path"], "")
+
     def test_verdict_row_records_request_joints_and_comment(self) -> None:
         proposal_id = self._propose()
         status, response = self.store.record_pose_feedback(
@@ -1119,10 +1138,30 @@ class MimicImageTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(response.get("backend"), "claude")
         self.assertEqual(captured["base_url"], "http://192.0.2.9:8399")
-        self.assertIn("POSE MIMIC REQUEST", captured["messages"][0]["content"])
+        # General image prompt + the conditional pose-mimic guidance (tools on).
+        self.assertIn("ATTACHED AN IMAGE", captured["messages"][0]["content"])
+        self.assertIn("propose_arm_pose", captured["messages"][0]["content"])
         content = captured["messages"][-1]["content"]
         self.assertEqual(content[0], {"type": "text", "text": "bunu yap"})
         self.assertEqual(content[1]["image_url"]["url"], self.jpeg)
+
+    def test_general_image_field_routes_to_vision_backend(self) -> None:
+        captured = {}
+
+        def fake_call_llm(messages, tools=None, base_url=None, model=None, auth_token=None):
+            captured["messages"] = messages
+            return 200, {"ok": True, "reply": "I see two people."}
+
+        with mock.patch.object(server, "CLAUDE_BRIDGE_URL", "http://192.0.2.9:8399"), \
+             mock.patch.object(server, "call_llm", side_effect=fake_call_llm):
+            # The generalized `image` field (not just `mimic_image`) works.
+            status, response = self._chat({
+                "messages": [{"role": "user", "content": "what do you see?"}],
+                "image": self.png,
+            })
+        self.assertEqual(status, 200)
+        self.assertEqual(response.get("backend"), "claude")
+        self.assertEqual(captured["messages"][-1]["content"][1]["image_url"]["url"], self.png)
 
     def test_mimic_without_vision_backend_fails_closed(self) -> None:
         with mock.patch.object(server, "CLAUDE_BRIDGE_URL", ""):

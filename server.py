@@ -61,9 +61,12 @@ EPHEMERAL_REPLAY_DIR = RECORDINGS_DIR / ".ephemeral"
 # Untracked runtime data; fed back into the LLM prompt as learned examples.
 FEEDBACK_DIR = APP_DIR / "feedback"
 POSE_FEEDBACK_CSV = FEEDBACK_DIR / "pose_feedback.csv"
+# Attached reference images collected alongside the labeled feedback rows, keyed
+# by proposal_id. Live copy on the robot; synced to the tracked repo dir like the CSV.
+POSE_FEEDBACK_IMAGE_DIR = FEEDBACK_DIR / "images"
 POSE_FEEDBACK_FIELDS = [
     "timestamp_iso", "proposal_id", "event", "request_text",
-    "joints_json", "semantics_json", "comment",
+    "joints_json", "semantics_json", "comment", "image_path",
 ]
 POSE_FEEDBACK_COMMENT_MAX = 500
 LEARNED_FEEDBACK_LIKED_MAX = 8
@@ -74,6 +77,7 @@ LEARNED_FEEDBACK_DISLIKED_MAX = 4
 # data/ is regenerated from the live file on every sync, so even a lost local
 # commit self-heals on the next push.
 FEEDBACK_REPO_CSV = APP_DIR / "data" / "pose_feedback.csv"
+FEEDBACK_REPO_IMAGE_DIR = APP_DIR / "data" / "images"
 FEEDBACK_SYNC_PUSH_URL = "git@github.com:cemalhekim/humanoid-robot-gui.git"
 # Sync runs only where this write-access deploy key exists (the robot).
 FEEDBACK_SYNC_KEY = Path(os.environ.get(
@@ -1293,6 +1297,7 @@ def pose_feedback_dataset() -> dict[str, Any]:
             "request": request,
             "joints": joints_short,
             "comment": (row.get("comment") or "").strip(),
+            "image": (row.get("image_path") or "").strip(),
         })
         bucket = per_request.setdefault(request, {"liked": 0, "disliked": 0, "executed": 0})
         bucket[event] += 1
@@ -2923,6 +2928,9 @@ class TelemetryStore:
                 "request_text": self.last_chat_user_text,
                 "requested": dict(targets),
                 "semantics": semantic,
+                # Reference image attached to this turn (if any) — saved into the
+                # labeled dataset when the operator files feedback on this proposal.
+                "image": self.last_chat_image,
             }
             while len(self.proposal_meta) > 20:
                 self.proposal_meta.pop(next(iter(self.proposal_meta)))
@@ -2951,10 +2959,47 @@ class TelemetryStore:
     def last_chat_user_text(self, value: str) -> None:
         self._chat_local.request_text = value
 
+    @property
+    def last_chat_image(self) -> str | None:
+        """Image (data URL) attached to the current chat turn, thread-local so a
+        proposal made this turn can carry it into the labeled feedback data."""
+        return getattr(self._chat_local, "chat_image", None)
+
+    @last_chat_image.setter
+    def last_chat_image(self, value: str | None) -> None:
+        self._chat_local.chat_image = value
+
+    @staticmethod
+    def _save_feedback_image(proposal_id: str, image: Any) -> str:
+        """Decode a data-URL image and write it under feedback/images once per
+        proposal. Returns the repo-relative path (e.g. `images/pose-123.jpg`) or
+        "" when there is no usable image. Never raises."""
+        if not isinstance(image, str) or not image.startswith("data:image/"):
+            return ""
+        try:
+            header, _, encoded = image.partition(",")
+            media = header[len("data:image/"):].split(";")[0].lower()
+            ext = {"jpeg": "jpg", "jpg": "jpg", "png": "png", "webp": "webp"}.get(media)
+            if not ext or not encoded:
+                return ""
+            # proposal_id is server-generated (`pose-<int>`); still sanitize.
+            safe = "".join(c for c in proposal_id if c.isalnum() or c in "_-")[:64] or "pose"
+            name = f"{safe}.{ext}"
+            dest = POSE_FEEDBACK_IMAGE_DIR / name
+            if not dest.exists():
+                POSE_FEEDBACK_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(base64.b64decode(encoded, validate=True))
+            return f"images/{name}"
+        except (ValueError, binascii.Error, OSError):
+            return ""
+
     def _append_pose_feedback_row(self, proposal_id: str, event: str, comment: str = "") -> None:
         with self.proposal_lock:
             meta = dict(self.proposal_meta.get(proposal_id) or {})
         FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
+        # Save the attached reference image (if any) alongside the labeled row,
+        # once per proposal; the CSV records its repo-relative path.
+        image_path = self._save_feedback_image(proposal_id, meta.get("image"))
         row = {
             "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "proposal_id": proposal_id,
@@ -2964,6 +3009,7 @@ class TelemetryStore:
             "semantics_json": json.dumps(meta.get("semantics", {}), ensure_ascii=False,
                                          separators=(",", ":")),
             "comment": _csv_safe(comment),
+            "image_path": image_path,
         }
         # Serialize header-check + write: concurrent handler threads could both
         # see the file absent and write the header twice, or interleave rows.
@@ -3028,6 +3074,15 @@ class TelemetryStore:
     def _sync_feedback_git(self) -> dict[str, Any]:
         FEEDBACK_REPO_CSV.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(POSE_FEEDBACK_CSV, FEEDBACK_REPO_CSV)
+        # Mirror the collected reference images into the tracked data dir so they
+        # ride the same commit as the CSV rows that reference them.
+        if POSE_FEEDBACK_IMAGE_DIR.exists():
+            FEEDBACK_REPO_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+            for img in POSE_FEEDBACK_IMAGE_DIR.iterdir():
+                if img.is_file():
+                    dest = FEEDBACK_REPO_IMAGE_DIR / img.name
+                    if not dest.exists():
+                        shutil.copyfile(img, dest)
         env = {
             **os.environ,
             "GIT_SSH_COMMAND": f"ssh -i {FEEDBACK_SYNC_KEY} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new",
@@ -3045,13 +3100,18 @@ class TelemetryStore:
         if (APP_DIR / ".git" / "rebase-merge").exists() or (APP_DIR / ".git" / "rebase-apply").exists():
             git("rebase", "--abort")
 
-        git("add", "--", str(FEEDBACK_REPO_CSV))
-        if git("diff", "--cached", "--quiet", "--", str(FEEDBACK_REPO_CSV)).returncode == 0:
+        # Only include the image dir once it exists, or `git add` a missing
+        # pathspec would error and wedge the (hardened) CSV sync.
+        sync_paths = [str(FEEDBACK_REPO_CSV)]
+        if FEEDBACK_REPO_IMAGE_DIR.exists():
+            sync_paths.append(str(FEEDBACK_REPO_IMAGE_DIR))
+        git("add", "--", *sync_paths)
+        if git("diff", "--cached", "--quiet", "--", *sync_paths).returncode == 0:
             return {"ok": True, "pushed": False, "reason": "no new rows"}
         commit = git(
             "-c", "user.name=H1-2 Robot", "-c", "user.email=robot@humanoid-robot-gui",
             "commit", "-m", "Pose feedback data update (auto-sync from robot)",
-            "--", str(FEEDBACK_REPO_CSV),
+            "--", *sync_paths,
         )
         if commit.returncode != 0:
             git("reset", "--hard", "HEAD")  # unstage; leave no divergence
@@ -4791,16 +4851,19 @@ class TelemetryStore:
 
         # Pose-mimic request: the operator attached a reference photo and wants the
         # robot to copy the person's arm pose. The on-prem model is text-only, so a
-        # mimic request is ALWAYS routed to the vision-capable Claude bridge —
-        # regardless of the operator's backend toggle — or refused if it is absent.
-        mimic_image = parse_mimic_image(payload.get("mimic_image"))
-        if mimic_image:
+        # An attached image (`image`, or the legacy `mimic_image`) is ALWAYS routed
+        # to the vision-capable Claude bridge — regardless of the operator's backend
+        # toggle — because the on-prem model is text-only. Refused if the bridge is
+        # absent. The model answers whatever the operator asks about the image; a
+        # pose is only proposed when they ask it to copy/replicate the pose.
+        chat_image = parse_mimic_image(payload.get("image") or payload.get("mimic_image"))
+        if chat_image:
             if not CLAUDE_BRIDGE_URL:
                 return 503, {
                     "ok": False,
-                    "error": "Pose mimic needs a vision-capable backend: the on-prem model "
-                             "can't read images. Configure CLAUDE_BRIDGE_URL (the Claude bridge "
-                             "on the operator's machine) and try again.",
+                    "error": "Reading an image needs a vision-capable backend: the on-prem model "
+                             "can't see. Configure CLAUDE_BRIDGE_URL (the Claude bridge on the "
+                             "operator's machine) and try again.",
                 }
             backend, base_url, model = "claude", CLAUDE_BRIDGE_URL, CLAUDE_BRIDGE_MODEL
             auth_token = CLAUDE_BRIDGE_TOKEN or None
@@ -4864,6 +4927,7 @@ class TelemetryStore:
             if cached_pose.get("available"):
                 twin_text = json.dumps(cached_pose["actual"], ensure_ascii=False, separators=(",", ":"))
         self.last_chat_user_text = cleaned[-1]["content"] if isinstance(cleaned[-1]["content"], str) else ""
+        self.last_chat_image = chat_image
         behavior = (LLM_TOOLS_PROMPT + "\n\n" + LLM_ARM_GUIDE) if LLM_TOOLS_ENABLED else LLM_READONLY_PROMPT
         if LLM_TOOLS_ENABLED:
             learned = learned_pose_feedback_text()
@@ -4888,25 +4952,29 @@ class TelemetryStore:
                 "Do not answer with coordinates unless asked. Use the screenshot only as a visual "
                 "cross-check; report disagreement instead of guessing."
             )
-        if mimic_image and LLM_TOOLS_ENABLED:
+        if chat_image:
             system += (
-                "\n\nPOSE MIMIC REQUEST: the operator attached a REFERENCE PHOTO and wants the "
-                "robot to REPLICATE the person's arm pose. Study the arms in the image — for each "
-                "arm read the shoulder, elbow and hand: is it raised or lowered, opened out to the "
-                "side, reached forward, bent at the elbow, or crossing the body? Then call "
-                "propose_arm_pose ONCE with H1-2 joint angles that reproduce that pose as closely "
-                "as the robot's kinematics allow. Match sides from the ROBOT'S OWN frame (its right "
-                "arm is the one on the robot's right; a person facing the camera is mirrored). "
-                "Prefer a canonical anchor when the pose clearly matches one (arms up / forward / "
-                "T-pose / crossed). Describe semantic_pose as natural human body language. If only "
-                "one arm is clearly posed, move only that arm; keep the other at home."
+                "\n\nThe operator ATTACHED AN IMAGE to their latest message. Look at it and "
+                "answer their question about it directly and concisely."
             )
-        # Attach images to the final user turn. The mimic photo (the pose to copy)
-        # comes first so it reads as the primary subject; the twin render, if the
-        # vision flag is on, follows as a self-view cross-check.
+            if LLM_TOOLS_ENABLED:
+                system += (
+                    " If — and ONLY if — they ask you to COPY, REPLICATE, MIMIC or MATCH the arm "
+                    "pose in the image, call propose_arm_pose ONCE with H1-2 joint angles that "
+                    "reproduce it: for each arm read the shoulder, elbow and hand (raised or "
+                    "lowered, opened out sideways, reached forward, bent, or crossing the body), "
+                    "match sides from the ROBOT'S OWN frame (its right arm is on the robot's right; "
+                    "a person facing the camera is mirrored), and prefer a canonical anchor when "
+                    "the pose clearly matches one (arms up / forward / T-pose / crossed). If only "
+                    "one arm is clearly posed, move only that arm. Otherwise just answer about the "
+                    "image — do NOT propose a pose."
+                )
+        # Attach images to the final user turn. The operator's photo comes first so
+        # it reads as the primary subject; the twin render, if the vision flag is on,
+        # follows as a self-view cross-check.
         image_blocks: list[dict[str, Any]] = []
-        if mimic_image:
-            image_blocks.append({"type": "image_url", "image_url": {"url": mimic_image}})
+        if chat_image:
+            image_blocks.append({"type": "image_url", "image_url": {"url": chat_image}})
         if twin_image and LLM_TWIN_VISION_ENABLED:
             image_blocks.append({"type": "image_url", "image_url": {"url": twin_image}})
         if image_blocks:
@@ -6921,6 +6989,16 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.motion_active_snapshot())
         elif request_path == "/api/pose/feedback/data":
             self._send_json(pose_feedback_dataset())
+        elif request_path.startswith("/api/pose/feedback/image/"):
+            # Serve a collected reference image (basename only — no traversal).
+            name = os.path.basename(unquote(request_path.removeprefix("/api/pose/feedback/image/")))
+            path = (POSE_FEEDBACK_IMAGE_DIR / name).resolve()
+            if path.parent != POSE_FEEDBACK_IMAGE_DIR.resolve() or not path.is_file():
+                self.send_error(HTTPStatus.NOT_FOUND, "Image not found")
+                return
+            ctype = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(
+                path.suffix.lstrip(".").lower(), "application/octet-stream")
+            self._send_file(path, ctype)
         elif request_path == "/api/camera":
             self._send_json(self.store.camera_snapshot())
         elif request_path == "/api/track/status":

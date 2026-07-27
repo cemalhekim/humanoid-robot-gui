@@ -2836,7 +2836,7 @@ function setupChat() {
 
   async function send() {
     // A photo with no typed message still sends: default to a mimic request.
-    const text = els.chatInput.value.trim() || (pendingMimicImage ? "Replicate this arm pose." : "");
+    const text = els.chatInput.value.trim() || (pendingMimicImage ? "What is in this image?" : "");
     if (!text || busy) return;
     // Detach the photo up front so a resend doesn't ship it twice; restored on error.
     const mimicImage = pendingMimicImage;
@@ -2868,7 +2868,7 @@ function setupChat() {
           messages: window_,
           twin_evidence: twinEvidence,
           backend: chatBackend(),
-          ...(mimicImage ? { mimic_image: mimicImage } : {}),
+          ...(mimicImage ? { image: mimicImage } : {}),
         }),
       });
       const payload = await response.json();

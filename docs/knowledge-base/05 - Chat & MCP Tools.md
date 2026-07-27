@@ -52,7 +52,8 @@ network traffic is the chat completion itself.
 | `ros2_topic_info` | read | Type + pub/sub counts of one topic (name-validated) |
 | `ros2_topic_echo` | read | Capture ONE message from a topic (name-validated, times out) |
 | `chill_motors` | **GUARDED ACTION** | Damp all motors (robot goes limp) — the dashboard "Release" |
-| `move` | **GUARDED ACTION** | Move arms to a saved named position via the validated arm replay |
+| `propose_arm_pose` | **STAGES A PREVIEW** | Propose joint angles → green digital-twin preview, awaiting approval (never moves on its own) — see [[12 - LLM Arm Pose Proposals & Mimic]] |
+| `move` | **GUARDED ACTION** | Move arms to a saved named position (or an approved proposed pose) via the validated arm replay |
 
 - `ros2_*` inputs pass `valid_ros2_name()` validation (rejects invalid names).
 - `chill_motors` requires `confirm=true`; only fire on an explicit
@@ -116,6 +117,25 @@ function specs, executes via `tools/call`):
 python3 tools/mcp_agent.py --token <token> \
   -p "What is the robot's locomotion status right now?"
 ```
+
+## Claude bridge backend (optional, vision-capable)
+
+Besides the default on-prem qwen, `/api/chat` accepts a `backend` of `claude`,
+which proxies to a **Claude Code bridge** (`tools/claude_bridge.py`) running on
+the operator's machine — same context, same tools, same guards, but a
+vision-capable model (Opus). A toggle in the chat header selects it.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `CLAUDE_BRIDGE_URL` | empty | Bridge base URL (e.g. `http://10.2.100.81:8399`); empty = backend unavailable |
+| `CLAUDE_BRIDGE_MODEL` | `claude` | Model id passed to the bridge |
+| `CLAUDE_BRIDGE_TOKEN` | empty | Optional bearer for the bridge |
+
+The bridge is **required for the photo→pose [[12 - LLM Arm Pose Proposals & Mimic|mimic]] feature**:
+the on-prem qwen is text-only, so any request carrying an image (`mimic_image`,
+or the twin render when `LLM_TWIN_VISION_ENABLED`) is routed to the bridge. The
+bridge delivers images to the CLI via `--input-format stream-json` — plain-text
+stdin would drop them. Run it in the operator's own terminal so it persists.
 
 ## Voice (optional, off by default)
 

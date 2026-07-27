@@ -37,6 +37,10 @@ deployment for the **Unitree H1-2** humanoid robot.
 | [[08 - Development Workflow]] | Git workflow, auto-deploy, production gate |
 | [[09 - Glossary]] | H1-2, DDS, arm_sdk, retargeting, EMA, FOV, bbox, ... |
 | [[10 - Testing]] | Test suite layout, offline vs on-robot coverage |
+| [[11 - Teleoperation (Vision Pro & XR)]] | Vision Pro / WebXR teleop service |
+| [[12 - LLM Arm Pose Proposals & Mimic]] | Propose → green twin → 👍/👎 → move; photo→pose mimic; feedback CSV + plots |
+| [[13 - Telemetry Recording & Pose Editor]] | Recording schema, `/api/recording/*`, 6-DOF pose editor |
+| [[22 - Deployment & Runtime Services]] | systemd units, auto-update timer, runtime services |
 
 ## Key facts at a glance
 
@@ -45,6 +49,7 @@ deployment for the **Unitree H1-2** humanoid robot.
 - **Pushing to `main` auto-deploys to the robot** via a 60 s systemd timer — see [[08 - Development Workflow]].
 - **On-prem LLM** (Ollama `qwen3:30b-a3b-instruct-2507-q4_K_M`) drives a guarded chat/[[05 - Chat & MCP Tools|MCP]] tool surface.
 - **New CV feature**: right-arm points at the detected person — see [[06 - Person Tracking (CV Feature)]] and [[07 - Detection Service (YOLO)]].
+- **LLM arm-pose proposals + photo mimic**: ask (or attach a photo) → green digital-twin preview → 👍/👎 → guarded move — see [[12 - LLM Arm Pose Proposals & Mimic]].
 
 ## Repository landmarks
 

@@ -29,6 +29,10 @@ extracted directly from `server.py` (dispatch around lines 5487–5618). There i
 | `/api/smartplug/status` | JSON | Home Assistant plug state (`on`/`off`/`unavailable`) |
 | `/api/diagrams` , `/api/diagrams/<name>` | JSON | `.drawio` docs for the diagram viewer |
 | `/api/chat/status` | JSON | Chat assistant availability/config (see [[05 - Chat & MCP Tools]]) |
+| `/api/spatial/pose` | JSON | Shared digital-twin spatial pose (hand coords) — see [[12 - LLM Arm Pose Proposals & Mimic]] |
+| `/api/motion/active` | JSON | Is a replay/track running? (gates deploy restarts) |
+| `/api/pose/feedback/data` | JSON | Pose-feedback rollup for the plot page |
+| `/feedback` , `/feedback.html` | HTML | Pose-feedback plot page (liked/disliked/executed) |
 | `/events` | **SSE** | State stream, ~every 100 ms |
 | `/camera.mjpg` | MJPEG | Camera bridge stream |
 | `/models/...` | Static | URDF, XML, STL model assets |
@@ -75,7 +79,9 @@ does **not** publish motor commands.
 
 | Path | Method | Purpose |
 | --- | --- | --- |
-| `/api/chat` | POST | Command Center LLM chat + tool loop (see [[05 - Chat & MCP Tools]]) |
+| `/api/chat` | POST | Command Center LLM chat + tool loop; optional `mimic_image` (photo→pose, see [[12 - LLM Arm Pose Proposals & Mimic]]) and `backend` (`default`/`claude`) |
+| `/api/spatial/pose` | POST | Update the shared digital-twin spatial pose |
+| `/api/pose/feedback` | POST | Record a pose verdict (`proposal_id`, `event`, `comment`); 👍 also executes the staged pose |
 | `/api/stt` | POST | Speech-to-text proxy (off unless `LLM_STT_ENABLED`) |
 | `/api/tts` | POST | Text-to-speech proxy (off unless `LLM_TTS_ENABLED`) |
 | `/api/smartplug/toggle` | POST | Toggle the Sonoff plug via Home Assistant |

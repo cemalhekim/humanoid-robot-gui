@@ -67,7 +67,13 @@ change (auto-retry with the note). Every event is appended to a CSV:
 - Live file: `feedback/pose_feedback.csv` (untracked, on the robot).
 - Auto-synced to the tracked repo copy `data/pose_feedback.csv` via a deploy key.
 - Columns: `timestamp_iso, proposal_id, event(liked|disliked|executed),
-  request_text, joints_json, semantics_json, comment`.
+  request_text, joints_json, semantics_json, comment, image_path`.
+- **Attached images are collected too:** if the proposal came from a message with
+  an attached image, the image is saved to `feedback/images/<proposal_id>.<ext>`
+  when feedback is filed (`_save_feedback_image`), referenced by `image_path`, and
+  mirrored to the tracked `data/images/` in the **same commit** as the CSV rows.
+  Served to the plot page via `GET /api/pose/feedback/image/<name>`.
+  > [!warning] Collected images publish to the public repo, same as the CSV.
 
 Liked proposals become imitable examples in the system prompt; disliked ones
 become explicit anti-examples (`learned_pose_feedback_text()`), so the assistant
@@ -83,11 +89,18 @@ learns this operator's preferences over time.
 - **`GET /api/pose/feedback/data`** — read-only JSON rollup backing the page
   (`pose_feedback_dataset()`): `summary`, `top_requests`, `timeline`, `rows`.
 
-## Pose mimic (attach a photo → copy the pose)
+## General image chat + pose mimic (attach a photo)
 
-The operator can attach a **reference photo** in chat and ask the robot to
-replicate the person's arm pose. It flows through the *same* proposal loop, so
-the preview + approve-gate + feedback all apply unchanged.
+The chat accepts **any image** — attach one and ask anything about it ("what do
+you see?", "is this plugged in?"). Because the on-prem qwen is text-only, any
+message carrying an image is routed to the **vision-capable Claude bridge**
+(Opus, a VLM — see [[05 - Chat & MCP Tools#Claude bridge backend (optional, vision-capable)]]).
+Sent as the `image` field (legacy `mimic_image` still accepted).
+
+**Pose mimic is one thing it can do:** *only* when the operator asks to copy /
+replicate / mimic / match the pose, the model calls `propose_arm_pose` and it
+flows through the *same* proposal loop (preview + approve-gate + feedback all
+apply unchanged). Otherwise it just answers about the image.
 
 - Front-end (`static/app.js`): an attach-photo button downscales the image
   client-side to a bounded JPEG and sends it as `mimic_image`; a preview chip
@@ -116,9 +129,10 @@ the preview + approve-gate + feedback all apply unchanged.
 | `/api/spatial/pose` | GET/POST | Shared digital-twin spatial pose (hand coords) |
 | `/api/motion/active` | GET | Is a replay/track running? (gates deploy restarts) |
 | `/api/pose/feedback` | POST | Record a verdict (`proposal_id`, `event`, `comment`); 👍 also executes |
-| `/api/pose/feedback/data` | GET | Rollup JSON for the plot page |
-| `/feedback`, `/feedback.html` | GET | The feedback plot page |
-| `/api/chat` (`mimic_image`) | POST | A mimic request — see [[04 - HTTP API Reference]] |
+| `/api/pose/feedback/data` | GET | Rollup JSON for the plot page (rows include `image`) |
+| `/api/pose/feedback/image/<name>` | GET | A collected reference image (basename-guarded) |
+| `/feedback`, `/feedback.html` | GET | The feedback plot page (with image thumbnails) |
+| `/api/chat` (`image`) | POST | Attach an image to ask about it / mimic — see [[04 - HTTP API Reference]] |
 
 | Flag / env | Default | Effect |
 | --- | --- | --- |

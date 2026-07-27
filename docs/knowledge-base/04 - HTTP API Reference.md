@@ -31,6 +31,7 @@ extracted directly from `server.py` (dispatch around lines 5487–5618). There i
 | `/api/spatial/pose` | JSON | Shared digital-twin spatial pose (hand coords) — see [[20 - LLM Arm Pose Proposals & Mimic]] |
 | `/api/motion/active` | JSON | Is a replay/track running? (gates deploy restarts) |
 | `/api/pose/feedback/data` | JSON | Pose-feedback rollup for the plot page |
+| `/api/pose/feedback/image/<name>` | image | A collected reference image (basename-guarded) |
 | `/feedback` , `/feedback.html` | HTML | Pose-feedback plot page (liked/disliked/executed) |
 | `/events` | **SSE** | State stream, ~5 Hz (`_send_events` sleeps 0.2 s) |
 | `/camera.mjpg` | MJPEG | Camera bridge stream |
@@ -83,7 +84,7 @@ does **not** publish motor commands.
 
 | Path | Method | Purpose |
 | --- | --- | --- |
-| `/api/chat` | POST | Command Center LLM chat + tool loop; optional `mimic_image` (photo→pose, see [[20 - LLM Arm Pose Proposals & Mimic]]) and `backend` (`default`/`claude`) |
+| `/api/chat` | POST | Command Center LLM chat + tool loop; optional `image` (attach an image to ask about it / mimic — routed to the vision bridge, see [[20 - LLM Arm Pose Proposals & Mimic]]; legacy `mimic_image` accepted) and `backend` (`default`/`claude`) |
 | `/api/spatial/pose` | POST | Update the shared digital-twin spatial pose |
 | `/api/pose/feedback` | POST | Record a pose verdict (`proposal_id`, `event`, `comment`); 👍 also executes the staged pose |
 | `/api/stt` | POST | Speech-to-text proxy (off unless `LLM_STT_ENABLED`) |

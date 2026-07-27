@@ -13,7 +13,7 @@ def fake_response(payload: dict) -> mock.MagicMock:
     return resp
 
 
-class SentryDetectTests(unittest.TestCase):
+class BullseyeDetectTests(unittest.TestCase):
     def make_store(self):
         return server.TelemetryStore(domain=0, robot_host="127.0.0.1")
 
@@ -105,7 +105,7 @@ class ShrinkJpegTests(unittest.TestCase):
         self.assertEqual(server.shrink_jpeg_for_detection(encoded.tobytes()), encoded.tobytes())
 
 
-class SentryStreamTests(unittest.TestCase):
+class BullseyeStreamTests(unittest.TestCase):
     def make_store(self):
         return server.TelemetryStore(domain=0, robot_host="127.0.0.1")
 
@@ -129,7 +129,7 @@ class SentryStreamTests(unittest.TestCase):
         self.assertEqual(seq, 0)
 
 
-class SentryRouteTests(unittest.TestCase):
+class BullseyeRouteTests(unittest.TestCase):
     def test_route_dispatched(self):
         with open("server.py") as fh:
             src = fh.read()
@@ -137,7 +137,7 @@ class SentryRouteTests(unittest.TestCase):
         self.assertIn('"/api/sentry/stream"', src)
 
 
-class SentryFrontendContractTests(unittest.TestCase):
+class BullseyeFrontendContractTests(unittest.TestCase):
     def test_ui_wiring_present(self):
         with open("static/index.html") as fh:
             html = fh.read()

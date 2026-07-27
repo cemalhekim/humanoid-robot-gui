@@ -4305,7 +4305,8 @@ button:not(:disabled):active { transform: scale(0.96); }
 .float-cam-body > img { flex: 1 1 0; min-height: 0; width: 100%; object-fit: cover; }
 .float-cam-body > img.hidden { display: none; }
 
-/* ---- Sentry Mode: passive person-detection overlay ---- */
+/* ---- Bullseye Mode (formerly Sentry Mode): passive person-detection overlay.
+   Class names keep the original `sentry` name. ---- */
 .sentry-toggle {
   display: inline-flex;
   align-items: center;
@@ -4335,6 +4336,8 @@ button:not(:disabled):active { transform: scale(0.96); }
   color: #fff;
   box-shadow: 0 0 14px rgba(230, 0, 0, 0.45);
 }
+/* Mimic Mode: placeholder toggle, not wired to anything yet */
+.mimic-mode-toggle { border-color: rgba(120, 170, 255, 0.55); }
 .float-cam-body { position: relative; }
 .float-cam-overlay {
   position: absolute;
@@ -4347,7 +4350,7 @@ button:not(:disabled):active { transform: scale(0.96); }
 .float-cam-sentry { color: #ff8080; font-size: 11px; letter-spacing: 0.06em; }
 .float-cam-sentry.hidden { display: none; }
 
-/* ---- Sentry Mode Phase 2: head-tracked lock buttons ---- */
+/* ---- Bullseye Mode Phase 2: head-tracked lock buttons ---- */
 .float-cam-targets {
   position: absolute;
   left: 0;

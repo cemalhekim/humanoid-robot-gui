@@ -78,7 +78,7 @@ class TrackingGatingTests(unittest.TestCase):
         self.assertEqual(status, 503)  # no wrist_publisher offline
 
     def test_start_refused_while_sentry_mode_off(self):
-        # Sentry Mode is the operator's master switch (2026-07-22): with it
+        # Bullseye Mode is the operator's master switch (2026-07-22): with it
         # off, tracking must never start — from any caller.
         store = self.make_store()
         old = server.TRACKING_ENABLED
@@ -90,7 +90,7 @@ class TrackingGatingTests(unittest.TestCase):
         finally:
             server.TRACKING_ENABLED = old
         self.assertEqual(status, 409)
-        self.assertIn("Sentry", response["error"])
+        self.assertIn("Bullseye", response["error"])
 
     def test_sentry_mode_off_stops_session_and_shows_in_snapshot(self):
         store = self.make_store()
@@ -246,7 +246,7 @@ class TrackPayloadTests(unittest.TestCase):
             server.parse_track_payload({"closed_loop": 1})
 
 
-class SentryConstantHeightTests(unittest.TestCase):
+class BullseyeConstantHeightTests(unittest.TestCase):
     def test_horizontal_targets_share_center_hand_z(self):
         mapper = server.tracking.PointingMapper(
             fov_yaw_rad=server.SENTRY_FOV_YAW,
@@ -318,8 +318,8 @@ class SentryConstantHeightTests(unittest.TestCase):
         )
 
 
-class SentryArmingTests(unittest.TestCase):
-    """Sentry ON enables prediction; an explicit person lock starts motion."""
+class BullseyeArmingTests(unittest.TestCase):
+    """Bullseye ON enables prediction; an explicit person lock starts motion."""
 
     def make_store(self):
         return server.TelemetryStore(domain=0, robot_host="127.0.0.1")
@@ -374,7 +374,7 @@ class SentryArmingTests(unittest.TestCase):
 
 class HomeMoveTests(unittest.TestCase):
     """The Home button and every physical tracking-session end send the arm
-    to the saved home pose; Sentry prediction may remain armed."""
+    to the saved home pose; Bullseye prediction may remain armed."""
 
     def make_store(self):
         return server.TelemetryStore(domain=0, robot_host="127.0.0.1")
@@ -482,7 +482,7 @@ class TrackingLoopTests(unittest.TestCase):
         publisher.Write.assert_called_once()
 
 
-class SentryUiSourceTests(unittest.TestCase):
+class BullseyeUiSourceTests(unittest.TestCase):
     def test_toggle_state_comes_from_server_not_localstorage(self):
         # The dashboard toggle must render the SERVER's sentry flag; the old
         # localStorage-as-truth push caused UI-on/server-off drift (2026-07-23).
@@ -548,7 +548,7 @@ class TrackToolTests(unittest.TestCase):
         self.assertTrue(result["ok"])
 
 
-class SentryStreamWorkerTests(unittest.TestCase):
+class BullseyeStreamWorkerTests(unittest.TestCase):
     def _wait(self, predicate, timeout=2.0):
         import time as _t
         end = _t.time() + timeout

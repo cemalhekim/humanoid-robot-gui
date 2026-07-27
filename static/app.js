@@ -3490,8 +3490,9 @@ connectEvents();
   render();
 })();
 
-// ---- Sentry Mode: head-tracked glowing lock buttons on the webcam feed ----
-(function setupSentry() {
+// ---- Bullseye Mode (formerly Sentry Mode): head-tracked glowing lock buttons
+// on the webcam feed. Internal ids/endpoints keep the original `sentry` name. ----
+(function setupBullseye() {
   const toggle = document.getElementById("sentryToggle");
   const panel = document.getElementById("floatCam");
   const counter = document.getElementById("floatCamSentry");
@@ -3529,7 +3530,7 @@ connectEvents();
     return trackActionQueue;
   };
 
-  // The server owns the Sentry arming flag. Sentry ON enables prediction;
+  // The server owns the Bullseye arming flag. Bullseye ON enables prediction;
   // physical motion begins only after an explicit person-lock request.
   let serverOn = false;
   const isOn = () => serverOn;
@@ -3875,10 +3876,10 @@ connectEvents();
     if (count !== null) {
       const lockState = pointing ? " • POINTING"
         : (lockedId !== null ? " • LOCKED" : (pendingLock ? " • RE-LOCK…" : ""));
-      counter.textContent = `Sentry: ${count}${lockState}`;
+      counter.textContent = `Bullseye: ${count}${lockState}`;
       counter.title = trackError || lastError || "People detected on the webcam feed";
     } else {
-      counter.textContent = "Sentry: —";
+      counter.textContent = "Bullseye: —";
       counter.title = lastError;
     }
   };
@@ -3908,7 +3909,7 @@ connectEvents();
     es.onmessage = (event) => {
       try { handleResult(JSON.parse(event.data)); } catch {}
     };
-    es.onerror = () => { lastError = "Sentry stream reconnecting…"; renderCounter(); };
+    es.onerror = () => { lastError = "Bullseye stream reconnecting…"; renderCounter(); };
   };
   const closeStream = () => {
     if (es) { es.close(); es = null; }

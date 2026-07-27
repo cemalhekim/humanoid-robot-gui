@@ -2940,31 +2940,56 @@ class TelemetryStore:
                 no_live_telemetry = True
         landmarks = ARM_KINEMATICS.landmarks(full)
         semantic = semantic_arm_pose({side: {"landmarks_robot_m": landmarks[side]} for side in landmarks})
-        proposal = {
-            "id": f"pose-{time.monotonic_ns()}",
-            "created_at": time.time(),
-            "requested": dict(targets),
-            "targets": full,
-        }
+        # Idempotent re-propose: staging the SAME pose again (e.g. the visual
+        # self-check re-confirming) keeps the existing id and just refreshes the
+        # TTL — so the operator's feedback card stays valid and no duplicate
+        # near-identical proposals pile up.
+        with self.proposal_lock:
+            current = self.arm_proposal
+            if (
+                current is not None
+                # A 👎-retry is always a DISTINCT proposal, even when numerically
+                # identical — the chain must record that the correction changed
+                # nothing rather than silently collapsing into its parent.
+                and not self.last_chat_retry_of
+                and len(current.get("targets") or {}) == len(full)
+                and all(abs(current["targets"].get(k, 1e9) - v) <= 5e-4 for k, v in full.items())
+            ):
+                current["created_at"] = time.time()
+                proposal = current
+            else:
+                proposal = None
+        reused = proposal is not None
+        if proposal is None:
+            proposal = {
+                "id": f"pose-{time.monotonic_ns()}",
+                "created_at": time.time(),
+                "requested": dict(targets),
+                "targets": full,
+            }
         with self.proposal_lock:
             self.arm_proposal = proposal
-            parent_id = self.last_chat_retry_of or ""
-            parent_meta = self.proposal_meta.get(parent_id) if parent_id else None
-            # Meta survives execution/clear so late feedback can still be filed.
-            self.proposal_meta[proposal["id"]] = {
-                "request_text": self.last_chat_user_text,
-                "requested": dict(targets),
-                "semantics": semantic,
-                # Reference image attached to this turn (if any) — saved into the
-                # labeled dataset when the operator files feedback on this proposal.
-                # A retry without its own attachment inherits the parent's image so
-                # the whole correction chain stays tied to the same reference.
-                "image": self.last_chat_image or (parent_meta or {}).get("image"),
-                # Chain link: which proposal this one corrects (👎 retry), if any.
-                "parent_id": parent_id,
-            }
-            while len(self.proposal_meta) > 20:
-                self.proposal_meta.pop(next(iter(self.proposal_meta)))
+            # A reused (identical) proposal keeps its ORIGINAL meta — especially
+            # the operator's request text; an automated self-check turn must not
+            # relabel the learning data with its synthetic message.
+            if not reused or proposal["id"] not in self.proposal_meta:
+                parent_id = self.last_chat_retry_of or ""
+                parent_meta = self.proposal_meta.get(parent_id) if parent_id else None
+                # Meta survives execution/clear so late feedback can still be filed.
+                self.proposal_meta[proposal["id"]] = {
+                    "request_text": self.last_chat_user_text,
+                    "requested": dict(targets),
+                    "semantics": semantic,
+                    # Reference image attached to this turn (if any) — saved into the
+                    # labeled dataset when the operator files feedback on this proposal.
+                    # A retry without its own attachment inherits the parent's image so
+                    # the whole correction chain stays tied to the same reference.
+                    "image": self.last_chat_image or (parent_meta or {}).get("image"),
+                    # Chain link: which proposal this one corrects (👎 retry), if any.
+                    "parent_id": parent_id,
+                }
+                while len(self.proposal_meta) > 20:
+                    self.proposal_meta.pop(next(iter(self.proposal_meta)))
         result: dict[str, Any] = {
             "ok": True,
             "moved_nothing": True,
@@ -5073,9 +5098,9 @@ class TelemetryStore:
                 "screenshot is the live 3D viewer — the SOLID model is the robot's actual pose, the "
                 "TRANSPARENT GREEN ghost is your staged proposal. Compare the green pose against the "
                 "operator's ORIGINAL request earlier in this conversation. If it clearly matches, "
-                "reply in ONE short sentence that the preview is verified and ask for approval. If it "
-                "does not match, call propose_arm_pose ONCE with corrected angles and briefly say "
-                "what you fixed. NEVER call move in this turn."
+                "reply in ONE short sentence that the preview is verified and ask for approval — and "
+                "do NOT call any tool. Only if it does NOT match, call propose_arm_pose ONCE with "
+                "corrected angles and briefly say what you fixed. NEVER call move in this turn."
             )
         # Attach images to the final user turn. The operator's photo comes first so
         # it reads as the primary subject; the twin render follows as a self-view
@@ -5320,35 +5345,32 @@ class TelemetryStore:
             proposal = self.arm_proposal
         wanted_id = arguments.get("proposal_id")
         fresh = proposal is not None and (time.time() - proposal["created_at"]) <= ARM_PROPOSAL_TTL_SECONDS
-        if not fresh:
-            # Revive-by-reference: a thumbs-up card names the EXACT proposal the
-            # operator reviewed, so a TTL expiry (operator got distracted) must not
-            # dead-end their approval. Restage the same pose from its surviving
-            # meta — explicit joints as reviewed (already clamped), the rest from
-            # the CURRENT live pose — under the same id with a fresh TTL, then
-            # execute normally. A plain 'okay' with no id keeps the strict expiry:
-            # the model must re-propose so the operator re-reviews a fresh preview.
-            meta = None
-            if isinstance(wanted_id, str) and wanted_id:
-                with self.proposal_lock:
-                    meta = self.proposal_meta.get(wanted_id)
+        explicit = isinstance(wanted_id, str) and bool(wanted_id)
+        if explicit and (not fresh or wanted_id != proposal["id"]):
+            # A feedback card names the EXACT pose the operator reviewed, so their
+            # click is unambiguous approval of THAT pose — whether the staged one
+            # expired (operator got distracted) or was superseded meanwhile (e.g.
+            # the visual self-check or another chat turn re-staged). Restage the
+            # named pose from its surviving meta (explicit joints as reviewed,
+            # re-clamped; the rest follow the CURRENT live pose) and execute it.
+            with self.proposal_lock:
+                meta = self.proposal_meta.get(wanted_id)
             requested = dict((meta or {}).get("requested") or {})
             if not requested:
                 return {
                     "ok": False,
-                    "error": "No pending pose proposal (it may have expired). Call propose_arm_pose first, "
-                             "let the operator approve the green preview, then retry.",
+                    "error": "That proposal is no longer known (too old). Ask for the pose again to "
+                             "get a fresh preview.",
                 }
             proposal = self._restage_proposal(wanted_id, requested)
-        # When the caller names a specific proposal (the thumbs-up card), refuse
-        # to execute if the LLM has since re-proposed — otherwise clicking 'like'
-        # on an old card would move the robot to a pose the operator never saw
-        # (the green preview always shows the CURRENT arm_proposal).
-        elif isinstance(wanted_id, str) and wanted_id and wanted_id != proposal["id"]:
+        elif not fresh:
+            # A bare 'okay' with no id keeps the strict expiry: the reference is
+            # ambiguous, so the model must re-propose and the operator re-reviews
+            # a fresh green preview.
             return {
                 "ok": False,
-                "error": "The staged pose changed since you reviewed it. Check the current green "
-                         "preview and approve that one.",
+                "error": "No pending pose proposal (it may have expired). Call propose_arm_pose first, "
+                         "let the operator approve the green preview, then retry.",
             }
         # Same inline-snapshot path the 3D editor's Move button uses: the ephemeral
         # .pose.json goes through plan_replay_control_path + execute_arm_sdk_replay,

@@ -61,14 +61,17 @@ flowchart LR
 > silently on error, and is forbidden from calling `move`. Only the operator's
 > explicit approval ever executes.
 
-> [!note] Expiry + revive-by-reference
-> A staged proposal expires after `ARM_PROPOSAL_TTL_SECONDS` (300 s). An
-> approval that **names the exact proposal** (the 👍 card sends `proposal_id`)
-> revives it after expiry — `_restage_proposal` rebuilds the same reviewed
-> joints (re-clamped; unspecified joints follow the current live pose) under
-> the same id with a fresh TTL, then executes normally. A bare chat "okay"
-> with no id keeps the strict expiry and the model must re-propose, so an
-> operator can never execute a stale pose they didn't explicitly reference.
+> [!note] Expiry, supersession + revive-by-reference
+> A staged proposal expires after `ARM_PROPOSAL_TTL_SECONDS` (300 s), and any
+> new staging supersedes it. An approval that **names the exact proposal** (the
+> 👍 card sends `proposal_id`) always executes THAT reviewed pose — whether it
+> expired or was superseded (e.g. by the visual self-check): `_restage_proposal`
+> rebuilds the reviewed joints (re-clamped; unspecified joints follow the
+> current live pose) under the same id with a fresh TTL. A bare chat "okay"
+> with no id keeps the strict expiry and the model must re-propose. Re-proposing
+> **identical** targets is idempotent (same id, TTL refreshed, original meta
+> kept) so self-checks can't invalidate cards — except on a 👎-retry, which is
+> always a distinct chained proposal even if numerically unchanged.
 
 ## Canonical anchors (prompt hardening)
 

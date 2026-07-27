@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 import base64
 import unittest
 from unittest import mock
@@ -952,17 +953,42 @@ class PoseFeedbackTest(unittest.TestCase):
         row = self._rows()[0]
         self.assertTrue(row["comment"].startswith("'="))
 
-    def test_liked_execute_refuses_when_proposal_superseded(self) -> None:
-        first = self._propose("raise your hands")
+    def test_liked_execute_runs_the_reviewed_pose_even_when_superseded(self) -> None:
+        # The card names the exact pose the operator reviewed; a newer staged
+        # proposal (another turn, or the visual self-check) must not dead-end
+        # that approval — the REVIEWED pose is restaged and executed.
+        self.store.last_chat_user_text = "raise your hands"
+        first = self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightShoulderPitch": -2.2}}
+        )["proposal_id"]
         self._propose("cross your arms")  # supersedes arm_proposal
-        with mock.patch.object(self.store, "request_robot_replay") as replay:
+        with mock.patch.object(
+            self.store, "request_robot_replay", return_value=(200, {"ok": True})
+        ) as replay:
             status, response = self.store.record_pose_feedback(
                 {"proposal_id": first, "verdict": "liked", "execute": True}
             )
         self.assertEqual(status, 200)
-        self.assertFalse(response["move"]["ok"])
-        self.assertIn("changed", response["move"]["error"])
-        replay.assert_not_called()
+        self.assertTrue(response["move"]["ok"], response)
+        q_by_index = {m["index"]: m["q"] for m in replay.call_args[0][0]["snapshot"]["motors"]}
+        self.assertEqual(q_by_index[20], -2.2)  # the FIRST (reviewed) pose ran
+
+    def test_identical_repropose_keeps_id_and_refreshes_ttl(self) -> None:
+        # The visual self-check may re-stage the same pose while confirming; that
+        # must not invalidate the operator's card or spawn duplicate proposals.
+        first = self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightElbow": 1.5}}
+        )["proposal_id"]
+        self.store.arm_proposal["created_at"] -= 100
+        again = self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightElbow": 1.5}}
+        )["proposal_id"]
+        self.assertEqual(again, first)  # same id — card stays valid
+        self.assertGreater(self.store.arm_proposal["created_at"], time.time() - 5)  # TTL refreshed
+        different = self.store.run_chat_tool(
+            "propose_arm_pose", {"joints": {"RightElbow": 0.2}}
+        )["proposal_id"]
+        self.assertNotEqual(different, first)  # a real change still gets a new id
 
     def test_last_chat_user_text_is_thread_local(self) -> None:
         import threading as _t

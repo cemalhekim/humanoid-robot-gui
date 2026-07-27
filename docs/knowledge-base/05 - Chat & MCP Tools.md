@@ -52,7 +52,7 @@ network traffic is the chat completion itself.
 | `ros2_topic_info` | read | Type + pub/sub counts of one topic (name-validated) |
 | `ros2_topic_echo` | read | Capture ONE message from a topic (name-validated, times out) |
 | `chill_motors` | **GUARDED ACTION** | Damp all motors (robot goes limp) — the dashboard "Release" |
-| `propose_arm_pose` | **STAGES A PREVIEW** | Propose joint angles → green digital-twin preview, awaiting approval (never moves on its own) — see [[12 - LLM Arm Pose Proposals & Mimic]] |
+| `propose_arm_pose` | **STAGES A PREVIEW** | Propose joint angles → green digital-twin preview, awaiting approval (never moves on its own) — see [[20 - LLM Arm Pose Proposals & Mimic]] |
 | `move` | **GUARDED ACTION** | Move arms to a saved named position (or an approved proposed pose) via the validated arm replay |
 
 - `ros2_*` inputs pass `valid_ros2_name()` validation (rejects invalid names).
@@ -131,7 +131,7 @@ vision-capable model (Opus). A toggle in the chat header selects it.
 | `CLAUDE_BRIDGE_MODEL` | `claude` | Model id passed to the bridge |
 | `CLAUDE_BRIDGE_TOKEN` | empty | Optional bearer for the bridge |
 
-The bridge is **required for the photo→pose [[12 - LLM Arm Pose Proposals & Mimic|mimic]] feature**:
+The bridge is **required for the photo→pose [[20 - LLM Arm Pose Proposals & Mimic|mimic]] feature**:
 the on-prem qwen is text-only, so any request carrying an image (`mimic_image`,
 or the twin render when `LLM_TWIN_VISION_ENABLED`) is routed to the bridge. The
 bridge delivers images to the CLI via `--input-format stream-json` — plain-text

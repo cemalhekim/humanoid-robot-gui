@@ -3,7 +3,7 @@ tags: [feature, llm, pose, kinematics, digital-twin, vision, mimic, feedback, cl
 summary: The LLM arm-pose proposal loop (propose → green digital-twin preview → 👍/👎 feedback → approve → guarded move), the pose-feedback CSV + plot page, and the photo→pose "mimic" feature that routes to a vision-capable Claude bridge.
 ---
 
-# 12 - LLM Arm Pose Proposals & Mimic
+# 20 - LLM Arm Pose Proposals & Mimic
 
 > [!abstract] Goal
 > Let the operator ask for an arm pose in natural language ("raise your hands",

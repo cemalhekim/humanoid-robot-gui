@@ -26,14 +26,13 @@ extracted directly from `server.py` (dispatch around lines 5487–5618). There i
 | `/api/recording/status` | JSON | Telemetry recorder state |
 | `/api/recording/files` | JSON | Available JSONL/pose recording files |
 | `/api/recording/files/<name>` | JSONL | A single recording file for replay |
-| `/api/smartplug/status` | JSON | Home Assistant plug state (`on`/`off`/`unavailable`) |
 | `/api/diagrams` , `/api/diagrams/<name>` | JSON | `.drawio` docs for the diagram viewer |
 | `/api/chat/status` | JSON | Chat assistant availability/config (see [[05 - Chat & MCP Tools]]) |
-| `/api/spatial/pose` | JSON | Shared digital-twin spatial pose (hand coords) — see [[12 - LLM Arm Pose Proposals & Mimic]] |
+| `/api/spatial/pose` | JSON | Shared digital-twin spatial pose (hand coords) — see [[20 - LLM Arm Pose Proposals & Mimic]] |
 | `/api/motion/active` | JSON | Is a replay/track running? (gates deploy restarts) |
 | `/api/pose/feedback/data` | JSON | Pose-feedback rollup for the plot page |
 | `/feedback` , `/feedback.html` | HTML | Pose-feedback plot page (liked/disliked/executed) |
-| `/events` | **SSE** | State stream, ~every 100 ms |
+| `/events` | **SSE** | State stream, ~5 Hz (`_send_events` sleeps 0.2 s) |
 | `/camera.mjpg` | MJPEG | Camera bridge stream |
 | `/models/...` | Static | URDF, XML, STL model assets |
 | `/vendor/...` | Static | Vendored Three.js modules |
@@ -75,16 +74,20 @@ path (`arm_sdk` or `lowcmd`), trajectory validity, moving joints, velocity/delta
 limits, and per-joint `kp`/`kd` plan (plus a `hand_plan` if fingers move). It
 does **not** publish motor commands.
 
-## Chat / voice / smart plug
+## Chat / voice / MCP
+
+> [!note] Smart plug removed
+> The `/api/smartplug/*` Home Assistant proxy was **removed** on 2026-07-23 and
+> no longer exists on the current build — see [[23 - Smart Plug & Home Assistant]]
+> for the historical record.
 
 | Path | Method | Purpose |
 | --- | --- | --- |
-| `/api/chat` | POST | Command Center LLM chat + tool loop; optional `mimic_image` (photo→pose, see [[12 - LLM Arm Pose Proposals & Mimic]]) and `backend` (`default`/`claude`) |
+| `/api/chat` | POST | Command Center LLM chat + tool loop; optional `mimic_image` (photo→pose, see [[20 - LLM Arm Pose Proposals & Mimic]]) and `backend` (`default`/`claude`) |
 | `/api/spatial/pose` | POST | Update the shared digital-twin spatial pose |
 | `/api/pose/feedback` | POST | Record a pose verdict (`proposal_id`, `event`, `comment`); 👍 also executes the staged pose |
 | `/api/stt` | POST | Speech-to-text proxy (off unless `LLM_STT_ENABLED`) |
 | `/api/tts` | POST | Text-to-speech proxy (off unless `LLM_TTS_ENABLED`) |
-| `/api/smartplug/toggle` | POST | Toggle the Sonoff plug via Home Assistant |
 | `/mcp` | POST | MCP endpoint (off unless `MCP_ENABLED`); `GET /mcp` → 405 |
 
 ## Person tracking (live, dark by default)

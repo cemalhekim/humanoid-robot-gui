@@ -38,9 +38,21 @@ deployment for the **Unitree H1-2** humanoid robot.
 | [[09 - Glossary]] | H1-2, DDS, arm_sdk, retargeting, EMA, FOV, bbox, ... |
 | [[10 - Testing]] | Test suite layout, offline vs on-robot coverage |
 | [[11 - Teleoperation (Vision Pro & XR)]] | Vision Pro / WebXR teleop service |
-| [[12 - LLM Arm Pose Proposals & Mimic]] | Propose → green twin → 👍/👎 → move; photo→pose mimic; feedback CSV + plots |
+| [[12 - Camera & Video Streaming]] | Head camera / webcam pipeline, MJPEG stream |
 | [[13 - Telemetry Recording & Pose Editor]] | Recording schema, `/api/recording/*`, 6-DOF pose editor |
+| [[14 - Recording Replay & Digital Twin]] | Closed-loop arm replay, red/green twin, dry-run planning |
+| [[15 - Locomotion Control]] | LocoClient actions, bounds, risk-ack gate |
+| [[16 - Arm Control & Command Surfaces]] | Wrist / home / straight / chill / arm_sdk replay |
+| [[17 - 3D URDF Viewer]] | Three.js viewer, blue/green/red models, IK editing |
+| [[18 - Body, IMU, Battery & Hand Telemetry]] | DDS lowstate → `/api/state` + SSE, hand state |
+| [[19 - Sentry Mode & Head-Lock]] | Server-enforced person-following master switch |
+| [[20 - LLM Arm Pose Proposals & Mimic]] | Propose → green twin → 👍/👎 → move; photo→pose mimic; feedback CSV + plots |
+| [[21 - Semantic Teleoperation Pipeline]] | Monorepo teleop/sim/execution subsystems |
 | [[22 - Deployment & Runtime Services]] | systemd units, auto-update timer, runtime services |
+| [[23 - Smart Plug & Home Assistant]] | Sonoff plug showcase (⚠️ **removed** 2026-07-23 — historical) |
+| [[24 - Control Gains, PID & Shared Mechanisms]] | kp/kd tables + the shared arm-replay PID |
+| [[25 - Known Issues & Optimization Audit]] | Fixed + deferred perf/safety findings |
+| [[26 - Repository Docs Index]] | Every `docs/` file mapped to its KB note |
 
 ## Key facts at a glance
 
@@ -49,7 +61,7 @@ deployment for the **Unitree H1-2** humanoid robot.
 - **Pushing to `main` auto-deploys to the robot** via a 60 s systemd timer — see [[08 - Development Workflow]].
 - **On-prem LLM** (Ollama `qwen3:30b-a3b-instruct-2507-q4_K_M`) drives a guarded chat/[[05 - Chat & MCP Tools|MCP]] tool surface.
 - **New CV feature**: right-arm points at the detected person — see [[06 - Person Tracking (CV Feature)]] and [[07 - Detection Service (YOLO)]].
-- **LLM arm-pose proposals + photo mimic**: ask (or attach a photo) → green digital-twin preview → 👍/👎 → guarded move — see [[12 - LLM Arm Pose Proposals & Mimic]].
+- **LLM arm-pose proposals + photo mimic**: ask (or attach a photo) → green digital-twin preview → 👍/👎 → guarded move — see [[20 - LLM Arm Pose Proposals & Mimic]].
 
 ## Repository landmarks
 

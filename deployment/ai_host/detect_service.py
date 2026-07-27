@@ -92,7 +92,8 @@ class Handler(BaseHTTPRequestHandler):
             )
         ms = (time.time() - t0) * 1000
         # COCO keypoint indices used below: 0 nose, 3/4 ears, 5/6 shoulders,
-        # 11/12 hips. Everything is normalized 0..1 like the boxes.
+        # 7/8 elbows, 9/10 wrists, 11/12 hips. Everything is normalized 0..1
+        # like the boxes. Elbows/wrists feed the robot's Mimic Mode.
         kpts = getattr(results[0], "keypoints", None)
         kp_xy = kpts.xy.tolist() if kpts is not None and kpts.xy is not None else []
         kp_conf = kpts.conf.tolist() if kpts is not None and kpts.conf is not None else []
@@ -113,6 +114,8 @@ class Handler(BaseHTTPRequestHandler):
                     return None
                 named = {"nose": kp(0), "l_ear": kp(3), "r_ear": kp(4),
                          "l_shoulder": kp(5), "r_shoulder": kp(6),
+                         "l_elbow": kp(7), "r_elbow": kp(8),
+                         "l_wrist": kp(9), "r_wrist": kp(10),
                          "l_hip": kp(11), "r_hip": kp(12)}
                 person["keypoints"] = {k: v for k, v in named.items() if v}
                 # Head anchor: nose, else ear midpoint, else nothing (client

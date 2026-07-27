@@ -612,6 +612,13 @@ def parse_track_payload(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError('camera must be "head" or "webcam".')
     camera = camera.lower()
 
+    mode = payload.get("mode", "point")
+    if not isinstance(mode, str) or mode.lower() not in {"point", "mimic"}:
+        raise ValueError('mode must be "point" or "mimic".')
+    mode = mode.lower()
+    if mode == "mimic" and camera != "webcam":
+        raise ValueError("Mimic sessions require the webcam feed.")
+
     permanent = payload.get("permanent", False)
     closed_loop = payload.get("closed_loop", True)
     if not isinstance(permanent, bool):
@@ -641,6 +648,7 @@ def parse_track_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "camera": camera,
+        "mode": mode,
         "permanent": permanent,
         "closed_loop": closed_loop,
         "target": parsed_target,
@@ -2710,6 +2718,10 @@ class TelemetryStore:
         # Bullseye off stops any running session. Defaults OFF on every boot —
         # following must always be re-armed deliberately.
         self.sentry_mode_on = False
+        # Mimic Mode master switch: same deliberate-arming contract as
+        # Bullseye, but it drives BOTH arms from the person's pose keypoints
+        # instead of pointing at them. Defaults OFF on every boot.
+        self.mimic_mode_on = False
         self.webcam_condition = threading.Condition(self.webcam_lock)
         self.webcam_frame: bytes | None = None
         self.webcam_timestamp: float | None = None
@@ -5565,6 +5577,7 @@ class TelemetryStore:
         with self.command_lock:
             snap = dict(self.track_status)
             snap["sentry_mode"] = self.sentry_mode_on
+            snap["mimic_mode"] = self.mimic_mode_on
         snap["enabled"] = TRACKING_ENABLED
         return snap
 
@@ -5584,6 +5597,49 @@ class TelemetryStore:
             self.request_track_stop()
         self.record_command_event("sentry_mode", {"on": on})
         return 200, {"ok": True, "sentry_mode": on, "tracking": self.track_snapshot()}
+
+    def set_mimic_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """Arm/disarm Mimic Mode.
+
+        Unlike Bullseye (arming is motion-free, motion needs a person-lock),
+        Mimic ON immediately starts the mirroring session — that is the whole
+        point of the mode — so the ON request must itself carry the risk
+        acknowledgement (armed + i_understand_risk). OFF always stops motion
+        and parks the arms at home.
+        """
+        on = payload.get("on")
+        if not isinstance(on, bool):
+            return 400, {"ok": False, "error": 'Body must be {"on": true|false}.'}
+        if not on:
+            with self.command_lock:
+                was_on = self.mimic_mode_on
+                self.mimic_mode_on = False
+            if was_on:
+                self.request_track_stop()
+            self.record_command_event("mimic_mode", {"on": False})
+            return 200, {"ok": True, "mimic_mode": False, "tracking": self.track_snapshot()}
+        if not has_risk_ack(payload):
+            return 403, {"ok": False, "error": "Set armed=true and i_understand_risk=true to enable Mimic Mode."}
+        with self.command_lock:
+            self.mimic_mode_on = True
+        status, result = self.request_track_start({
+            "armed": True,
+            "i_understand_risk": True,
+            "source": "mimic-toggle",
+            "mode": "mimic",
+            "camera": "webcam",
+            "permanent": True,
+            "closed_loop": True,
+        })
+        if status != 200:
+            # Session refused (publishers missing, another session running…):
+            # do not leave the switch armed with nothing running behind it.
+            with self.command_lock:
+                self.mimic_mode_on = False
+            self.record_command_event("mimic_mode", {"on": True, "error": result.get("error")})
+            return status, {**result, "mimic_mode": False}
+        self.record_command_event("mimic_mode", {"on": True})
+        return 200, {"ok": True, "mimic_mode": True, "tracking": self.track_snapshot()}
 
     def _set_track_status(self, **fields: Any) -> None:
         with self.command_lock:
@@ -5616,7 +5672,12 @@ class TelemetryStore:
             return 409, {"ok": False, "error": "Tracking is disabled (TRACKING_ENABLED=0)."}
         with self.command_lock:
             sentry_on = self.sentry_mode_on
-        if not sentry_on:
+            mimic_on = self.mimic_mode_on
+        # Each session mode has its own deliberate master switch.
+        if config["mode"] == "mimic":
+            if not mimic_on:
+                return 409, {"ok": False, "error": "Mimic mode is off — it is the master switch; turn it on before starting mimic."}
+        elif not sentry_on:
             return 409, {"ok": False, "error": "Bullseye mode is off — it is the master switch; turn it on before starting tracking."}
         if payload.get("source") == "sentry-lock" and (
             config["camera"] != "webcam" or config["target"] is None
@@ -5633,10 +5694,10 @@ class TelemetryStore:
                 return 503, {"ok": False, "error": "No rt/lowstate sample is available yet."}
             if self.lowcmd_factory is None or self.crc is None:
                 return 503, {"ok": False, "error": "DDS command factory is not available."}
-        # A new operator lock may safely replace the asynchronous home replay
-        # launched when the previous lock was released.
+        # A new operator lock (or mimic arming) may safely replace the
+        # asynchronous home replay launched when the previous session ended.
         if replay_thread is not None and replay_thread.is_alive():
-            if payload.get("source") != "sentry-lock":
+            if payload.get("source") not in ("sentry-lock", "mimic-toggle"):
                 return 409, {"ok": False, "error": "An arm replay is running; stop it first."}
             if replay_cancel is not None:
                 replay_cancel.set()
@@ -5658,9 +5719,14 @@ class TelemetryStore:
             failures=0,
             target_id=config["target_id"],
             camera=config["camera"],
+            mode=config["mode"],
             permanent=config["permanent"],
             closed_loop=config["closed_loop"],
-            message="Tracking session starting from the selected lock.",
+            message=(
+                "Mimic session starting."
+                if config["mode"] == "mimic"
+                else "Tracking session starting from the selected lock."
+            ),
         )
         self.record_command_event(
             "track_start",
@@ -5674,6 +5740,13 @@ class TelemetryStore:
             config = dict(self.track_config)
             initial_msg = self.lowstate_msg
         camera = config["camera"]
+        mimic = config.get("mode", "point") == "mimic"
+        # Mimic drives BOTH arms from pose keypoints; pointing aims the right
+        # arm at the person. Each mode has its own park pose and mapper.
+        neutral_template = (
+            tracking.MIMIC_NEUTRAL_TEMPLATE if mimic else tracking.NEUTRAL_TEMPLATE
+        )
+        mimic_mapper = tracking.MimicMapper() if mimic else None
         mapper = (
             tracking.PointingMapper(
                 fov_yaw_rad=SENTRY_FOV_YAW,
@@ -5687,9 +5760,10 @@ class TelemetryStore:
         # Horizontal pose interpolation changes elbow/roll as well as yaw, so
         # a fixed camera Y alone cannot keep the endpoint level. Use the
         # calibrated center pose's FK height as the invariant and solve
-        # shoulder pitch for every Bullseye target.
+        # shoulder pitch for every Bullseye target. (Pointing only — mimic
+        # follows the person's actual arm heights instead.)
         sentry_hand_z = None
-        if camera == "webcam":
+        if camera == "webcam" and not mimic:
             reference_mapper = tracking.PointingMapper(
                 fov_yaw_rad=SENTRY_FOV_YAW,
                 fov_pitch_rad=SENTRY_FOV_PITCH,
@@ -5734,7 +5808,7 @@ class TelemetryStore:
         current: dict[int, float] = {
             joint: float(initial_msg.motor_state[joint].q)
             if initial_msg is not None else neutral
-            for joint, neutral in tracking.NEUTRAL_TEMPLATE.items()
+            for joint, neutral in neutral_template.items()
         }
         tuning = self._arm_replay_tuning(
             {"replay_response": SENTRY_REPLAY_RESPONSE}
@@ -5782,20 +5856,28 @@ class TelemetryStore:
                     self._set_track_status(message="Detection service failing repeatedly; aborting.")
                     break
                 if state.phase == "tracking" and state.target is not None:
-                    aim_cx, aim_cy = tracking.aim_point(state.target)
-                    aim_cx, aim_cy = aim_smoother.update(aim_cx, aim_cy)
-                    goal = mapper.targets(aim_cx, aim_cy)
-                    if camera == "webcam":
-                        goal = sentry_constant_hand_z_goal(goal, sentry_hand_z)
+                    if mimic_mapper is not None:
+                        # The mapper holds an arm's last targets while its
+                        # keypoints are missing; the staleness state machine
+                        # above still parks everything when the person is lost.
+                        goal = mimic_mapper.targets(
+                            state.target.get("keypoints") or {}
+                        )
+                    else:
+                        aim_cx, aim_cy = tracking.aim_point(state.target)
+                        aim_cx, aim_cy = aim_smoother.update(aim_cx, aim_cy)
+                        goal = mapper.targets(aim_cx, aim_cy)
+                        if camera == "webcam":
+                            goal = sentry_constant_hand_z_goal(goal, sentry_hand_z)
                 elif state.phase == "hold":
                     goal = dict(current)
                 else:  # stale
-                    goal = dict(tracking.NEUTRAL_TEMPLATE)
+                    goal = dict(neutral_template)
 
                 goal = smoother.update(goal)
                 previous = current
                 current = limiter.step(previous, goal, dt=dt)
-                if camera == "webcam" and state.phase == "tracking":
+                if camera == "webcam" and not mimic and state.phase == "tracking":
                     current = sentry_constant_hand_z_step(
                         previous,
                         current,
@@ -5835,7 +5917,11 @@ class TelemetryStore:
                     hand_z_m=None if sentry_hand_z is None else round(sentry_hand_z, 3),
                     response=tuning["response"],
                     max_step_rad_s=limiter.max_step_rad_s,
-                    message=f"Locked {camera} tracking running ({state.phase}).",
+                    message=(
+                        f"Mimic session running ({state.phase})."
+                        if mimic
+                        else f"Locked {camera} tracking running ({state.phase})."
+                    ),
                 )
                 cancel.wait(max(0.0, period - (time.monotonic() - tick)))
         finally:
@@ -7282,6 +7368,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/track/start",
             "/api/track/stop",
             "/api/sentry/mode",
+            "/api/mimic/mode",
             "/mcp",
         ):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
@@ -7315,6 +7402,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/recording/replay/robot",
             "/api/track/start",
             "/api/sentry/mode",
+            "/api/mimic/mode",
         ):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -7376,6 +7464,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/sentry/mode":
             status, response = self.store.set_sentry_mode(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+
+        if request_path == "/api/mimic/mode":
+            status, response = self.store.set_mimic_mode(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

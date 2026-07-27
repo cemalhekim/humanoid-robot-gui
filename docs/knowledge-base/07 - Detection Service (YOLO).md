@@ -36,14 +36,26 @@ Anything else on GET → `404 {"error": "not found"}`.
 ```json
 {
   "persons": [
-    {"x1": 0.31, "y1": 0.10, "x2": 0.55, "y2": 0.92,
-     "cx": 0.43, "cy": 0.51, "conf": 0.94}
+    {"id": 3, "x1": 0.31, "y1": 0.10, "x2": 0.55, "y2": 0.92,
+     "cx": 0.43, "cy": 0.51, "conf": 0.94,
+     "keypoints": {"nose": {"x": 0.43, "y": 0.14, "conf": 0.92},
+                    "l_shoulder": {"x": 0.48, "y": 0.24, "conf": 0.9},
+                    "l_elbow": {"x": 0.52, "y": 0.33, "conf": 0.85},
+                    "l_wrist": {"x": 0.55, "y": 0.41, "conf": 0.8}},
+     "head": {"x": 0.43, "y": 0.14}}
   ],
   "ms": 6.8,
   "w": 1280,
   "h": 720
 }
 ```
+
+Keypoints exposed (conf ≥ 0.3, normalized 0..1): `nose`, `l_ear`/`r_ear`,
+`l_shoulder`/`r_shoulder`, `l_elbow`/`r_elbow`, `l_wrist`/`r_wrist`
+(elbows/wrists added 2026-07-27 for [[27 - Mimic Mode (Live Motion)]] —
+**redeploy the AI-host copy** when pulling that change), `l_hip`/`r_hip`.
+`head` is the nose, else the ear midpoint; headless boxes are how the robot's
+own arm is filtered out.
 
 | Field | Meaning |
 | --- | --- |

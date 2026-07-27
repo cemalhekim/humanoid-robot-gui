@@ -52,6 +52,7 @@ deployment for the **Unitree H1-2** humanoid robot.
 | [[23 - Smart Plug & Home Assistant]] | Sonoff plug showcase (⚠️ **removed** 2026-07-23 — historical) |
 | [[24 - Control Gains, PID & Shared Mechanisms]] | kp/kd tables + the shared arm-replay PID |
 | [[25 - Known Issues & Optimization Audit]] | Fixed + deferred perf/safety findings |
+| [[27 - Mimic Mode (Live Motion)]] | Robot mirrors the operator's upper-body pose live (both arms, webcam keypoints) |
 | [[26 - Repository Docs Index]] | Every `docs/` file mapped to its KB note |
 
 ## Key facts at a glance

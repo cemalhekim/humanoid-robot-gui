@@ -4381,8 +4381,14 @@ button:not(:disabled):active { transform: scale(0.96); }
   color: #fff;
   box-shadow: 0 0 14px rgba(230, 0, 0, 0.45);
 }
-/* Mimic Mode: placeholder toggle, not wired to anything yet */
+/* Mimic Mode: blue accent so it never reads as the (red) Bullseye switch */
 .mimic-mode-toggle { border-color: rgba(120, 170, 255, 0.55); }
+.mimic-mode-toggle.on {
+  background: #2f6fed;
+  border-color: #2f6fed;
+  color: #fff;
+  box-shadow: 0 0 14px rgba(47, 111, 237, 0.5);
+}
 .float-cam-body { position: relative; }
 .float-cam-overlay {
   position: absolute;

@@ -4037,3 +4037,64 @@ connectEvents();
   };
   window.requestAnimationFrame(animate);
 })();
+
+// ---- Mimic Mode: the robot mirrors the person's upper-body pose (both arms)
+// from webcam pose keypoints. ON immediately starts motion, so the toggle
+// itself carries the risk acknowledgement after an explicit confirm.
+(function setupMimic() {
+  const toggle = document.getElementById("mimicModeToggle");
+  if (!toggle) return;
+
+  let serverOn = false;
+  let busy = false;
+  const render = () => {
+    toggle.classList.toggle("on", serverOn);
+    toggle.setAttribute("aria-pressed", serverOn ? "true" : "false");
+    toggle.title = serverOn
+      ? "Mimic Mode is ON — the robot mirrors your arms. Click to stop."
+      : "Mimic Mode — the robot mirrors your upper-body pose from the webcam";
+  };
+  const apply = (flag) => {
+    if (typeof flag === "boolean" && flag !== serverOn) {
+      serverOn = flag;
+      render();
+    }
+  };
+  const push = async (on) => {
+    if (busy) return;
+    busy = true;
+    try {
+      const body = on
+        ? { on: true, armed: true, i_understand_risk: true }
+        : { on: false };
+      const resp = await fetch("/api/mimic/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      apply(!!data.mimic_mode);
+      if (on && !data.mimic_mode && data.error) {
+        window.alert(`Mimic Mode did not start: ${data.error}`);
+      }
+    } catch {
+      // Status poll below re-syncs on the next tick.
+    } finally {
+      busy = false;
+    }
+  };
+  toggle.addEventListener("click", () => {
+    const on = !serverOn;
+    if (on && !window.confirm(
+      "Mimic Mode moves BOTH robot arms to mirror the person in front of the webcam. Clear the space around the robot. Start?"
+    )) return;
+    void push(on);
+  });
+  const sync = () => fetch("/api/track/status")
+    .then((resp) => resp.json())
+    .then((data) => apply(!!(data.tracking || {}).mimic_mode))
+    .catch(() => {});
+  render();
+  sync();
+  window.setInterval(() => { if (!document.hidden) sync(); }, 2000);
+})();

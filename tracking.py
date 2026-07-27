@@ -6,9 +6,17 @@ Spec: docs/superpowers/specs/2026-07-21-person-pointing-design.md
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
-# H1-2 right-arm joint indices (must match server.py JOINT_LIMITS indices).
+# H1-2 arm joint indices (must match server.py JOINT_LIMITS indices).
+L_SHOULDER_PITCH = 13
+L_SHOULDER_ROLL = 14
+L_SHOULDER_YAW = 15
+L_ELBOW = 16
+L_WRIST_ROLL = 17
+L_WRIST_PITCH = 18
+L_WRIST_YAW = 19
 R_SHOULDER_PITCH = 20
 R_SHOULDER_ROLL = 21
 R_SHOULDER_YAW = 22
@@ -319,3 +327,130 @@ class TrackState:
             return
         if self.last_seen is None or now - self.last_seen > self.stale_after_s:
             self.phase = "stale"
+
+
+# ---------------------------------------------------------------------------
+# Mimic Mode: retarget a person's 2D pose keypoints onto both H1-2 arms.
+# ---------------------------------------------------------------------------
+
+# Both arms relaxed at the side — where mimic parks while no pose is visible.
+MIMIC_NEUTRAL_TEMPLATE: dict[int, float] = {
+    L_SHOULDER_PITCH: 0.0,
+    L_SHOULDER_ROLL: 0.05,
+    L_SHOULDER_YAW: 0.0,
+    L_ELBOW: 0.3,
+    L_WRIST_ROLL: 0.0,
+    L_WRIST_PITCH: 0.0,
+    L_WRIST_YAW: 0.0,
+    R_SHOULDER_PITCH: 0.0,
+    R_SHOULDER_ROLL: -0.05,
+    R_SHOULDER_YAW: 0.0,
+    R_ELBOW: 0.3,
+    R_WRIST_ROLL: 0.0,
+    R_WRIST_PITCH: 0.0,
+    R_WRIST_YAW: 0.0,
+}
+
+# Conservative mimic envelope, intentionally tighter than server.py
+# JOINT_LIMITS (which re-clamps anyway). Roll conventions per JOINT_LIMITS:
+# NEGATIVE roll abducts the RIGHT arm outward, POSITIVE the LEFT.
+MIMIC_LIMITS: dict[int, tuple[float, float]] = {
+    L_SHOULDER_PITCH: (-1.6, 0.4),
+    L_SHOULDER_ROLL: (-0.2, 2.6),
+    L_SHOULDER_YAW: (-0.8, 0.8),
+    L_ELBOW: (0.0, 2.3),
+    L_WRIST_ROLL: (-0.3, 0.3),
+    L_WRIST_PITCH: (-0.45, 0.45),
+    L_WRIST_YAW: (-1.0, 1.0),
+    R_SHOULDER_PITCH: (-1.6, 0.4),
+    R_SHOULDER_ROLL: (-2.6, 0.2),
+    R_SHOULDER_YAW: (-0.8, 0.8),
+    R_ELBOW: (0.0, 2.3),
+    R_WRIST_ROLL: (-0.3, 0.3),
+    R_WRIST_PITCH: (-0.45, 0.45),
+    R_WRIST_YAW: (-1.0, 1.0),
+}
+
+
+def has_upper_body(person: dict[str, Any]) -> bool:
+    """True when at least one full upper-arm chain (shoulder+elbow) is visible."""
+    kp = person.get("keypoints")
+    if not isinstance(kp, dict):
+        return False
+    return any(
+        isinstance(kp.get(f"{side}_shoulder"), dict)
+        and isinstance(kp.get(f"{side}_elbow"), dict)
+        for side in ("l", "r")
+    )
+
+
+class MimicMapper:
+    """Map detector pose keypoints (normalized image space, y down) to
+    both-arm joint targets, mirror-style.
+
+    The deployed webcam presents robot-relative left/right (not mirrored,
+    verified 2026-07-23), so a person facing the robot has their LEFT arm on
+    the robot's RIGHT side: person-left keypoints drive the robot's RIGHT
+    arm and vice versa — the robot behaves like a mirror.
+
+    Frontal-plane retarget from a single 2D view:
+    - upper-arm elevation (angle from hanging-down, positive = outward)
+      drives shoulder ROLL (abduction);
+    - the shoulder→elbow→wrist bend angle drives the ELBOW joint;
+    - shoulder pitch/yaw and wrists stay neutral (forward raise is not
+      observable from a frontal 2D view; yaw plane is a hardware-tuning
+      follow-up).
+    An arm whose keypoints are missing this frame HOLDS its previous
+    targets; the caller's staleness state machine decides when to park.
+    """
+
+    # (person keypoint prefix, outward x sign in image space,
+    #  robot roll joint, roll outward sign, robot elbow joint)
+    _ARMS = (
+        ("l", 1.0, R_SHOULDER_ROLL, -1.0, R_ELBOW),
+        ("r", -1.0, L_SHOULDER_ROLL, 1.0, L_ELBOW),
+    )
+
+    def __init__(self, min_segment: float = 0.015, dead_band_rad: float = 0.04) -> None:
+        # Segments shorter than ~1.5% of the image are direction-noise
+        # (foreshortened arm pointing at the camera); hold instead of jitter.
+        self.min_segment = min_segment
+        self.dead_band_rad = dead_band_rad
+        self._last: dict[int, float] = dict(MIMIC_NEUTRAL_TEMPLATE)
+
+    @staticmethod
+    def _vec(a: dict[str, Any], b: dict[str, Any]) -> tuple[float, float]:
+        return float(b["x"]) - float(a["x"]), float(b["y"]) - float(a["y"])
+
+    def targets(self, keypoints: dict[str, Any]) -> dict[int, float]:
+        out = dict(self._last)
+        for prefix, out_sign, roll_joint, roll_sign, elbow_joint in self._ARMS:
+            shoulder = keypoints.get(f"{prefix}_shoulder")
+            elbow = keypoints.get(f"{prefix}_elbow")
+            wrist = keypoints.get(f"{prefix}_wrist")
+            if not (isinstance(shoulder, dict) and isinstance(elbow, dict)):
+                continue
+            ux, uy = self._vec(shoulder, elbow)
+            if math.hypot(ux, uy) < self.min_segment:
+                continue
+            # 0 = arm hanging down (image y grows downward), +pi/2 = out
+            # horizontal, ~pi = overhead. Slightly negative = crossed inward.
+            elevation = math.atan2(out_sign * ux, uy)
+            roll = roll_sign * elevation
+            if abs(roll - out[roll_joint]) > self.dead_band_rad:
+                out[roll_joint] = roll
+            if isinstance(wrist, dict):
+                fx, fy = self._vec(elbow, wrist)
+                if math.hypot(fx, fy) >= self.min_segment:
+                    # Interior bend angle: 0 = straight arm, pi = folded.
+                    dot = ux * fx + uy * fy
+                    cross = ux * fy - uy * fx
+                    bend = abs(math.atan2(cross, dot))
+                    if abs(bend - out[elbow_joint]) > self.dead_band_rad:
+                        out[elbow_joint] = bend
+        out = {
+            joint: _clamp(value, *MIMIC_LIMITS[joint])
+            for joint, value in out.items()
+        }
+        self._last = dict(out)
+        return out

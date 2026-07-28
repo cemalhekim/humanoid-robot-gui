@@ -52,7 +52,17 @@ Anything else on GET → `404 {"error": "not found"}`.
 
 Keypoints exposed (conf ≥ 0.3, normalized 0..1): `nose`, `l_eye`/`r_eye`,
 `l_ear`/`r_ear`, `l_shoulder`/`r_shoulder`, `l_elbow`/`r_elbow`,
-`l_wrist`/`r_wrist`, `l_hip`/`r_hip`. Elbows/wrists added + deployed
+`l_wrist`/`r_wrist`, `l_hip`/`r_hip`.
+
+![[attachments/coco-17-keypoints.png]]
+
+The 17-point **COCO keypoint skeleton** the pose model predicts per person
+(person shown facing the camera, so their left side is on the image's right):
+0 nose · 1/2 left/right eye · 3/4 left/right ear · 5/6 left/right shoulder ·
+7/8 left/right elbow · 9/10 left/right wrist · 11/12 left/right hip ·
+13/14 left/right knee · 15/16 left/right ankle. The service exposes 0–12 by
+name (knees/ankles are dropped); 27 - Mimic Mode (Live Motion) consumes only
+the six arm points (5–10). Elbows/wrists added + deployed
 2026-07-27 for 27 - Mimic Mode (Live Motion). `head` is the nose, else
 eye midpoint, else ear midpoint (each at `DETECT_HEAD_CONF`, default 0.15);
 with `DETECT_REQUIRE_HEAD=1` (default) headless boxes are dropped at the

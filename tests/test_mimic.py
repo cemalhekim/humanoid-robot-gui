@@ -103,14 +103,81 @@ class MimicMapperTests(unittest.TestCase):
         self.assertGreater(out[tracking.R_SHOULDER_PITCH], -1.2)
 
     def test_slight_foreshortening_stays_in_dead_zone(self):
-        # 93% of expected upper-arm length is inside the 90% depth dead
-        # zone: pitch must stay exactly zero (keypoint jitter immunity).
+        # 93% of expected upper-arm length sits just inside the 94% depth
+        # edge: the quadratic ramp must keep the response negligible
+        # (keypoint jitter immunity), and 95% must give exactly zero.
         mapper = tracking.MimicMapper()
         out = mapper.targets(person_pose(
             l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.4395),
             r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
         ))
+        self.assertLess(abs(out[tracking.R_SHOULDER_PITCH]), 0.02)
+        clear = tracking.MimicMapper()
+        out = clear.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.4425),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+        ))
         self.assertAlmostEqual(out[tracking.R_SHOULDER_PITCH], 0.0, delta=1e-9)
+
+    def test_depth_ramp_is_smooth_and_monotonic(self):
+        # Sweep the arm forward: pitch must grow monotonically with no
+        # step bigger than ~0.09 rad per 1% length change anywhere —
+        # especially across the dead-zone edge where the old hard cutoff
+        # had infinite slope.
+        previous = 0.0
+        worst = 0.0
+        mapper = tracking.MimicMapper(dead_band_rad=0.0)
+        for percent in range(96, 30, -1):
+            length = 0.15 * percent / 100.0
+            out = mapper.targets(person_pose(
+                l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.3 + length),
+                r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+            ))
+            pitch = out[tracking.R_SHOULDER_PITCH]
+            self.assertLessEqual(pitch, previous + 1e-9, msg=f"{percent}%")
+            worst = max(worst, previous - pitch)
+            previous = pitch
+        self.assertLess(worst, 0.09)
+
+    def test_yaw_gate_hysteresis(self):
+        mapper = tracking.MimicMapper()
+        joint = tracking.R_SHOULDER_YAW
+        # Below the enter threshold: stays inactive, even in the band.
+        self.assertFalse(mapper._yaw_gate(joint, 0.25))
+        self.assertFalse(mapper._yaw_gate(joint, 0.29))
+        # Crosses enter: active, and stays active back down into the band.
+        self.assertTrue(mapper._yaw_gate(joint, 0.31))
+        self.assertTrue(mapper._yaw_gate(joint, 0.25))
+        self.assertTrue(mapper._yaw_gate(joint, 0.21))
+        # Only a clear drop below exit releases it.
+        self.assertFalse(mapper._yaw_gate(joint, 0.19))
+        self.assertFalse(mapper._yaw_gate(joint, 0.25))
+
+    def test_bone_calibration_grows_toward_true_ratio_only(self):
+        # A T-pose frame (arm fully extended in-plane, longer than the
+        # anthropometric default) must calibrate the expected length UP;
+        # foreshortened frames afterwards must never shrink it back.
+        mapper = tracking.MimicMapper(dead_band_rad=0.0)
+        # T-pose: upper arm 0.17 with shoulder width 0.2 -> ratio 0.85.
+        mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.77, 0.3), l_wrist=kp(0.9, 0.3),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.23, 0.3), r_wrist=kp(0.1, 0.3),
+        ))
+        self.assertAlmostEqual(mapper._cal["l_u"], 0.85, delta=0.01)
+        # Foreshortened frame: calibration must not shrink.
+        mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.36),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+        ))
+        self.assertAlmostEqual(mapper._cal["l_u"], 0.85, delta=0.01)
+        # And a calibrated (longer) arm at the default-full length now
+        # reads as partially foreshortened -> forward pitch, where an
+        # uncalibrated mapper would read zero.
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.425),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+        ))
+        self.assertLess(out[tracking.R_SHOULDER_PITCH], -0.2)
 
     def test_pitch_holds_without_both_shoulders(self):
         mapper = tracking.MimicMapper()

@@ -558,11 +558,13 @@ class MimicMapper:
         dead_band_rad: float = 0.04,
         upper_ratio: float = 0.75,
         fore_ratio: float = 0.65,
-        depth_start_ratio: float = 0.9,
+        depth_start_ratio: float = 0.94,
         max_pitch: float = 1.2,
         min_shoulder_width: float = 0.05,
         min_yaw_cos: float = 0.25,
         aspect: float = 1.0,
+        depth_ramp: float = 0.08,
+        yaw_hysteresis: float = 0.05,
     ) -> None:
         self.min_segment = min_segment
         self.dead_band_rad = dead_band_rad
@@ -601,6 +603,25 @@ class MimicMapper:
         self._fore_A = math.hypot(self._fore_a, self._fore_c)
         self._fore_delta = math.atan2(self._fore_a, self._fore_c)
         self.roll_bias = 0.10
+        # Smoothness (dance profile 2026-07-28):
+        # - depth_ramp: instead of a hard dead-zone edge (where sqrt slope
+        #   is infinite and a hovering arm chatters), depth fades in with
+        #   blend^2 over this ratio band below depth_start_ratio;
+        # - yaw hysteresis: yaw starts updating above
+        #   min_yaw_cos+yaw_hysteresis of in-plane magnitude and keeps
+        #   updating until it drops below min_yaw_cos-yaw_hysteresis, so a
+        #   slowly straightening arm cannot flicker update/hold.
+        self.depth_ramp = depth_ramp
+        self.yaw_hysteresis = yaw_hysteresis
+        self._yaw_active: dict[int, bool] = {}
+        # Per-person bone calibration: rolling MAX of the observed
+        # projected-length/width ratio, clamped, seeded at the
+        # anthropometric default. Projection can only shrink a bone, so
+        # the max converges to the person's true ratio from below the
+        # moment they extend the arm in the frontal plane (T-pose at
+        # session start). Growing the expected length only ever REDUCES
+        # inferred depth — calibration cannot create false motion.
+        self._cal: dict[str, float] = {}
         self._last: dict[int, float] = dict(MIMIC_NEUTRAL_TEMPLATE)
 
     def _vec(self, a: dict[str, Any], b: dict[str, Any]) -> tuple[float, float]:
@@ -619,10 +640,31 @@ class MimicMapper:
         planar_sq = lat * lat + down * down
         eff = self.depth_start_ratio * expected
         depth = math.sqrt(max(0.0, eff * eff - planar_sq))
+        if expected > 1e-9 and self.depth_ramp > 1e-9:
+            # Linear fade-in over the ramp band below the dead-zone
+            # edge: kills the sqrt's infinite slope at the edge while
+            # keeping the worst spatial gradient ~0.08 rad per 1% of
+            # bone length anywhere in the band.
+            ratio = math.sqrt(planar_sq) / expected
+            depth *= _clamp((self.depth_start_ratio - ratio) / self.depth_ramp, 0.0, 1.0)
         norm = math.sqrt(planar_sq + depth * depth)
         if norm < 1e-9:
             return (1.0, 0.0, 0.0)
         return (depth / norm, y_sign * lat / norm, -down / norm)
+
+    def _calibrated(self, key: str, default: float, observed_ratio: float, hi: float) -> float:
+        cal = max(self._cal.get(key, default), min(observed_ratio, hi))
+        self._cal[key] = cal
+        return cal
+
+    def _yaw_gate(self, joint: int, in_plane: float) -> bool:
+        active = self._yaw_active.get(joint, False)
+        if active:
+            active = in_plane >= self.min_yaw_cos - self.yaw_hysteresis
+        else:
+            active = in_plane >= self.min_yaw_cos + self.yaw_hysteresis
+        self._yaw_active[joint] = active
+        return active
 
     def targets(self, keypoints: dict[str, Any]) -> dict[int, float]:
         out = dict(self._last)
@@ -682,7 +724,10 @@ class MimicMapper:
 
             u_lat = (u2[0] * lat_axis[0] + u2[1] * lat_axis[1]) * out_sign
             u_down = u2[0] * down_axis[0] + u2[1] * down_axis[1]
-            u3 = self._lift(u_lat, u_down, self.upper_ratio * width, y_sign)
+            upper_cal = self._calibrated(
+                f"{prefix}_u", self.upper_ratio, math.hypot(u_lat, u_down) / width, 1.0
+            )
+            u3 = self._lift(u_lat, u_down, upper_cal * width, y_sign)
             # Analytic chain inverse. v = R_x(-tilt)·u3; then
             # v = R_y(pitch)·R_x(phi)·(0,0,-1) with joint roll = phi+tilt.
             v = _rot_x(u3, -tilt)
@@ -703,7 +748,10 @@ class MimicMapper:
                 f2 = self._vec(elbow, wrist)
                 f_lat = (f2[0] * lat_axis[0] + f2[1] * lat_axis[1]) * out_sign
                 f_down = f2[0] * down_axis[0] + f2[1] * down_axis[1]
-                f3 = self._lift(f_lat, f_down, self.fore_ratio * width, y_sign)
+                fore_cal = self._calibrated(
+                    f"{prefix}_f", self.fore_ratio, math.hypot(f_lat, f_down) / width, 0.9
+                )
+                f3 = self._lift(f_lat, f_down, fore_cal * width, y_sign)
                 # Forearm in the post-roll local frame:
                 # f_local = R_x(tilt-roll)·R_y(-pitch)·R_x(-tilt)·f3
                 #         = R_z(yaw)·R_y(q)·(1,0,0)
@@ -722,7 +770,7 @@ class MimicMapper:
                 )
                 self._apply(out, elbow_j, q_elbow)
                 in_plane = math.hypot(f_local[0], f_local[1])
-                if in_plane >= self.min_yaw_cos:
+                if self._yaw_gate(yaw_j, in_plane):
                     axis_x = (
                         self._fore_a * math.cos(q_elbow)
                         + self._fore_c * math.sin(q_elbow)

@@ -66,14 +66,26 @@ but the only way to use Python 3 on this image.
 
 - NAOqi and stock behaviors run; **pepper_llm is not running**.
 - Last log (`pepper_app.log`, 2026-07-14): `Can't find service:
-  ALAudioRecorder` from the Python 2 recorder helper — the audio recorder
-  service wasn't up when the app last started. Likely start-ordering issue
-  (the `.new` service file adds `ExecStartPre=/bin/sleep 45` +
-  `Restart=always` to address exactly this, but isn't installed yet).
+  ALAudioRecorder` plus `module destroyed` from ALAutonomousLife — NAOqi was
+  restarting underneath the running app. A DNS failure
+  (`Name or service not known`) hit the STT call in the same minutes.
+  The start-order mitigation (`ExecStartPre=/bin/sleep 45` + `Restart=always`)
+  **is** installed at `/etc/systemd/system/pepper-llm.service`; the service
+  simply has not been started since.
 - Home dir also holds ~20 one-shot `fix_*.py` / `patch_*.py` maintenance
   scripts (UTF-8/umlauts, tablet flicker, race conditions, listen timeout,
   sound-recognition tuning) — history of debugging, applied ad hoc; and
   timestamped `pepper_llm.bak-*` backups.
+
+## Full documentation
+
+This note is a pointer. The complete Pepper knowledge base — hardware, voice
+pipeline, tablet UI, Autonomous Life, motion control, debugging history and
+platform gotchas — plus a snapshot of the robot's code lives in a separate
+repository: **`~/Workspace/pepper`** (`docs/knowledge-base/Home.md`).
+
+Manual arm/hand motion control is verified working there via
+`tools/pepper_motion.py`.
 
 Related: [[02 - Network & Hosts]] (H1-2 hosts), [[05 - Chat & MCP Tools]]
 (the H1-2 dashboard's own chatbot — separate implementation).

@@ -80,6 +80,63 @@ which copies one static pose from an attached image via the LLM.
    real standby stance (read from rt/lowstate 2026-07-28: pitch 0.15,
    roll ±0.2, elbow 0.7); `MIMIC_LIMITS` elbow is (−0.9, 1.6) in q-space.
 
+## Dance profile + self-collision guard (2026-07-28)
+
+Built for the dance-demonstration case: smooth, fast enough to mirror a
+dancer, and safe. All env-overridable (`deployment` drop-ins):
+
+| Knob | Mimic default | Bullseye keeps | Why |
+| --- | --- | --- | --- |
+| `MIMIC_MAX_STEP_RAD_S` | **1.5** | 0.65 | a 90° raise completes in ~1 s instead of 2.4 s |
+| `MIMIC_SMOOTH_ALPHA` | **0.5** | 0.35 | ~120 ms filter lag instead of ~300 ms |
+| `MIMIC_RATE_HZ` | **12** | 8 | detect stream runs 15 Hz; the loop was the bottleneck |
+| `MIMIC_HOLD_S` | **3.5** | 2.0 | a spin (back to camera) holds through instead of parking |
+
+**What licenses the speed: the python self-collision guard.** Every
+rate-limited step is checked by `tracking.mimic_pose_collides()` — exact
+URDF FK (`tracking.arm_points`, torso frame) + sphere model (elbow/wrist/
+hand per arm vs torso/pelvis/camera/lidar, plus arm-vs-arm; radii match
+the 3D editor's JS model). A step that would enter contact **freezes at
+the last clear pose** for that tick (steps are ≤ `max_step·dt`, so the arm
+parks just outside the contact surface); if the robot ever *starts*
+inside the model's zone, outward motion is allowed so it can escape. The
+track-status message shows `collision hold: <pair>` while frozen.
+Validated by `MimicCollisionTests`: 7 legitimate demo poses keep ≥2 cm
+margin, 3 contact poses (hands-meet-midline, hand-into-chest,
+curl-into-face) are all caught.
+
+**Smoothness/accuracy (same day, `MimicMapper`):**
+- **Linear depth ramp** (`depth_ramp` 0.08) replaces the hard dead-zone
+  edge — the sqrt's infinite slope there made a hovering arm chatter;
+  worst spatial gradient is now ~0.08 rad per 1 % of bone length.
+- **Yaw-gate hysteresis** (`min_yaw_cos` 0.25 ± 0.05): yaw starts
+  updating above 0.30 in-plane magnitude and holds below 0.20 — a slowly
+  straightening arm can't flicker update/hold.
+- **Per-person bone calibration**: rolling **max** of observed
+  length/shoulder-width per bone, seeded at the anthropometric defaults
+  (0.75 upper / 0.65 forearm), clamped (≤1.0 / ≤0.9). Projection only
+  shrinks bones, so the max converges to the dancer's true proportions
+  the moment they extend an arm frontally — **have the dancer hold a
+  2 s T-pose right after Mimic ON**. Calibration only grows the expected
+  length, which only *reduces* inferred depth: it can never invent
+  motion. Depth edge raised 0.90 → **0.94** (about half the old
+  mid-range under-response).
+
+### Dance-demo day checklist
+
+1. **One person in the camera's view** — `associate()` prefers the
+   largest box; a bystander walking close can steal the target.
+2. Dancer stands ~3–4 m back: **elbows + wrists must stay in frame**.
+3. Robot in open floor, spotter at the **Release** button the whole time.
+4. On AI-DEV verify the detect service is the real one:
+   `ss -ltnp | grep 8188` PID == `ExecMainPID` (the rogue-:8188 gotcha
+   has struck twice).
+5. Prefer the wired network path; check `/api/track/status` `loop_hz`
+   ≈ 12 during a warm-up run.
+6. After Mimic ON: dancer T-poses ~2 s (calibration), then dances.
+7. Spins are fine (3.5 s hold); leaving the frame parks the arms to
+   standby — that's the safe default, not a bug.
+
 ## Camera-view overlay (what mimic sees)
 
 While Mimic is ON, the floating **webcam** panel shows, per person (added

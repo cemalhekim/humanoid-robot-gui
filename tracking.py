@@ -397,25 +397,51 @@ class MimicMapper:
     - upper-arm elevation (angle from hanging-down, positive = outward)
       drives shoulder ROLL (abduction);
     - the shoulder→elbow→wrist bend angle drives the ELBOW joint;
-    - shoulder pitch/yaw and wrists stay neutral (forward raise is not
-      observable from a frontal 2D view; yaw plane is a hardware-tuning
+    - upper-arm FORESHORTENING (projected length vs the expected length,
+      0.75 × shoulder width) drives shoulder PITCH: an arm swung toward the
+      camera shrinks on screen, and acos(length ratio) is the out-of-plane
+      angle. Depth sign is unobservable in 2D, so shrinkage is always read
+      as FORWARD (people don't raise arms backward); a threshold below
+      acos(pitch_start_ratio) swallows keypoint length noise around the
+      frontal plane, and the output is capped at max_pitch;
+    - shoulder yaw and wrists stay neutral (yaw plane is a hardware-tuning
       follow-up).
     An arm whose keypoints are missing this frame HOLDS its previous
     targets; the caller's staleness state machine decides when to park.
     """
 
     # (person keypoint prefix, outward x sign in image space,
-    #  robot roll joint, roll outward sign, robot elbow joint)
+    #  robot roll joint, roll outward sign, robot elbow joint,
+    #  robot pitch joint)
     _ARMS = (
-        ("l", 1.0, R_SHOULDER_ROLL, -1.0, R_ELBOW),
-        ("r", -1.0, L_SHOULDER_ROLL, 1.0, L_ELBOW),
+        ("l", 1.0, R_SHOULDER_ROLL, -1.0, R_ELBOW, R_SHOULDER_PITCH),
+        ("r", -1.0, L_SHOULDER_ROLL, 1.0, L_ELBOW, L_SHOULDER_PITCH),
     )
 
-    def __init__(self, min_segment: float = 0.015, dead_band_rad: float = 0.04) -> None:
+    def __init__(
+        self,
+        min_segment: float = 0.015,
+        dead_band_rad: float = 0.04,
+        arm_ratio: float = 0.75,
+        pitch_start_ratio: float = 0.9,
+        max_pitch: float = 1.2,
+        min_shoulder_width: float = 0.05,
+    ) -> None:
         # Segments shorter than ~1.5% of the image are direction-noise
         # (foreshortened arm pointing at the camera); hold instead of jitter.
         self.min_segment = min_segment
         self.dead_band_rad = dead_band_rad
+        # Expected full upper-arm length is arm_ratio × shoulder width
+        # (human biacromial proportions; matches the deployed camera view).
+        self.arm_ratio = arm_ratio
+        # No pitch until the arm has visibly shortened below this fraction
+        # of expected (~26° out of plane at 0.9) — keypoint jitter around
+        # full length would otherwise thrash acos where its slope blows up.
+        self._pitch_threshold = math.acos(_clamp(pitch_start_ratio, 0.0, 1.0))
+        self.max_pitch = max_pitch
+        # Rescale so a fully camera-pointing arm (raw 90°) hits max_pitch.
+        self._pitch_gain = max_pitch / (math.pi / 2 - self._pitch_threshold)
+        self.min_shoulder_width = min_shoulder_width
         self._last: dict[int, float] = dict(MIMIC_NEUTRAL_TEMPLATE)
 
     @staticmethod
@@ -424,14 +450,36 @@ class MimicMapper:
 
     def targets(self, keypoints: dict[str, Any]) -> dict[int, float]:
         out = dict(self._last)
-        for prefix, out_sign, roll_joint, roll_sign, elbow_joint in self._ARMS:
+        l_shoulder = keypoints.get("l_shoulder")
+        r_shoulder = keypoints.get("r_shoulder")
+        shoulder_width = (
+            math.hypot(*self._vec(l_shoulder, r_shoulder))
+            if isinstance(l_shoulder, dict) and isinstance(r_shoulder, dict)
+            else 0.0
+        )
+        for prefix, out_sign, roll_joint, roll_sign, elbow_joint, pitch_joint in self._ARMS:
             shoulder = keypoints.get(f"{prefix}_shoulder")
             elbow = keypoints.get(f"{prefix}_elbow")
             wrist = keypoints.get(f"{prefix}_wrist")
             if not (isinstance(shoulder, dict) and isinstance(elbow, dict)):
                 continue
             ux, uy = self._vec(shoulder, elbow)
-            if math.hypot(ux, uy) < self.min_segment:
+            upper_len = math.hypot(ux, uy)
+            # Pitch from foreshortening. Unlike roll/elbow this stays valid
+            # for a near-zero segment — a vanishing upper arm IS the signal
+            # (arm at the camera), only its direction is meaningless. Needs
+            # both shoulders for scale; otherwise the pitch holds.
+            if shoulder_width >= self.min_shoulder_width:
+                ratio = _clamp(upper_len / (self.arm_ratio * shoulder_width), 0.0, 1.0)
+                raw = math.acos(ratio)
+                pitch = (
+                    0.0 if raw <= self._pitch_threshold
+                    # H1-2 sign convention: NEGATIVE pitch raises the arm forward.
+                    else -min(self.max_pitch, (raw - self._pitch_threshold) * self._pitch_gain)
+                )
+                if abs(pitch - out[pitch_joint]) > self.dead_band_rad:
+                    out[pitch_joint] = pitch
+            if upper_len < self.min_segment:
                 continue
             # 0 = arm hanging down (image y grows downward), +pi/2 = out
             # horizontal, ~pi = overhead. Slightly negative = crossed inward.

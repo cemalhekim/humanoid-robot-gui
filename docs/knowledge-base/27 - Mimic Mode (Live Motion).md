@@ -43,11 +43,23 @@ which copies one static pose from an attached image via the LLM.
      positive = outward) → shoulder **ROLL** (abduction), sign per arm
      (negative abducts the right arm, positive the left);
    - shoulder→elbow→wrist interior **bend** angle → **ELBOW** joint;
-   - shoulder pitch/yaw + wrists stay neutral (forward raise is invisible
-     to a frontal 2D view).
-   Segments < 1.5 % of the image (foreshortened, pointing at the camera) and
-   changes < 0.04 rad (keypoint flicker) are ignored; an arm with missing
-   keypoints **holds** its last targets while the staleness machine decides.
+   - upper-arm **foreshortening** → shoulder **PITCH** (forward raise,
+     added 2026-07-28): an arm swung toward the camera *shrinks* on screen,
+     so `acos(observed / expected)` recovers the out-of-plane angle, with
+     expected upper-arm length = **0.75 × shoulder width** (needs both
+     shoulders visible for scale, else pitch holds). Depth *sign* is
+     unobservable in 2D — shrinkage always reads as **forward** (H1-2:
+     negative pitch), never backward. No pitch until the arm shortens below
+     90 % of expected (~26° dead zone — acos noise-amplification near full
+     length), then a linear ramp caps at **1.2 rad** with the arm pointing
+     straight at the camera. Verified monotonic, ≤ 0.08 rad per 3° of arm
+     motion, and zero response to ±1 px keypoint jitter at hanging;
+   - shoulder yaw + wrists stay neutral.
+   Segments < 1.5 % of the image are ignored for roll/elbow (direction is
+   noise) but still drive pitch — a *vanishing* upper arm IS the
+   pointing-at-camera signal. Changes < 0.04 rad (keypoint flicker) are
+   ignored; an arm with missing keypoints **holds** its last targets while
+   the staleness machine decides.
 
 ## Camera-view overlay (what mimic sees)
 
@@ -105,7 +117,13 @@ First live attempt "did nothing"; two independent causes, both fixed:
 ## Status / hardware TODO
 
 ⚠️ Signs and planes are verified against joint-limit tables and unit tests
-(`tests/test_mimic.py`, 21 tests), **not yet on real arms**. First live run:
+(`tests/test_mimic.py`, 30 tests incl. the 2026-07-28 foreshortening-pitch
+set), **not yet on real arms**. Pitch-specific live checks for the first
+run: hold an arm out sideways (pitch must stay 0), raise it slowly forward
+(robot should follow smoothly from ~30°), point it at the camera (robot
+should stop at the 1.2 rad cap). If pitch is jumpy, raise
+`pitch_start_ratio` (0.9) or lower `max_pitch` (1.2) in
+`MimicMapper.__init__`. First live run:
 spotter present, robot in open space, be ready on the toggle. Known
 limitation to tune on hardware: with shoulder yaw pinned at 0, elbow flexion
 moves the forearm in the robot's natural (sagittal-ish) plane, not

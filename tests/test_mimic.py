@@ -103,6 +103,82 @@ class MimicMapperTests(unittest.TestCase):
                     self.assertGreaterEqual(value, lo - 1e-9, msg=f"joint {joint}")
                     self.assertLessEqual(value, hi + 1e-9, msg=f"joint {joint}")
 
+    def test_frontal_plane_arm_keeps_pitch_zero(self):
+        # Arm out sideways at full length (0.15 = 0.75 × shoulder width
+        # 0.2): no foreshortening, so no forward pitch.
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.75, 0.3), l_wrist=kp(0.9, 0.3),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45), r_wrist=kp(0.4, 0.6),
+        ))
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_PITCH], 0.0, delta=1e-9)
+        self.assertAlmostEqual(out[tracking.L_SHOULDER_PITCH], 0.0, delta=1e-9)
+
+    def test_arm_at_camera_pitches_forward_and_holds_roll(self):
+        # Person's LEFT upper arm collapses to a point on screen: the arm
+        # points at the camera. Pitch (robot RIGHT, mirror) goes strongly
+        # NEGATIVE (forward raise); the segment direction is noise, so roll
+        # and elbow hold neutral.
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.605, 0.302),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+        ))
+        self.assertLess(out[tracking.R_SHOULDER_PITCH], -1.0)
+        self.assertGreaterEqual(out[tracking.R_SHOULDER_PITCH], -mapper.max_pitch)
+        self.assertAlmostEqual(
+            out[tracking.R_SHOULDER_ROLL],
+            tracking.MIMIC_NEUTRAL_TEMPLATE[tracking.R_SHOULDER_ROLL],
+            delta=1e-9,
+        )
+        # The hanging right arm stays frontal: no pitch on the robot LEFT.
+        self.assertAlmostEqual(out[tracking.L_SHOULDER_PITCH], 0.0, delta=1e-9)
+
+    def test_half_forward_raise_gives_partial_pitch(self):
+        # Upper arm at half its expected length (0.075 vs 0.15): a ~60°
+        # out-of-plane swing. Above threshold, below the max cap.
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.375),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+        ))
+        self.assertLess(out[tracking.R_SHOULDER_PITCH], -0.4)
+        self.assertGreater(out[tracking.R_SHOULDER_PITCH], -0.9)
+        # Segment direction is still valid (hanging down): roll stays ~0.
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_ROLL], 0.0, delta=0.1)
+
+    def test_person_right_arm_at_camera_drives_robot_left_pitch(self):
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.45),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.405, 0.302),
+        ))
+        self.assertLess(out[tracking.L_SHOULDER_PITCH], -1.0)
+
+    def test_pitch_holds_without_both_shoulders(self):
+        # One shoulder missing -> no scale reference -> pitch must hold,
+        # even though the visible arm is heavily foreshortened.
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.605, 0.302),
+        ))
+        self.assertAlmostEqual(
+            out[tracking.R_SHOULDER_PITCH],
+            tracking.MIMIC_NEUTRAL_TEMPLATE[tracking.R_SHOULDER_PITCH],
+            delta=1e-9,
+        )
+
+    def test_slight_foreshortening_stays_below_pitch_threshold(self):
+        # 93% of expected length (~21° out of plane) is inside the noise
+        # threshold (pitch starts at 90%): pitch must stay exactly zero so
+        # ordinary keypoint jitter never rocks the arm forward.
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.4395),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+        ))
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_PITCH], 0.0, delta=1e-9)
+
     def test_has_upper_body(self):
         self.assertTrue(tracking.has_upper_body(
             {"keypoints": person_pose(l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.7, 0.3))}

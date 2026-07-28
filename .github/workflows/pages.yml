@@ -10,6 +10,8 @@ on:
     paths:
       - static/welcome.html
       - static/remote-entrance.json
+      - static/assets/app-icon.png
+      - static/assets/apple-touch-icon.png
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -32,10 +34,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Assemble site
         run: |
-          mkdir -p _site
+          mkdir -p _site/assets
           cp static/welcome.html _site/index.html
           cp static/welcome.html _site/welcome.html
           cp static/remote-entrance.json _site/remote-entrance.json
+          # Favicon/app icon — welcome.html links these by absolute /assets/ path.
+          cp static/assets/app-icon.png static/assets/apple-touch-icon.png _site/assets/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

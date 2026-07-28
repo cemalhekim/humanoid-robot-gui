@@ -4162,11 +4162,11 @@ connectEvents();
     }
   };
   toggle.addEventListener("click", () => {
-    const on = !serverOn;
-    if (on && !window.confirm(
-      "Mimic Mode moves BOTH robot arms to mirror the person in front of the webcam. Clear the space around the robot. Start?"
-    )) return;
-    void push(on);
+    // No confirm dialog (operator request 2026-07-28): the toggle click IS
+    // the deliberate action; the server-side risk ack rides on the request
+    // and every motion interlock (limits, rate limiter, staleness park)
+    // stays active.
+    void push(!serverOn);
   });
   const sync = () => fetch("/api/track/status")
     .then((resp) => resp.json())

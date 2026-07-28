@@ -15,9 +15,11 @@ which copies one static pose from an attached image via the LLM.
 ## How it works (chain)
 
 1. **Toggle ON** → `POST /api/mimic/mode {on:true, armed:true,
-   i_understand_risk:true}` after a browser confirm. ON immediately starts
-   the session (that is the point of the mode), so the risk ack rides on the
-   toggle itself. OFF always stops and parks both arms at `home`.
+   i_understand_risk:true}` — no browser confirm since 2026-07-28
+   (operator request: "mimic never asks, just works"); the click is the
+   deliberate action and the risk ack rides on the request. ON immediately
+   starts the session (that is the point of the mode). OFF always stops
+   and parks both arms at `home`.
 2. The endpoint arms `mimic_mode_on` and calls `request_track_start` with
    `{mode:"mimic", camera:"webcam", permanent:true, closed_loop:true,
    source:"mimic-toggle"}`. If the session is refused (DDS missing, another

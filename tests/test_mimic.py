@@ -359,6 +359,87 @@ class MimicRoundTripTests(unittest.TestCase):
                         msg=f"{side} {label} {name}: got {got[joint]:+.2f}, "
                             f"want {expected:+.2f}",
                     )
+def _both_arm_pose(rp=0.0, rr=0.0, ry=0.0, re=0.0, lp=None, lr=None, ly=None, le=None):
+    lp = rp if lp is None else lp
+    lr = -rr if lr is None else lr
+    ly = -ry if ly is None else ly
+    le = re if le is None else le
+    pose = {
+        tracking.R_SHOULDER_PITCH: rp, tracking.R_SHOULDER_ROLL: rr,
+        tracking.R_SHOULDER_YAW: ry, tracking.R_ELBOW: re,
+        tracking.L_SHOULDER_PITCH: lp, tracking.L_SHOULDER_ROLL: lr,
+        tracking.L_SHOULDER_YAW: ly, tracking.L_ELBOW: le,
+    }
+    for joint in (tracking.R_WRIST_ROLL, tracking.R_WRIST_PITCH, tracking.R_WRIST_YAW,
+                  tracking.L_WRIST_ROLL, tracking.L_WRIST_PITCH, tracking.L_WRIST_YAW):
+        pose[joint] = 0.0
+    return pose
+
+
+class MimicCollisionTests(unittest.TestCase):
+    """Self-collision guard (dance-demo safety, 2026-07-28): every
+    legitimate mimic pose must be clear, contact poses must be caught."""
+
+    SAFE = (
+        ("standby", dict(tracking.MIMIC_NEUTRAL_TEMPLATE)),
+        ("straight hang", _both_arm_pose(rp=0.0, rr=-0.1, re=1.5)),
+        ("T-pose", _both_arm_pose(rp=-0.1, rr=-1.4, re=1.5)),
+        ("forward reach", _both_arm_pose(rp=-1.2, rr=-0.15, re=1.5)),
+        ("forearm forward", _both_arm_pose(rp=0.0, rr=-0.15, ry=-0.26, re=0.0)),
+        ("dance mid-move", _both_arm_pose(rp=-0.9, rr=-0.6, re=0.4)),
+        ("overhead", _both_arm_pose(rp=-0.3, rr=-2.2, re=1.2)),
+    )
+    COLLIDING = (
+        ("hands meet at midline", _both_arm_pose(rp=-1.2, rr=0.2, re=1.5, lr=-0.2)),
+        ("hand into chest", _both_arm_pose(rp=-1.0, rr=0.1, ry=0.8, re=-0.9, lr=-0.1, ly=-0.8)),
+        ("curl into face", _both_arm_pose(rp=-1.4, rr=-0.05, re=-0.9, lr=0.05)),
+    )
+
+    def test_legitimate_poses_are_clear(self):
+        for label, pose in self.SAFE:
+            self.assertIsNone(tracking.mimic_pose_collides(pose), msg=label)
+
+    def test_contact_poses_are_caught(self):
+        for label, pose in self.COLLIDING:
+            self.assertIsNotNone(tracking.mimic_pose_collides(pose), msg=label)
+
+    def test_safe_poses_keep_real_margin(self):
+        # Not merely non-colliding: every legitimate pose keeps >=2cm of
+        # clearance so keypoint noise cannot flicker the guard on and off.
+        for label, pose in self.SAFE:
+            arms = {s: tracking.arm_points(s, pose) for s in ("right", "left")}
+            margin = float("inf")
+            for points in arms.values():
+                for name, radius in tracking._ARM_SPHERES:
+                    for center, bradius, _ in tracking._BODY_SPHERES:
+                        margin = min(margin, math.dist(points[name], center) - radius - bradius)
+            for rname, rradius in tracking._ARM_SPHERES:
+                for lname, lradius in tracking._ARM_SPHERES:
+                    margin = min(
+                        margin,
+                        math.dist(arms["right"][rname], arms["left"][lname]) - rradius - lradius,
+                    )
+            self.assertGreater(margin, 0.02, msg=label)
+
+    def test_tracking_fk_matches_reference_fk(self):
+        # tracking.arm_points must agree with the independently transcribed
+        # URDF chain used by MimicRoundTripTests (elbow position only —
+        # the reference chain stops at the elbow joint).
+        q = {"pitch": -0.7, "roll": -0.5, "yaw": 0.3, "elbow": 0.6}
+        pose = _both_arm_pose(rp=q["pitch"], rr=q["roll"], ry=q["yaw"], re=q["elbow"])
+        chain, _ = _FK_CHAINS["right"]
+        R = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        p = [0.0, 0.0, 0.0]
+        for (xyz, rpy, axis), name in zip(chain, ("pitch", "roll", "yaw", "elbow")):
+            step = _fk_mat_vec(R, list(xyz))
+            p = [p[i] + step[i] for i in range(3)]
+            R = _fk_mat_mul(R, _fk_rot_rpy(rpy))
+            R = _fk_mat_mul(R, _fk_axis_rot(axis, q[name]))
+        got = tracking.arm_points("right", pose)["elbow"]
+        for axis_index in range(3):
+            self.assertAlmostEqual(got[axis_index], p[axis_index], places=9)
+
+
 class MimicPayloadTests(unittest.TestCase):
     def test_mode_defaults_to_point(self):
         parsed = server.parse_track_payload({})

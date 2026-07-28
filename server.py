@@ -547,6 +547,26 @@ SENTRY_SMOOTH_ALPHA = max(
     0.05,
     min(1.0, float(os.environ.get("SENTRY_SMOOTH_ALPHA", "0.35") or 0.35)),
 )
+# Mimic dance profile (2026-07-28): mirroring a moving person needs more
+# velocity headroom and less filter lag than Bullseye pointing. The higher
+# step bound is licensed by the python self-collision guard that runs on
+# every rate-limited step before publish (tracking.mimic_pose_collides):
+# a step into a colliding pose freezes at the last clear pose instead.
+MIMIC_MAX_STEP_RAD_S = max(
+    0.1,
+    min(2.0, float(os.environ.get("MIMIC_MAX_STEP_RAD_S", "1.5") or 1.5)),
+)
+MIMIC_SMOOTH_ALPHA = max(
+    0.05,
+    min(1.0, float(os.environ.get("MIMIC_SMOOTH_ALPHA", "0.5") or 0.5)),
+)
+MIMIC_RATE_HZ = max(
+    1.0,
+    min(15.0, float(os.environ.get("MIMIC_RATE_HZ", "12") or 12)),
+)
+# A spin turns the dancer's back to the camera for a moment: hold the pose
+# through a full turn instead of parking (Bullseye keeps the tighter 2.0s).
+MIMIC_HOLD_S = max(0.5, min(10.0, float(os.environ.get("MIMIC_HOLD_S", "3.5") or 3.5)))
 TRACKING_MAX_SESSION_S = max(30.0, float(os.environ.get("TRACKING_MAX_SESSION_S", "600") or 600))
 LLM_TOOL_TRACK_ENABLED = os.environ.get("LLM_TOOL_TRACK_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
 LLM_MAX_TOOL_ROUNDS = int(os.environ.get("LLM_MAX_TOOL_ROUNDS", "4"))
@@ -5800,10 +5820,16 @@ class TelemetryStore:
             alpha=SENTRY_AIM_ALPHA if camera == "webcam" else 0.25
         )
         limiter = tracking.RateLimiter(
-            max_step_rad_s=SENTRY_MAX_STEP_RAD_S if camera == "webcam" else 0.45
+            max_step_rad_s=(
+                MIMIC_MAX_STEP_RAD_S if mimic
+                else SENTRY_MAX_STEP_RAD_S if camera == "webcam" else 0.45
+            )
         )
         smoother = tracking.Smoother(
-            alpha=SENTRY_SMOOTH_ALPHA if camera == "webcam" else 0.35
+            alpha=(
+                MIMIC_SMOOTH_ALPHA if mimic
+                else SENTRY_SMOOTH_ALPHA if camera == "webcam" else 0.35
+            )
         )
         seed = None
         if config["target"] is not None:
@@ -5820,12 +5846,12 @@ class TelemetryStore:
             }
         state = tracking.TrackState(
             stale_after_s=1.5,
-            hold_s=2.0,
+            hold_s=MIMIC_HOLD_S if mimic else 2.0,
             max_failures=10,
             target_id=config["target_id"],
             seed_target=seed,
         )
-        period = 1.0 / TRACKING_RATE_HZ
+        period = 1.0 / (MIMIC_RATE_HZ if mimic else TRACKING_RATE_HZ)
         started = time.monotonic()
         last_tick = started
         current: dict[int, float] = {
@@ -5904,6 +5930,22 @@ class TelemetryStore:
                 goal = smoother.update(goal)
                 previous = current
                 current = limiter.step(previous, goal, dt=dt)
+                collision_hold = None
+                if mimic:
+                    # Self-collision guard: a rate-limited step that would
+                    # enter contact (arm-vs-arm or arm-vs-body spheres)
+                    # freezes at the last clear pose for this tick. Steps
+                    # are <= max_step*dt, so the arm parks just outside
+                    # the contact surface instead of ever crossing it.
+                    collision_hold = tracking.mimic_pose_collides(current)
+                    if collision_hold is not None:
+                        if tracking.mimic_pose_collides(previous) is None:
+                            current = dict(previous)
+                        else:
+                            # Already inside the model's contact zone (e.g.
+                            # boot pose): let the step through — goals are
+                            # always clear poses, so motion runs outward.
+                            collision_hold = None
                 if camera == "webcam" and not mimic and state.phase == "tracking":
                     current = sentry_constant_hand_z_step(
                         previous,
@@ -5945,7 +5987,10 @@ class TelemetryStore:
                     response=tuning["response"],
                     max_step_rad_s=limiter.max_step_rad_s,
                     message=(
-                        f"Mimic session running ({state.phase})."
+                        (
+                            f"Mimic session running ({state.phase})"
+                            + (f" · collision hold: {collision_hold}." if collision_hold else ".")
+                        )
                         if mimic
                         else f"Locked {camera} tracking running ({state.phase})."
                     ),

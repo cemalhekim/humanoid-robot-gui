@@ -398,6 +398,116 @@ def _rot_y(v: tuple[float, float, float], a: float) -> tuple[float, float, float
     return (c * v[0] + s * v[2], v[1], -s * v[0] + c * v[2])
 
 
+# ---------------------------------------------------------------------------
+# Arm forward kinematics + self-collision guard (h1_2.urdf ground truth).
+# Pure python 3x3 math, torso_link frame (x forward, y left, z up).
+# ---------------------------------------------------------------------------
+
+def _mat_mul(A, B):
+    return [[sum(A[i][k] * B[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+
+def _mat_vec(A, v):
+    return [sum(A[i][k] * v[k] for k in range(3)) for i in range(3)]
+
+
+def _rot_rpy(rpy):
+    r, p, y = rpy
+    Rx = [[1, 0, 0], [0, math.cos(r), -math.sin(r)], [0, math.sin(r), math.cos(r)]]
+    Ry = [[math.cos(p), 0, math.sin(p)], [0, 1, 0], [-math.sin(p), 0, math.cos(p)]]
+    Rz = [[math.cos(y), -math.sin(y), 0], [math.sin(y), math.cos(y), 0], [0, 0, 1]]
+    return _mat_mul(Rz, _mat_mul(Ry, Rx))
+
+
+def _axis_rot(axis, a):
+    x, y, z = axis
+    c, s, C = math.cos(a), math.sin(a), 1 - math.cos(a)
+    return [
+        [c + x * x * C, x * y * C - z * s, x * z * C + y * s],
+        [y * x * C + z * s, c + y * y * C, y * z * C - x * s],
+        [z * x * C - y * s, z * y * C + x * s, c + z * z * C],
+    ]
+
+
+# (joint index, origin xyz, origin rpy, axis) per arm, torso -> wrist_yaw,
+# transcribed from h1_2.urdf. Wrist origins chain the forearm geometry so
+# collision points are exact even with wrists commanded (mimic pins them 0).
+_ARM_CHAINS: dict[str, tuple] = {
+    "right": (
+        (R_SHOULDER_PITCH, (0, -0.14806, 0.42333), (-0.2618, 0, 0), (0, 1, 0)),
+        (R_SHOULDER_ROLL, (0.0342, -0.061999, -0.0060011), (0.2618, 0, 0), (1, 0, 0)),
+        (R_SHOULDER_YAW, (-0.0342, 0, -0.1456), (0, 0, 0), (0, 0, 1)),
+        (R_ELBOW, (0.006, -0.0329, -0.182), (0, 0, 0), (0, 1, 0)),
+        (R_WRIST_ROLL, (0.121, 0.0329, -0.011), (0, 0, 0), (1, 0, 0)),
+        (R_WRIST_PITCH, (0.087, 0, 0), (0, 0, 0), (0, 1, 0)),
+        (R_WRIST_YAW, (0.020, 0, 0), (0, 0, 0), (0, 0, 1)),
+    ),
+    "left": (
+        (L_SHOULDER_PITCH, (0, 0.14806, 0.42333), (0.2618, 0, 0), (0, 1, 0)),
+        (L_SHOULDER_ROLL, (0.0342, 0.061999, -0.0060011), (-0.2618, 0, 0), (1, 0, 0)),
+        (L_SHOULDER_YAW, (-0.0342, 0, -0.1456), (0, 0, 0), (0, 0, 1)),
+        (L_ELBOW, (0.006, 0.0329, -0.182), (0, 0, 0), (0, 1, 0)),
+        (L_WRIST_ROLL, (0.121, -0.0329, -0.011), (0, 0, 0), (1, 0, 0)),
+        (L_WRIST_PITCH, (0.087, 0, 0), (0, 0, 0), (0, 1, 0)),
+        (L_WRIST_YAW, (0.020, 0, 0), (0, 0, 0), (0, 0, 1)),
+    ),
+}
+
+# Collision sphere radii per arm point (matches the 3D editor's JS model)
+# plus the hand ball sitting ~0.10 m beyond the wrist-yaw frame along +x.
+_ARM_SPHERES = (("elbow", 0.08), ("wrist_pitch", 0.075), ("wrist_yaw", 0.075), ("hand", 0.085))
+_HAND_OFFSET = (0.10, 0.0, 0.0)
+_ARM_POINT_JOINT = {"elbow": 3, "wrist_pitch": 5, "wrist_yaw": 6}
+
+# Body spheres in the torso frame: centers hand-placed against the URDF
+# meshes (camera/lidar are their exact fixed-joint origins), radii tuned so
+# every legitimate mimic pose (standby, hang, T-pose, forward reach) keeps
+# >2 cm clearance while chest-contact and crossed-arm poses collide — see
+# MimicCollisionTests.
+_BODY_SPHERES = (
+    ((0.0, 0.0, 0.32), 0.16, "torso"),
+    ((0.0, 0.0, -0.08), 0.14, "pelvis"),
+    ((0.11109, 0.0175, 0.68789), 0.12, "camera"),
+    ((0.04874, 0.0, 0.6798), 0.12, "lidar"),
+)
+
+
+def arm_points(side: str, targets: dict[int, float]) -> dict[str, tuple[float, float, float]]:
+    """FK: joint targets -> named collision-point positions (torso frame)."""
+    R = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    p = [0.0, 0.0, 0.0]
+    frames = []
+    for joint, xyz, rpy, axis in _ARM_CHAINS[side]:
+        step = _mat_vec(R, list(xyz))
+        p = [p[i] + step[i] for i in range(3)]
+        R = _mat_mul(R, _rot_rpy(rpy))
+        R = _mat_mul(R, _axis_rot(axis, float(targets.get(joint, 0.0))))
+        frames.append((tuple(p), R))
+    points = {name: frames[idx][0] for name, idx in _ARM_POINT_JOINT.items()}
+    wrist_p, wrist_R = frames[6]
+    hand = _mat_vec(wrist_R, list(_HAND_OFFSET))
+    points["hand"] = tuple(wrist_p[i] + hand[i] for i in range(3))
+    return points
+
+
+def mimic_pose_collides(targets: dict[int, float]) -> str | None:
+    """Self-collision check for a both-arm pose. Returns a short label for
+    the first colliding sphere pair, or None when the pose is clear. Pure
+    sphere-vs-sphere: arm points vs body spheres, and arm vs arm."""
+    arms = {side: arm_points(side, targets) for side in ("right", "left")}
+    for side, points in arms.items():
+        for name, radius in _ARM_SPHERES:
+            px, py, pz = points[name]
+            for (bx, by, bz), bradius, blabel in _BODY_SPHERES:
+                if math.dist((px, py, pz), (bx, by, bz)) < radius + bradius:
+                    return f"{side}-{name} vs {blabel}"
+    for rname, rradius in _ARM_SPHERES:
+        for lname, lradius in _ARM_SPHERES:
+            if math.dist(arms["right"][rname], arms["left"][lname]) < rradius + lradius:
+                return f"right-{rname} vs left-{lname}"
+    return None
+
+
 class MimicMapper:
     """Map detector pose keypoints (normalized image space, y down) to
     both-arm joint targets, mirror-style, via deterministic single-view 3D

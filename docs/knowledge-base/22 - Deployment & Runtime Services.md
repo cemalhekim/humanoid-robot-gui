@@ -207,6 +207,20 @@ e.g. `com.vodafone.robot-dashboard-cloudflared.plist`,
 Per its README these are a reference/backup copy; the live files stay in
 `~/Library/LaunchAgents/`. (Exact behaviour of each plist not detailed here.)
 
+## App icon & GitHub Pages welcome page
+
+The app icon is the red Vodafone robot bust, stored as
+`static/assets/app-icon.png` (512×512, transparent background) and
+`static/assets/apple-touch-icon.png` (180×180, flattened onto black because iOS
+ignores alpha). All UI pages (`index.html`, `welcome.html`, `feedback.html`)
+link these, and `server.py` serves `app-icon.png` for `/favicon.ico`.
+
+`.github/workflows/pages.yml` publishes `static/welcome.html` (plus
+`remote-entrance.json` and both icon PNGs) to GitHub Pages on every push to
+`main` that touches those files, so the onboarding page stays reachable when
+the robot and operator Mac are off. To change the icon everywhere, replace the
+two PNGs — no HTML/workflow edits needed.
+
 ## Logs
 
 `/home/unitree/logs/` — dashboard: `robot_telemetry_web.log`; watchdog:

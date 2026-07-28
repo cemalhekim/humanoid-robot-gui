@@ -10,3 +10,4 @@ log/
 *.egg-info/
 recordings/
 feedback/
+.claude/worktrees/

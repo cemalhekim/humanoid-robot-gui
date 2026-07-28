@@ -5,6 +5,19 @@ summary: Bullseye Mode (formerly Sentry Mode) is the server-enforced master swit
 
 # 19 - Sentry Mode & Head-Lock
 
+> [!warning] Person-lock pointing DISABLED (2026-07-28, operator request)
+> The 🔒 head-lock → arm-pointing path is switched off at BOTH layers:
+> `PERSON_LOCK_ENABLED` in `server.py` (env-overridable, default `0`)
+> makes `request_track_start` refuse every `mode:"point"` session with 409
+> — UI lock clicks, the chat `track` tool, curl, everything — and the
+> same-named `const PERSON_LOCK_ENABLED = false` in `setupSentry`
+> (`static/app.js`) stops the lock buttons rendering at all. Bullseye
+> itself still works as a **view-only** mode: toggle, SSE detect stream,
+> boxes and counter are unchanged, and [[27 - Mimic Mode (Live Motion)|Mimic]]
+> is unaffected (its sessions are `mode:"mimic"`). To re-enable: set the
+> env var `PERSON_LOCK_ENABLED=1` (or flip the default) AND set the app.js
+> const to `true` — keep the two in sync.
+
 > [!info] Renamed to **Bullseye Mode** (2026-07-27)
 > All user-facing text (toggle tooltip/aria-label, `Bullseye: N` webcam
 > counter, server error/status messages) now says **Bullseye Mode**, and the

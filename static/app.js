@@ -3614,6 +3614,9 @@ connectEvents();
   const TRACK_TTL_MS = 1000;     // a box no person confirms within 1 s is removed
   const PENDING_LOCK_MS = 12000; // how long an off-screen lock waits to re-attach
   const POLL_MS = 250;           // gate check only — detections arrive via SSE push
+  // Person-lock pointing disabled for now (2026-07-28) — keep in sync with
+  // server.py PERSON_LOCK_ENABLED, which refuses "point" sessions while off.
+  const PERSON_LOCK_ENABLED = false;
 
   let tracks = [];            // {id, serviceId, x1, y1, x2, y2, hx, hy, conf, lastSeen, btn}
   let nextTrackId = 1;
@@ -3942,7 +3945,10 @@ connectEvents();
       const btn = buttonFor(track);
       // Person-lock buttons belong to Bullseye pointing; in a mimic-only
       // view a lock click would only produce a "Bullseye is off" error.
-      if (!t || !isOn()) { btn.classList.add("hidden"); return; }
+      // PERSON_LOCK_ENABLED mirrors the server flag of the same name: while
+      // pointing is operator-disabled (2026-07-28) the buttons never render
+      // (the server would 409 the click anyway), Bullseye stays view-only.
+      if (!t || !isOn() || !PERSON_LOCK_ENABLED) { btn.classList.add("hidden"); return; }
       btn.classList.remove("hidden");
       if (!track.hover) {
         // Real head keypoint when the pose model provides it; box top otherwise.

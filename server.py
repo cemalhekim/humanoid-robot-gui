@@ -507,6 +507,11 @@ LLM_TOOL_MOVE_ENABLED = os.environ.get("LLM_TOOL_MOVE_ENABLED", "1") not in ("0"
 # Person-tracking / arm-pointing feature (spec: docs/superpowers/specs/2026-07-21-person-pointing-design.md).
 # Ships dark: all endpoints/UI gate on TRACKING_ENABLED, chat/MCP tool on LLM_TOOL_TRACK_ENABLED.
 TRACKING_ENABLED = os.environ.get("TRACKING_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+# Person-lock arm pointing (the Bullseye 🔒 buttons and any other "point"
+# session) — operator-disabled 2026-07-28. Bullseye stays available as a
+# view-only detect stream (boxes + counter); Mimic is unaffected. Flip the
+# env var (or the default) to re-enable.
+PERSON_LOCK_ENABLED = os.environ.get("PERSON_LOCK_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
 TRACKING_DETECT_URL = os.environ.get("TRACKING_DETECT_URL", "http://10.2.125.3:8188/detect").strip()
 TRACKING_CAMERA = os.environ.get("TRACKING_CAMERA", "head").strip().lower()
 TRACKING_RATE_HZ = max(1.0, min(15.0, float(os.environ.get("TRACKING_RATE_HZ", "8") or 8)))
@@ -5686,6 +5691,10 @@ class TelemetryStore:
                 return 409, {"ok": False, "error": "Mimic mode is off — it is the master switch; turn it on before starting mimic."}
         elif not sentry_on:
             return 409, {"ok": False, "error": "Bullseye mode is off — it is the master switch; turn it on before starting tracking."}
+        elif not PERSON_LOCK_ENABLED:
+            # Server-side twin of the hidden lock buttons: no client (UI,
+            # chat tool, curl) can start a pointing session while disabled.
+            return 409, {"ok": False, "error": "Person-lock pointing is disabled (PERSON_LOCK_ENABLED=0)."}
         if payload.get("source") == "sentry-lock" and (
             config["camera"] != "webcam" or config["target"] is None
         ):

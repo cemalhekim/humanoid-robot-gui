@@ -70,12 +70,27 @@ class TrackingGatingTests(unittest.TestCase):
         old = server.TRACKING_ENABLED
         server.TRACKING_ENABLED = True
         try:
-            status, response = store.request_track_start(
-                {"armed": True, "i_understand_risk": True}
-            )
+            with mock.patch.object(server, "PERSON_LOCK_ENABLED", True):
+                status, response = store.request_track_start(
+                    {"armed": True, "i_understand_risk": True}
+                )
         finally:
             server.TRACKING_ENABLED = old
         self.assertEqual(status, 503)  # no wrist_publisher offline
+
+    def test_point_mode_refused_while_person_lock_disabled(self):
+        # Operator disable (2026-07-28): with PERSON_LOCK_ENABLED off
+        # (the default), no caller can start a pointing session even with
+        # every other gate satisfied — Bullseye stays view-only.
+        store = self.make_store()
+        store.set_sentry_mode({"on": True})
+        self.assertFalse(server.PERSON_LOCK_ENABLED)
+        with mock.patch.object(server, "TRACKING_ENABLED", True):
+            status, response = store.request_track_start(
+                {"armed": True, "i_understand_risk": True}
+            )
+        self.assertEqual(status, 409)
+        self.assertIn("Person-lock", response["error"])
 
     def test_start_refused_while_sentry_mode_off(self):
         # Bullseye Mode is the operator's master switch (2026-07-22): with it
@@ -123,7 +138,8 @@ class TrackingGatingTests(unittest.TestCase):
     def test_sentry_lock_requires_webcam_target(self):
         store = self.make_store()
         store.sentry_mode_on = True
-        with mock.patch.object(server, "TRACKING_ENABLED", True):
+        with mock.patch.object(server, "TRACKING_ENABLED", True), \
+                mock.patch.object(server, "PERSON_LOCK_ENABLED", True):
             status, response = store.request_track_start({
                 "armed": True,
                 "i_understand_risk": True,
@@ -150,7 +166,8 @@ class TrackingGatingTests(unittest.TestCase):
             "target": {"cx": 0.4, "cy": 0.3},
             "target_id": 21,
         }
-        with mock.patch.object(server, "TRACKING_ENABLED", True):
+        with mock.patch.object(server, "TRACKING_ENABLED", True), \
+                mock.patch.object(server, "PERSON_LOCK_ENABLED", True):
             with mock.patch.object(store, "_suspend_xr_motion_publishers",
                                    return_value={"ok": True}):
                 with mock.patch.object(threading.Thread, "start"):

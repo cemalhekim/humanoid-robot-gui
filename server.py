@@ -7240,7 +7240,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
         elif request_path == "/favicon.ico":
-            self._send_file(STATIC_DIR / "assets" / "favicon.svg", "image/svg+xml")
+            self._send_file(STATIC_DIR / "assets" / "app-icon.png", "image/png")
         elif request_path == "/remote-entrance.json":
             # Current remote-tunnel hostnames for the welcome page's Offline
             # (read-only mirror) and Remote (live Ethernet relay) cards

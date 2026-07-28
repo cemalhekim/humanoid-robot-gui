@@ -452,9 +452,19 @@ class MimicMapper:
         max_pitch: float = 1.2,
         min_shoulder_width: float = 0.05,
         min_yaw_cos: float = 0.25,
+        aspect: float = 1.0,
     ) -> None:
         self.min_segment = min_segment
         self.dead_band_rad = dead_band_rad
+        # Frame height/width ratio. Detector keypoints are normalized 0..1
+        # PER AXIS, so on a 16:9 frame a vertical distance is 16/9x longer
+        # than the same numeric horizontal distance — which silently breaks
+        # every length ratio (arms are mostly vertical, shoulder width is
+        # mostly horizontal). All geometry below multiplies y by this
+        # factor to restore isotropic width-units. The session owner sets
+        # it from the detect result's real w/h (h1 webcam bridge frames);
+        # 1.0 keeps square-coordinate behavior when w/h is unknown.
+        self.aspect = aspect
         # Expected bone lengths in units of shoulder width (human
         # anthropometry: upper arm ~0.75x, elbow->wrist ~0.65x biacromial).
         self.upper_ratio = upper_ratio
@@ -483,9 +493,12 @@ class MimicMapper:
         self.roll_bias = 0.10
         self._last: dict[int, float] = dict(MIMIC_NEUTRAL_TEMPLATE)
 
-    @staticmethod
-    def _vec(a: dict[str, Any], b: dict[str, Any]) -> tuple[float, float]:
-        return float(b["x"]) - float(a["x"]), float(b["y"]) - float(a["y"])
+    def _vec(self, a: dict[str, Any], b: dict[str, Any]) -> tuple[float, float]:
+        # y scaled by the frame aspect -> isotropic width-units.
+        return (
+            float(b["x"]) - float(a["x"]),
+            (float(b["y"]) - float(a["y"])) * self.aspect,
+        )
 
     def _lift(
         self, lat: float, down: float, expected: float, y_sign: float
@@ -517,9 +530,9 @@ class MimicMapper:
             l_hip, r_hip = keypoints.get("l_hip"), keypoints.get("r_hip")
             if isinstance(l_hip, dict) and isinstance(r_hip, dict):
                 sx = (float(l_sh["x"]) + float(r_sh["x"])) / 2.0
-                sy = (float(l_sh["y"]) + float(r_sh["y"])) / 2.0
+                sy = (float(l_sh["y"]) + float(r_sh["y"])) / 2.0 * self.aspect
                 hx = (float(l_hip["x"]) + float(r_hip["x"])) / 2.0
-                hy = (float(l_hip["y"]) + float(r_hip["y"])) / 2.0
+                hy = (float(l_hip["y"]) + float(r_hip["y"])) / 2.0 * self.aspect
                 dn = math.hypot(hx - sx, hy - sy)
                 if dn > 1e-6:
                     down_axis = ((hx - sx) / dn, (hy - sy) / dn)

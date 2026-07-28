@@ -40,6 +40,14 @@ which copies one static pose from an attached image via the LLM.
    webcam is robot-relative (not mirrored), so the person's LEFT keypoints
    drive the robot's RIGHT arm and vice versa — the robot behaves like a
    mirror. Per frame:
+   0. **Aspect de-distortion** (fix 2026-07-28 evening): detector
+      keypoints are normalized 0..1 PER AXIS, so on a 16:9 frame vertical
+      distances are 16/9× inflated vs horizontal — which broke every
+      length ratio (arms are vertical, shoulder width horizontal: arms
+      read as always-long → depth never fired → the robot sat frozen in
+      one straight-arm pose, both arms alike). `sentry_detect` now passes
+      the frame's real `w`/`h` through and the session sets
+      `MimicMapper.aspect = h/w`; all geometry multiplies y by it.
    1. **Torso frame**: shoulder line = lateral axis, shoulder-mid→hip-mid =
       down axis (image-down fallback); shoulder width = the scale.
    2. **3D lift per bone**: lateral/down measured in that frame, forward =

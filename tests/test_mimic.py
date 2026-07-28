@@ -180,6 +180,51 @@ class MimicMapperTests(unittest.TestCase):
         self.assertFalse(tracking.has_upper_body({"keypoints": {"nose": kp(0.5, 0.1)}}))
         self.assertFalse(tracking.has_upper_body({}))
 
+    def test_aspect_correction_matches_isotropic_geometry(self):
+        # The same physical pose, once in isotropic coordinates (aspect 1)
+        # and once as 16:9 per-axis-normalized detector output with
+        # aspect=h/w — the joint targets must be identical. Guards the
+        # 2026-07-28 live bug: vertical distances 16/9x inflated broke all
+        # length ratios (arms read as always-long -> robot stuck straight).
+        aspect = 0.5625  # 720/1280
+        iso = {
+            "l_shoulder": kp(0.6, 0.2), "l_elbow": kp(0.66, 0.31), "l_wrist": kp(0.7, 0.42),
+            "r_shoulder": kp(0.4, 0.2), "r_elbow": kp(0.4, 0.31), "r_wrist": kp(0.4, 0.42),
+        }
+        norm = {
+            name: kp(point["x"], point["y"] / aspect) for name, point in iso.items()
+        }
+        out_iso = tracking.MimicMapper(dead_band_rad=0.0).targets(iso)
+        mapper = tracking.MimicMapper(dead_band_rad=0.0, aspect=aspect)
+        out_norm = mapper.targets(norm)
+        for joint, value in out_iso.items():
+            self.assertAlmostEqual(out_norm[joint], value, places=6, msg=f"joint {joint}")
+
+    def test_live_hanging_pose_reads_straight_arms(self):
+        # Real detector output captured live 2026-07-28 (person standing,
+        # arms relaxed, 16:9 frame). With aspect correction both elbows
+        # must read near-straight — without it they read q~0.7-bent and the
+        # robot looked frozen in one pose regardless of the person's arms.
+        keypoints = {
+            "l_shoulder": kp(0.17578125, 0.5541666666666667),
+            "r_shoulder": kp(0.086083984375, 0.5722222222222222),
+            "l_elbow": kp(0.212890625, 0.6756944444444445),
+            "r_elbow": kp(0.07412109375, 0.6875),
+            "l_wrist": kp(0.21484375, 0.8076388888888889),
+            "r_wrist": kp(0.0775390625, 0.7569444444444444),
+            "l_hip": kp(0.1669921875, 0.8215277777777777),
+            "r_hip": kp(0.10576171875, 0.8277777777777777),
+        }
+        mapper = tracking.MimicMapper(dead_band_rad=0.0, aspect=0.5625)
+        out = mapper.targets(keypoints)
+        self.assertGreater(out[tracking.R_ELBOW], 1.0)
+        # The person's right forearm was genuinely a bit foreshortened in
+        # this frame (reaching toward the desk): mildly bent is correct,
+        # fully-bent (the pre-fix reading) is not.
+        self.assertGreater(out[tracking.L_ELBOW], 0.6)
+        self.assertGreater(out[tracking.R_SHOULDER_PITCH], -0.4)
+        self.assertGreater(out[tracking.L_SHOULDER_PITCH], -0.4)
+
     def test_neutral_template_covers_both_arms_within_limits(self):
         for joint, value in tracking.MIMIC_NEUTRAL_TEMPLATE.items():
             lo, hi = tracking.MIMIC_LIMITS[joint]

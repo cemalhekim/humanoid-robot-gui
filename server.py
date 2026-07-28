@@ -5526,10 +5526,17 @@ class TelemetryStore:
                 headers={"Content-Type": "image/jpeg"}, method="POST",
             )
             with urllib.request.urlopen(req, timeout=0.5) as resp:
-                persons = json.loads(resp.read()).get("persons", [])
+                payload = json.loads(resp.read())
+                persons = payload.get("persons", [])
         except Exception:
             return {"ok": False, "error": "Detection service unreachable."}
-        return {"ok": True, "feed": feed, "persons": persons, "ts": time.time()}
+        # Frame pixel dimensions ride along: MimicMapper needs the aspect
+        # ratio to de-distort per-axis-normalized keypoint geometry.
+        return {
+            "ok": True, "feed": feed, "persons": persons,
+            "w": payload.get("w"), "h": payload.get("h"),
+            "ts": time.time(),
+        }
 
     # ---- Bullseye push stream: one background detect loop, shared by all SSE
     # ---- subscribers; it runs only while at least one client is connected,
@@ -5873,6 +5880,10 @@ class TelemetryStore:
                     break
                 if state.phase == "tracking" and state.target is not None:
                     if mimic_mapper is not None:
+                        # Real frame aspect (h/w) de-distorts the per-axis
+                        # normalized keypoints before any length math.
+                        if result and result.get("w") and result.get("h"):
+                            mimic_mapper.aspect = float(result["h"]) / float(result["w"])
                         # The mapper holds an arm's last targets while its
                         # keypoints are missing; the staleness state machine
                         # above still parks everything when the person is lost.

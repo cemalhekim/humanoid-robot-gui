@@ -101,6 +101,7 @@ const els = {
   sequencePointList: document.getElementById("sequencePointList"),
   endEffectorStatus: document.getElementById("endEffectorStatus"),
   collisionDebugToggle: document.getElementById("collisionDebugToggle"),
+  elbowTargetsToggle: document.getElementById("elbowTargetsToggle"),
   recordingSequenceToggle: document.getElementById("recordingSequenceToggle"),
   recordingSaveSequence: document.getElementById("recordingSaveSequence"),
   recordingRobotMotionToggle: document.getElementById("recordingRobotMotionToggle"),
@@ -2529,6 +2530,11 @@ els.recordingSequenceToggle?.addEventListener("click", () => setSequenceMode(!st
 els.collisionDebugToggle?.addEventListener("change", () => {
   window.dispatchEvent(
     new CustomEvent("recording-collision-debug", { detail: { visible: Boolean(els.collisionDebugToggle?.checked) } }),
+  );
+});
+els.elbowTargetsToggle?.addEventListener("change", () => {
+  window.dispatchEvent(
+    new CustomEvent("recording-elbow-targets", { detail: { visible: Boolean(els.elbowTargetsToggle?.checked) } }),
   );
 });
 els.sequenceBuilderClose?.addEventListener("click", () => setSequenceMode(false));

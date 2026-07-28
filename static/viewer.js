@@ -73,6 +73,13 @@ const LEFT_ARM_IK_JOINTS = [
   "left_wrist_yaw_joint",
 ];
 
+// Elbow targets move only the shoulder ball joints: an elbow position is
+// fully determined by shoulder pitch+roll (yaw spins the arm in place), so
+// dragging the elbow re-aims the upper arm while forearm/wrist joints and
+// the elbow angle itself stay untouched.
+const RIGHT_ELBOW_IK_JOINTS = ["right_shoulder_pitch_joint", "right_shoulder_roll_joint"];
+const LEFT_ELBOW_IK_JOINTS = ["left_shoulder_pitch_joint", "left_shoulder_roll_joint"];
+
 const ARM_MIRROR_JOINTS = [
   ["left_shoulder_pitch_joint", "right_shoulder_pitch_joint", 1],
   ["left_shoulder_roll_joint", "right_shoulder_roll_joint", -1],
@@ -215,6 +222,10 @@ class RobotViewer {
     this.collisionDebugHelpers = [];
     this.draggingEndEffector = false;
     this.draggingEndEffectorSide = null;
+    this.draggingElbow = false;
+    this.draggingElbowSide = null;
+    this.elbowTargetsEnabled = false;
+    this.elbowMarkers = {};
     this.dragPlane = new THREE.Plane();
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -583,8 +594,69 @@ class RobotViewer {
     if (!this.compare || this.endEffectorMarker) return;
     this.endEffectorMarker = this.createEndEffectorMarkerForSide("right");
     this.leftEndEffectorMarker = this.createEndEffectorMarkerForSide("left");
+    this.elbowMarkers.right = this.createElbowMarkerForSide("right");
+    this.elbowMarkers.left = this.createElbowMarkerForSide("left");
     this.createTorsoRing();
     this.bindEndEffectorDrag();
+  }
+
+  getElbowObject(side = "right") {
+    return this.linkGroups?.get(`${side}_elbow_link`) || null;
+  }
+
+  getElbowPosition(side = "right") {
+    const link = this.getElbowObject(side);
+    if (!link) return null;
+    link.updateWorldMatrix(true, false);
+    return link.getWorldPosition(new THREE.Vector3());
+  }
+
+  createElbowMarkerForSide(side) {
+    const marker = new THREE.Group();
+    marker.name = `${side}_elbow_target`;
+    marker.userData.side = side;
+    marker.userData.elbowTarget = true;
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.028, 20, 14),
+      new THREE.MeshStandardMaterial({
+        color: 0xffa02f,
+        emissive: 0x7a4300,
+        roughness: 0.42,
+        metalness: 0.15,
+      }),
+    );
+    sphere.userData.elbowTarget = true;
+    marker.add(sphere);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.042, 0.0025, 8, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
+    );
+    ring.rotation.x = Math.PI / 2;
+    marker.add(ring);
+    marker.visible = false;
+    this.scene.add(marker);
+    return marker;
+  }
+
+  setElbowTargetsVisible(visible) {
+    this.elbowTargetsEnabled = Boolean(visible);
+    for (const side of ["right", "left"]) {
+      const marker = this.elbowMarkers[side];
+      if (!marker) continue;
+      marker.visible = this.elbowTargetsEnabled && Boolean(this.getElbowObject(side));
+      if (marker.visible) this.updateElbowMarkerForSide(side);
+    }
+    this._needsRender = true;
+  }
+
+  updateElbowMarkerForSide(side) {
+    const marker = this.elbowMarkers[side];
+    if (!marker || !this.elbowTargetsEnabled || this.draggingElbowSide === side) return;
+    const position = this.getElbowPosition(side);
+    if (!position) return;
+    marker.position.copy(position);
+    marker.visible = true;
+    this._needsRender = true;
   }
 
   createTorsoRing() {
@@ -653,6 +725,8 @@ class RobotViewer {
   updateEndEffectorMarker() {
     this.updateEndEffectorMarkerForSide("right");
     this.updateEndEffectorMarkerForSide("left");
+    this.updateElbowMarkerForSide("right");
+    this.updateElbowMarkerForSide("left");
   }
 
   updateEndEffectorMarkerForSide(side) {
@@ -694,6 +768,22 @@ class RobotViewer {
           return;
         }
       }
+      // Elbow targets first: they are smaller and sit near the arm, so
+      // they must win the raycast over the bigger hand spheres.
+      const elbowMarkers = [this.elbowMarkers.right, this.elbowMarkers.left].filter((marker) => marker?.visible);
+      if (elbowMarkers.length) {
+        const elbowHits = this.raycaster.intersectObjects(elbowMarkers, true);
+        if (elbowHits.length) {
+          event.preventDefault();
+          canvas.setPointerCapture?.(event.pointerId);
+          this.draggingElbow = true;
+          this.draggingElbowSide = this.sideForMarkerHit(elbowHits[0].object);
+          this.controls.enabled = false;
+          const normal = this.camera.getWorldDirection(new THREE.Vector3()).normalize();
+          this.dragPlane.setFromNormalAndCoplanarPoint(normal, this.elbowMarkers[this.draggingElbowSide].position);
+          return;
+        }
+      }
       const markers = [this.endEffectorMarker, this.leftEndEffectorMarker].filter((marker) => marker?.visible);
       if (!markers.length) return;
       const hits = this.raycaster.intersectObjects(markers, true);
@@ -724,12 +814,28 @@ class RobotViewer {
         this.emitEditedPose();
         return;
       }
+      if (this.draggingElbow && this.draggingElbowSide) {
+        this.setPointerFromEvent(event);
+        const target = new THREE.Vector3();
+        if (!this.raycaster.ray.intersectPlane(this.dragPlane, target)) return;
+        const side = this.draggingElbowSide;
+        const solved = this.solveArmTo(
+          side, target, side === "left" ? LEFT_ELBOW_IK_JOINTS : RIGHT_ELBOW_IK_JOINTS,
+          this.getElbowObject(side),
+        );
+        const position = this.getElbowPosition(side);
+        if (position) this.elbowMarkers[side].position.copy(position);
+        this.updateEndEffectorMarkerFromIk(side);
+        if (solved && !this.syncMirroredArmFrom(side)) this.emitEditedPose();
+        return;
+      }
       if (!this.draggingEndEffector || !this.draggingEndEffectorSide) return;
       this.setPointerFromEvent(event);
       const target = new THREE.Vector3();
       if (!this.raycaster.ray.intersectPlane(this.dragPlane, target)) return;
       const solved = this.solveArmTo(this.draggingEndEffectorSide, target);
       this.updateEndEffectorMarkerFromIk(this.draggingEndEffectorSide);
+      this.updateElbowMarkerForSide(this.draggingEndEffectorSide);
       if (solved && !this.syncMirroredArmFrom(this.draggingEndEffectorSide)) this.emitEditedPose();
     });
 
@@ -740,6 +846,19 @@ class RobotViewer {
         this.controls.enabled = true;
         this.updateEndEffectorMarker();
         this.emitEditedPose();
+        return;
+      }
+      if (this.draggingElbow) {
+        canvas.releasePointerCapture?.(event.pointerId);
+        const side = this.draggingElbowSide;
+        this.draggingElbow = false;
+        this.draggingElbowSide = null;
+        this.controls.enabled = true;
+        if (side) {
+          this.updateElbowMarkerForSide(side);
+          this.updateEndEffectorMarkerForSide(side);
+        }
+        if (!side || !this.syncMirroredArmFrom(side)) this.emitEditedPose();
         return;
       }
       if (!this.draggingEndEffector) return;
@@ -1071,9 +1190,9 @@ class RobotViewer {
     return this.armIkJoints(side).filter((name) => !name.includes("_wrist_"));
   }
 
-  solveArmTo(side, targetPosition, jointNames = null) {
+  solveArmTo(side, targetPosition, jointNames = null, effectorOverride = null) {
     if (!this.modelReady || !this.robotRoot) return false;
-    const effector = this.getEndEffectorObject(side);
+    const effector = effectorOverride || this.getEndEffectorObject(side);
     if (!effector) return false;
     const chain = jointNames || this.armIkJoints(side);
     const previousPose = this.armPoseSnapshot(side);
@@ -1462,6 +1581,9 @@ window.addEventListener("hands-visibility", (event) => {
 });
 window.addEventListener("recording-collision-debug", (event) =>
   replayViewer.setCollisionDebugVisible(Boolean(event.detail?.visible)),
+);
+window.addEventListener("recording-elbow-targets", (event) =>
+  replayViewer.setElbowTargetsVisible(Boolean(event.detail?.visible)),
 );
 window.addEventListener("recording-mirror-arm", (event) => {
   const source = event.detail?.source === "left" ? "left" : "right";

@@ -114,6 +114,22 @@ CCD-style IK solver** (`solveArmTo`):
   *unreachable* / **Blocked: self-collision** — see
   13 - Telemetry Recording & Pose Editor.
 
+### Elbow targets (added 2026-07-28)
+
+The High Level Controller toolbar has an **Elbow targets** toggle
+(`#elbowTargetsToggle`, bent-arm icon next to Mirror arms). ON pops an
+**orange draggable sphere on each elbow** (`createElbowMarkerForSide`,
+smaller than the hand balls and ray-cast with priority over them). Dragging
+an elbow sphere re-aims the **upper arm only**: the same `solveArmTo` CCD
+runs with the elbow link as the effector over a 2-joint chain
+(`RIGHT/LEFT_ELBOW_IK_JOINTS` = shoulder pitch + roll — an elbow position
+is fully determined by those two; yaw only spins the arm in place). The
+elbow angle, forearm and wrist joints are untouched, so the operator can
+place the elbow first, then the hand — self-collision, mirror-arms sync
+and `emitEditedPose` all behave exactly as with hand drags. Wiring:
+checkbox → `recording-elbow-targets` CustomEvent (`app.js`) →
+`setElbowTargetsVisible` on the compare viewer.
+
 ### 6-DOF hand-target panel
 
 A **press without dragging is a click** (movement < 6 px): it dispatches

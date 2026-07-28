@@ -16,60 +16,127 @@ def person_pose(**keypoints):
 
 
 class MimicMapperTests(unittest.TestCase):
+    """3D-lift retargeting (2026-07-28 rewrite). Elbow values are URDF q
+    semantics verified against h1_2.urdf + the live digital twin: q=0 is a
+    90° bend with the forearm forward, q≈+1.5 is the straight arm."""
+
     def test_hanging_arms_stay_near_neutral(self):
         mapper = tracking.MimicMapper()
         out = mapper.targets(person_pose(
             l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.45), l_wrist=kp(0.6, 0.6),
             r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45), r_wrist=kp(0.4, 0.6),
         ))
-        self.assertAlmostEqual(out[tracking.R_SHOULDER_ROLL], 0.0, delta=0.1)
-        self.assertAlmostEqual(out[tracking.L_SHOULDER_ROLL], 0.0, delta=0.1)
-        self.assertAlmostEqual(out[tracking.R_ELBOW], 0.0, delta=0.1)
-        self.assertAlmostEqual(out[tracking.L_ELBOW], 0.0, delta=0.1)
+        # Hanging straight arms: pitch ~0, elbow ~straight (q ~1.5), and
+        # roll at the small link-offset compensation that makes the robot
+        # arm hang visually straight (+0.10 right / -0.10 left).
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_PITCH], 0.0, delta=0.1)
+        self.assertAlmostEqual(out[tracking.L_SHOULDER_PITCH], 0.0, delta=0.1)
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_ROLL], 0.0, delta=0.15)
+        self.assertAlmostEqual(out[tracking.L_SHOULDER_ROLL], 0.0, delta=0.15)
+        self.assertGreater(out[tracking.R_ELBOW], 1.3)
+        self.assertGreater(out[tracking.L_ELBOW], 1.3)
 
     def test_person_left_arm_out_drives_robot_right_arm_out(self):
-        # Person's LEFT arm horizontal outward (their left = image right =
-        # robot's right side, camera is robot-relative). Mirror mimic: the
-        # robot RIGHT arm abducts, which is NEGATIVE right-shoulder roll.
+        # Person's LEFT arm horizontal outward -> robot RIGHT arm abducts
+        # (NEGATIVE right-shoulder roll), elbow stays straight (q ~1.5).
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.75, 0.3), l_wrist=kp(0.9, 0.3),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45), r_wrist=kp(0.4, 0.6),
+        ))
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_ROLL], -math.pi / 2, delta=0.15)
+        self.assertGreater(out[tracking.R_ELBOW], 1.3)
+
+    def test_person_right_arm_out_drives_robot_left_arm_out(self):
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.45), l_wrist=kp(0.6, 0.6),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.25, 0.3), r_wrist=kp(0.1, 0.3),
+        ))
+        self.assertAlmostEqual(out[tracking.L_SHOULDER_ROLL], math.pi / 2, delta=0.15)
+
+    def test_bent_elbow_maps_to_flexed_elbow_joint(self):
+        # Upper arm horizontal out, forearm straight up: ~90° interior
+        # bend -> robot elbow q near 0 (URDF 90°-bend zero).
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.4), l_elbow=kp(0.75, 0.4), l_wrist=kp(0.75, 0.25),
+            r_shoulder=kp(0.4, 0.4), r_elbow=kp(0.4, 0.55), r_wrist=kp(0.4, 0.7),
+        ))
+        self.assertAlmostEqual(out[tracking.R_ELBOW], 0.0, delta=0.35)
+        # The flex plane rotated from sagittal to the frontal plane: a
+        # strongly negative yaw (clamped by MIMIC_LIMITS).
+        self.assertLess(out[tracking.R_SHOULDER_YAW], -0.7)
+
+    def test_forearm_at_camera_gives_forward_flex(self):
+        # The user's benchmark case: elbow bent 90° with the forearm dead
+        # forward — the wrist keypoint collapses onto the elbow. Robot
+        # elbow q ~0 (90° bend forward); the yaw compensates the URDF's
+        # inward forearm offset so the actual wrist direction is forward.
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.45), l_wrist=kp(0.605, 0.452),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45), r_wrist=kp(0.4, 0.6),
+        ))
+        self.assertAlmostEqual(out[tracking.R_ELBOW], 0.0, delta=0.25)
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_YAW], -0.26, delta=0.2)
+        # The hanging right arm is untouched: elbow stays straight.
+        self.assertGreater(out[tracking.L_ELBOW], 1.3)
+
+    def test_arm_at_camera_pitches_forward(self):
+        # Whole upper arm collapses on screen: max forward pitch, capped.
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.605, 0.302),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+        ))
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_PITCH], -mapper.max_pitch, delta=0.05)
+        self.assertAlmostEqual(out[tracking.L_SHOULDER_PITCH], 0.0, delta=0.1)
+
+    def test_half_forward_raise_gives_partial_pitch(self):
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.375),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+        ))
+        self.assertLess(out[tracking.R_SHOULDER_PITCH], -0.5)
+        self.assertGreater(out[tracking.R_SHOULDER_PITCH], -1.2)
+
+    def test_slight_foreshortening_stays_in_dead_zone(self):
+        # 93% of expected upper-arm length is inside the 90% depth dead
+        # zone: pitch must stay exactly zero (keypoint jitter immunity).
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.4395),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
+        ))
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_PITCH], 0.0, delta=1e-9)
+
+    def test_pitch_holds_without_both_shoulders(self):
+        mapper = tracking.MimicMapper()
+        out = mapper.targets(person_pose(
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.605, 0.302),
+        ))
+        self.assertAlmostEqual(
+            out[tracking.R_SHOULDER_PITCH],
+            tracking.MIMIC_NEUTRAL_TEMPLATE[tracking.R_SHOULDER_PITCH],
+            delta=1e-9,
+        )
+
+    def test_planar_fallback_without_scale(self):
+        # One shoulder missing -> no scale -> 2D-only fallback: roll from
+        # the exact elevation, elbow from the interior bend, pitch/yaw hold.
         mapper = tracking.MimicMapper()
         out = mapper.targets(person_pose(
             l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.75, 0.3), l_wrist=kp(0.9, 0.3),
         ))
-        self.assertAlmostEqual(out[tracking.R_SHOULDER_ROLL], -math.pi / 2, delta=0.1)
-        # Straight arm: elbow stays extended.
-        self.assertAlmostEqual(out[tracking.R_ELBOW], 0.0, delta=0.1)
-        # The other arm was never seen: it holds neutral.
+        self.assertAlmostEqual(out[tracking.R_SHOULDER_ROLL], -math.pi / 2, delta=0.05)
+        self.assertGreater(out[tracking.R_ELBOW], 1.4)
         self.assertAlmostEqual(
-            out[tracking.L_SHOULDER_ROLL],
-            tracking.MIMIC_NEUTRAL_TEMPLATE[tracking.L_SHOULDER_ROLL],
+            out[tracking.R_SHOULDER_YAW],
+            tracking.MIMIC_NEUTRAL_TEMPLATE[tracking.R_SHOULDER_YAW],
             delta=1e-9,
         )
-
-    def test_person_right_arm_out_drives_robot_left_arm_out(self):
-        # Person's RIGHT arm outward points toward image LEFT (-x).
-        # Robot LEFT arm abducts with POSITIVE left-shoulder roll.
-        mapper = tracking.MimicMapper()
-        out = mapper.targets(person_pose(
-            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.25, 0.3), r_wrist=kp(0.1, 0.3),
-        ))
-        self.assertAlmostEqual(out[tracking.L_SHOULDER_ROLL], math.pi / 2, delta=0.1)
-
-    def test_bent_elbow_maps_to_flexed_elbow_joint(self):
-        # Upper arm horizontal out, forearm straight up: a ~90° interior bend.
-        mapper = tracking.MimicMapper()
-        out = mapper.targets(person_pose(
-            l_shoulder=kp(0.6, 0.4), l_elbow=kp(0.75, 0.4), l_wrist=kp(0.75, 0.25),
-        ))
-        self.assertAlmostEqual(out[tracking.R_ELBOW], math.pi / 2, delta=0.1)
-
-    def test_overhead_arm_is_clamped_to_mimic_limits(self):
-        mapper = tracking.MimicMapper()
-        out = mapper.targets(person_pose(
-            l_shoulder=kp(0.6, 0.4), l_elbow=kp(0.61, 0.2), l_wrist=kp(0.62, 0.05),
-        ))
-        lo, hi = tracking.MIMIC_LIMITS[tracking.R_SHOULDER_ROLL]
-        self.assertGreaterEqual(out[tracking.R_SHOULDER_ROLL], lo)
-        self.assertLessEqual(out[tracking.R_SHOULDER_ROLL], hi)
 
     def test_missing_keypoints_hold_previous_targets(self):
         mapper = tracking.MimicMapper()
@@ -79,14 +146,17 @@ class MimicMapperTests(unittest.TestCase):
         second = mapper.targets(person_pose())  # occluded frame
         self.assertEqual(first, second)
 
-    def test_foreshortened_segment_is_ignored(self):
+    def test_straight_arm_holds_yaw(self):
+        # Gimbal rule: a straight arm has no observable flex plane, so a
+        # frame cannot rewrite yaw no matter what the forearm noise says.
         mapper = tracking.MimicMapper()
         out = mapper.targets(person_pose(
-            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.601, 0.301),
+            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.45), l_wrist=kp(0.6, 0.6),
+            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45), r_wrist=kp(0.4, 0.6),
         ))
         self.assertAlmostEqual(
-            out[tracking.R_SHOULDER_ROLL],
-            tracking.MIMIC_NEUTRAL_TEMPLATE[tracking.R_SHOULDER_ROLL],
+            out[tracking.R_SHOULDER_YAW],
+            tracking.MIMIC_NEUTRAL_TEMPLATE[tracking.R_SHOULDER_YAW],
             delta=1e-9,
         )
 
@@ -102,82 +172,6 @@ class MimicMapperTests(unittest.TestCase):
                     lo, hi = tracking.MIMIC_LIMITS[joint]
                     self.assertGreaterEqual(value, lo - 1e-9, msg=f"joint {joint}")
                     self.assertLessEqual(value, hi + 1e-9, msg=f"joint {joint}")
-
-    def test_frontal_plane_arm_keeps_pitch_zero(self):
-        # Arm out sideways at full length (0.15 = 0.75 × shoulder width
-        # 0.2): no foreshortening, so no forward pitch.
-        mapper = tracking.MimicMapper()
-        out = mapper.targets(person_pose(
-            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.75, 0.3), l_wrist=kp(0.9, 0.3),
-            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45), r_wrist=kp(0.4, 0.6),
-        ))
-        self.assertAlmostEqual(out[tracking.R_SHOULDER_PITCH], 0.0, delta=1e-9)
-        self.assertAlmostEqual(out[tracking.L_SHOULDER_PITCH], 0.0, delta=1e-9)
-
-    def test_arm_at_camera_pitches_forward_and_holds_roll(self):
-        # Person's LEFT upper arm collapses to a point on screen: the arm
-        # points at the camera. Pitch (robot RIGHT, mirror) goes strongly
-        # NEGATIVE (forward raise); the segment direction is noise, so roll
-        # and elbow hold neutral.
-        mapper = tracking.MimicMapper()
-        out = mapper.targets(person_pose(
-            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.605, 0.302),
-            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
-        ))
-        self.assertLess(out[tracking.R_SHOULDER_PITCH], -1.0)
-        self.assertGreaterEqual(out[tracking.R_SHOULDER_PITCH], -mapper.max_pitch)
-        self.assertAlmostEqual(
-            out[tracking.R_SHOULDER_ROLL],
-            tracking.MIMIC_NEUTRAL_TEMPLATE[tracking.R_SHOULDER_ROLL],
-            delta=1e-9,
-        )
-        # The hanging right arm stays frontal: no pitch on the robot LEFT.
-        self.assertAlmostEqual(out[tracking.L_SHOULDER_PITCH], 0.0, delta=1e-9)
-
-    def test_half_forward_raise_gives_partial_pitch(self):
-        # Upper arm at half its expected length (0.075 vs 0.15): a ~60°
-        # out-of-plane swing. Above threshold, below the max cap.
-        mapper = tracking.MimicMapper()
-        out = mapper.targets(person_pose(
-            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.375),
-            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
-        ))
-        self.assertLess(out[tracking.R_SHOULDER_PITCH], -0.4)
-        self.assertGreater(out[tracking.R_SHOULDER_PITCH], -0.9)
-        # Segment direction is still valid (hanging down): roll stays ~0.
-        self.assertAlmostEqual(out[tracking.R_SHOULDER_ROLL], 0.0, delta=0.1)
-
-    def test_person_right_arm_at_camera_drives_robot_left_pitch(self):
-        mapper = tracking.MimicMapper()
-        out = mapper.targets(person_pose(
-            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.45),
-            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.405, 0.302),
-        ))
-        self.assertLess(out[tracking.L_SHOULDER_PITCH], -1.0)
-
-    def test_pitch_holds_without_both_shoulders(self):
-        # One shoulder missing -> no scale reference -> pitch must hold,
-        # even though the visible arm is heavily foreshortened.
-        mapper = tracking.MimicMapper()
-        out = mapper.targets(person_pose(
-            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.605, 0.302),
-        ))
-        self.assertAlmostEqual(
-            out[tracking.R_SHOULDER_PITCH],
-            tracking.MIMIC_NEUTRAL_TEMPLATE[tracking.R_SHOULDER_PITCH],
-            delta=1e-9,
-        )
-
-    def test_slight_foreshortening_stays_below_pitch_threshold(self):
-        # 93% of expected length (~21° out of plane) is inside the noise
-        # threshold (pitch starts at 90%): pitch must stay exactly zero so
-        # ordinary keypoint jitter never rocks the arm forward.
-        mapper = tracking.MimicMapper()
-        out = mapper.targets(person_pose(
-            l_shoulder=kp(0.6, 0.3), l_elbow=kp(0.6, 0.4395),
-            r_shoulder=kp(0.4, 0.3), r_elbow=kp(0.4, 0.45),
-        ))
-        self.assertAlmostEqual(out[tracking.R_SHOULDER_PITCH], 0.0, delta=1e-9)
 
     def test_has_upper_body(self):
         self.assertTrue(tracking.has_upper_body(
@@ -195,6 +189,131 @@ class MimicMapperTests(unittest.TestCase):
         self.assertIn(tracking.R_SHOULDER_PITCH, tracking.MIMIC_NEUTRAL_TEMPLATE)
 
 
+def _fk_mat_mul(A, B):
+    return [[sum(A[i][k] * B[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+
+def _fk_mat_vec(A, v):
+    return [sum(A[i][k] * v[k] for k in range(3)) for i in range(3)]
+
+
+def _fk_rot_rpy(rpy):
+    r, p, y = rpy
+    Rx = [[1, 0, 0], [0, math.cos(r), -math.sin(r)], [0, math.sin(r), math.cos(r)]]
+    Ry = [[math.cos(p), 0, math.sin(p)], [0, 1, 0], [-math.sin(p), 0, math.cos(p)]]
+    Rz = [[math.cos(y), -math.sin(y), 0], [math.sin(y), math.cos(y), 0], [0, 0, 1]]
+    return _fk_mat_mul(Rz, _fk_mat_mul(Ry, Rx))
+
+
+def _fk_axis_rot(axis, a):
+    x, y, z = axis
+    c, s, C = math.cos(a), math.sin(a), 1 - math.cos(a)
+    return [
+        [c + x * x * C, x * y * C - z * s, x * z * C + y * s],
+        [y * x * C + z * s, c + y * y * C, y * z * C - x * s],
+        [z * x * C - y * s, z * y * C + x * s, c + z * z * C],
+    ]
+
+
+# h1_2.urdf arm chains (name, origin xyz, origin rpy, axis), torso->elbow,
+# plus the elbow->wrist offset. These are the ground truth the mapper's
+# analytic inverse is validated against.
+_FK_CHAINS = {
+    "right": (
+        (((0, -0.14806, 0.42333), (-0.2618, 0, 0), (0, 1, 0)),
+         ((0.0342, -0.061999, -0.0060011), (0.2618, 0, 0), (1, 0, 0)),
+         ((-0.0342, 0, -0.1456), (0, 0, 0), (0, 0, 1)),
+         ((0.006, -0.0329, -0.182), (0, 0, 0), (0, 1, 0))),
+        (0.121, 0.0329, -0.011),
+    ),
+    "left": (
+        (((0, 0.14806, 0.42333), (0.2618, 0, 0), (0, 1, 0)),
+         ((0.0342, 0.061999, -0.0060011), (-0.2618, 0, 0), (1, 0, 0)),
+         ((-0.0342, 0, -0.1456), (0, 0, 0), (0, 0, 1)),
+         ((0.006, 0.0329, -0.182), (0, 0, 0), (0, 1, 0))),
+        (0.121, -0.0329, -0.011),
+    ),
+}
+
+
+class MimicRoundTripTests(unittest.TestCase):
+    """Gold test: URDF forward kinematics -> orthographic projection ->
+    MimicMapper -> the commanded joints must come back within tolerance.
+    Tolerances reflect the deliberate depth dead zone (safety) and the
+    small link-offset approximations."""
+
+    TOL = {"pitch": 0.35, "roll": 0.10, "yaw": 0.30, "elbow": 0.45}
+    POSES = (
+        ("standby", {"pitch": 0.15, "roll": -0.2, "yaw": 0.0, "elbow": 0.7}),
+        ("forward raise", {"pitch": -0.9, "roll": -0.15, "yaw": 0.0, "elbow": 1.2}),
+        ("out sideways", {"pitch": -0.2, "roll": -1.1, "yaw": 0.3, "elbow": 0.5}),
+        ("curl", {"pitch": -0.3, "roll": -0.35, "yaw": -0.5, "elbow": -0.4}),
+        ("straight hang", {"pitch": 0.0, "roll": -0.1, "yaw": 0.0, "elbow": 1.5}),
+    )
+
+    @staticmethod
+    def _fk_dirs(side, q):
+        chain, forearm = _FK_CHAINS[side]
+        R = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        p = [0.0, 0.0, 0.0]
+        joints = ("pitch", "roll", "yaw", "elbow")
+        pos = {}
+        for (xyz, rpy, axis), name in zip(chain, joints):
+            step = _fk_mat_vec(R, list(xyz))
+            p = [p[i] + step[i] for i in range(3)]
+            R = _fk_mat_mul(R, _fk_rot_rpy(rpy))
+            R = _fk_mat_mul(R, _fk_axis_rot(axis, q[name]))
+            pos[name] = (list(p), [row[:] for row in R])
+        sh = pos["roll"][0]
+        el, elR = pos["elbow"]
+        wr = [el[i] + c for i, c in enumerate(_fk_mat_vec(elR, list(forearm)))]
+
+        def unit(v):
+            n = math.sqrt(sum(c * c for c in v))
+            return [c / n for c in v]
+
+        return unit([el[i] - sh[i] for i in range(3)]), unit([wr[i] - el[i] for i in range(3)])
+
+    def test_fk_round_trip_both_arms(self):
+        width = 0.2
+        joint_map = {
+            "right": (tracking.R_SHOULDER_PITCH, tracking.R_SHOULDER_ROLL,
+                      tracking.R_SHOULDER_YAW, tracking.R_ELBOW),
+            "left": (tracking.L_SHOULDER_PITCH, tracking.L_SHOULDER_ROLL,
+                     tracking.L_SHOULDER_YAW, tracking.L_ELBOW),
+        }
+        for side in ("right", "left"):
+            y_sign = -1.0 if side == "right" else 1.0
+            prefix = "l" if side == "right" else "r"
+            out_sign = 1.0 if prefix == "l" else -1.0
+            for label, base in self.POSES:
+                q = dict(base)
+                if side == "left":
+                    q["roll"], q["yaw"] = -q["roll"], -q["yaw"]
+                u, f = self._fk_dirs(side, q)
+                mapper = tracking.MimicMapper(dead_band_rad=0.0)
+                lu = mapper.upper_ratio * width
+                lf = mapper.fore_ratio * width
+
+                def img(v, length):
+                    lat, down = v[1] / y_sign, -v[2]
+                    return (out_sign * lat * length, down * length)
+
+                sx = 0.6 if prefix == "l" else 0.4
+                du, df = img(u, lu), img(f, lf)
+                pose = {
+                    "l_shoulder": kp(0.6, 0.3), "r_shoulder": kp(0.4, 0.3),
+                    f"{prefix}_elbow": kp(sx + du[0], 0.3 + du[1]),
+                    f"{prefix}_wrist": kp(sx + du[0] + df[0], 0.3 + du[1] + df[1]),
+                }
+                got = mapper.targets(pose)
+                for name, joint in zip(("pitch", "roll", "yaw", "elbow"), joint_map[side]):
+                    expected = tracking._clamp(q[name], *tracking.MIMIC_LIMITS[joint])
+                    self.assertLessEqual(
+                        abs(got[joint] - expected), self.TOL[name],
+                        msg=f"{side} {label} {name}: got {got[joint]:+.2f}, "
+                            f"want {expected:+.2f}",
+                    )
 class MimicPayloadTests(unittest.TestCase):
     def test_mode_defaults_to_point(self):
         parsed = server.parse_track_payload({})

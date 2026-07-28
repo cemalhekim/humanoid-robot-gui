@@ -333,19 +333,23 @@ class TrackState:
 # Mimic Mode: retarget a person's 2D pose keypoints onto both H1-2 arms.
 # ---------------------------------------------------------------------------
 
-# Both arms relaxed at the side — where mimic parks while no pose is visible.
+# Both arms in the H1-2's natural standby — where mimic parks while no pose
+# is visible. Values read from the real robot's relaxed stance (rt/lowstate,
+# 2026-07-28). NOTE elbow semantics (verified against h1_2.urdf + the live
+# digital twin, which feeds motor q straight into the URDF): elbow q=0 is a
+# 90-degree bend with the forearm FORWARD; q=+pi/2 is the straight arm.
 MIMIC_NEUTRAL_TEMPLATE: dict[int, float] = {
-    L_SHOULDER_PITCH: 0.0,
-    L_SHOULDER_ROLL: 0.05,
+    L_SHOULDER_PITCH: 0.15,
+    L_SHOULDER_ROLL: 0.2,
     L_SHOULDER_YAW: 0.0,
-    L_ELBOW: 0.3,
+    L_ELBOW: 0.7,
     L_WRIST_ROLL: 0.0,
     L_WRIST_PITCH: 0.0,
     L_WRIST_YAW: 0.0,
-    R_SHOULDER_PITCH: 0.0,
-    R_SHOULDER_ROLL: -0.05,
+    R_SHOULDER_PITCH: 0.15,
+    R_SHOULDER_ROLL: -0.2,
     R_SHOULDER_YAW: 0.0,
-    R_ELBOW: 0.3,
+    R_ELBOW: 0.7,
     R_WRIST_ROLL: 0.0,
     R_WRIST_PITCH: 0.0,
     R_WRIST_YAW: 0.0,
@@ -354,18 +358,19 @@ MIMIC_NEUTRAL_TEMPLATE: dict[int, float] = {
 # Conservative mimic envelope, intentionally tighter than server.py
 # JOINT_LIMITS (which re-clamps anyway). Roll conventions per JOINT_LIMITS:
 # NEGATIVE roll abducts the RIGHT arm outward, POSITIVE the LEFT.
+# Elbow range is in URDF q semantics: -0.9 = deep human curl, 1.6 = straight.
 MIMIC_LIMITS: dict[int, tuple[float, float]] = {
     L_SHOULDER_PITCH: (-1.6, 0.4),
     L_SHOULDER_ROLL: (-0.2, 2.6),
     L_SHOULDER_YAW: (-0.8, 0.8),
-    L_ELBOW: (0.0, 2.3),
+    L_ELBOW: (-0.9, 1.6),
     L_WRIST_ROLL: (-0.3, 0.3),
     L_WRIST_PITCH: (-0.45, 0.45),
     L_WRIST_YAW: (-1.0, 1.0),
     R_SHOULDER_PITCH: (-1.6, 0.4),
     R_SHOULDER_ROLL: (-2.6, 0.2),
     R_SHOULDER_YAW: (-0.8, 0.8),
-    R_ELBOW: (0.0, 2.3),
+    R_ELBOW: (-0.9, 1.6),
     R_WRIST_ROLL: (-0.3, 0.3),
     R_WRIST_PITCH: (-0.45, 0.45),
     R_WRIST_YAW: (-1.0, 1.0),
@@ -383,122 +388,231 @@ def has_upper_body(person: dict[str, Any]) -> bool:
         for side in ("l", "r")
     )
 
+def _rot_x(v: tuple[float, float, float], a: float) -> tuple[float, float, float]:
+    c, s = math.cos(a), math.sin(a)
+    return (v[0], c * v[1] - s * v[2], s * v[1] + c * v[2])
+
+
+def _rot_y(v: tuple[float, float, float], a: float) -> tuple[float, float, float]:
+    c, s = math.cos(a), math.sin(a)
+    return (c * v[0] + s * v[2], v[1], -s * v[0] + c * v[2])
+
 
 class MimicMapper:
     """Map detector pose keypoints (normalized image space, y down) to
-    both-arm joint targets, mirror-style.
+    both-arm joint targets, mirror-style, via deterministic single-view 3D
+    lifting (Taylor 2000: known bone length + projected length -> the
+    out-of-plane angle) and an analytic inverse of the H1-2 URDF arm chain.
 
     The deployed webcam presents robot-relative left/right (not mirrored,
-    verified 2026-07-23), so a person facing the robot has their LEFT arm on
-    the robot's RIGHT side: person-left keypoints drive the robot's RIGHT
+    verified 2026-07-23), so person-left keypoints drive the robot's RIGHT
     arm and vice versa — the robot behaves like a mirror.
 
-    Frontal-plane retarget from a single 2D view:
-    - upper-arm elevation (angle from hanging-down, positive = outward)
-      drives shoulder ROLL (abduction);
-    - the shoulder→elbow→wrist bend angle drives the ELBOW joint;
-    - upper-arm FORESHORTENING (projected length vs the expected length,
-      0.75 × shoulder width) drives shoulder PITCH: an arm swung toward the
-      camera shrinks on screen, and acos(length ratio) is the out-of-plane
-      angle. Depth sign is unobservable in 2D, so shrinkage is always read
-      as FORWARD (people don't raise arms backward); a threshold below
-      acos(pitch_start_ratio) swallows keypoint length noise around the
-      frontal plane, and the output is capped at max_pitch;
-    - shoulder yaw and wrists stay neutral (yaw plane is a hardware-tuning
-      follow-up).
-    An arm whose keypoints are missing this frame HOLDS its previous
-    targets; the caller's staleness state machine decides when to park.
+    Per frame:
+    1. Torso frame: shoulder line = lateral axis, shoulder-mid -> hip-mid
+       = down axis (in-image perpendicular fallback when hips are
+       missing); shoulder width = the scale reference.
+    2. Lift each bone to 3D: lateral/down components are measured in the
+       torso frame, the forward component is
+       sqrt(max(0, L_eff^2 - measured^2)) with L_eff = depth_start_ratio
+       * expected bone length — a projection can only SHRINK a bone, so
+       shrinkage is the out-of-plane angle. The depth sign is unobservable
+       in a single view and is always read as FORWARD (people do not
+       raise arms behind their back).
+    3. Invert the URDF chain analytically (pitch about y, then roll about
+       x, with the ±15° shoulder-mount tilt folded in): the upper-arm
+       vector yields shoulder pitch+roll; the forearm vector, expressed in
+       the post-roll local frame, yields shoulder yaw (atan2 of its
+       in-plane components) and elbow q. URDF elbow semantics (verified
+       against h1_2.urdf + the live digital twin): q=0 is a 90° bend with
+       the forearm forward, q=+pi/2 is the straight arm, negative q curls.
+    4. Degeneracies are explicit deterministic rules: no shoulder width ->
+       planar fallback (roll+elbow from 2D directions, pitch/yaw hold);
+       near-zero projected bone WITH scale -> depth dominates (the limb
+       points at the camera); forearm nearly parallel to the upper arm ->
+       yaw holds (gimbal); missing keypoints -> the arm holds and the
+       caller's staleness machine decides when to park.
     """
 
-    # (person keypoint prefix, outward x sign in image space,
-    #  robot roll joint, roll outward sign, robot elbow joint,
-    #  robot pitch joint)
+    # (person keypoint prefix, robot pitch/roll/yaw/elbow joints,
+    #  robot-outward y sign, shoulder-mount tilt). Mirror mapping:
+    # person "l" drives the robot RIGHT arm (outward = -y, tilt -15°).
     _ARMS = (
-        ("l", 1.0, R_SHOULDER_ROLL, -1.0, R_ELBOW, R_SHOULDER_PITCH),
-        ("r", -1.0, L_SHOULDER_ROLL, 1.0, L_ELBOW, L_SHOULDER_PITCH),
+        ("l", R_SHOULDER_PITCH, R_SHOULDER_ROLL, R_SHOULDER_YAW, R_ELBOW, -1.0, -0.2618),
+        ("r", L_SHOULDER_PITCH, L_SHOULDER_ROLL, L_SHOULDER_YAW, L_ELBOW, 1.0, 0.2618),
     )
 
     def __init__(
         self,
         min_segment: float = 0.015,
         dead_band_rad: float = 0.04,
-        arm_ratio: float = 0.75,
-        pitch_start_ratio: float = 0.9,
+        upper_ratio: float = 0.75,
+        fore_ratio: float = 0.65,
+        depth_start_ratio: float = 0.9,
         max_pitch: float = 1.2,
         min_shoulder_width: float = 0.05,
+        min_yaw_cos: float = 0.25,
     ) -> None:
-        # Segments shorter than ~1.5% of the image are direction-noise
-        # (foreshortened arm pointing at the camera); hold instead of jitter.
         self.min_segment = min_segment
         self.dead_band_rad = dead_band_rad
-        # Expected full upper-arm length is arm_ratio × shoulder width
-        # (human biacromial proportions; matches the deployed camera view).
-        self.arm_ratio = arm_ratio
-        # No pitch until the arm has visibly shortened below this fraction
-        # of expected (~26° out of plane at 0.9) — keypoint jitter around
-        # full length would otherwise thrash acos where its slope blows up.
-        self._pitch_threshold = math.acos(_clamp(pitch_start_ratio, 0.0, 1.0))
+        # Expected bone lengths in units of shoulder width (human
+        # anthropometry: upper arm ~0.75x, elbow->wrist ~0.65x biacromial).
+        self.upper_ratio = upper_ratio
+        self.fore_ratio = fore_ratio
+        # Depth dead zone: a bone must shrink below this fraction of its
+        # expected length before any forward depth is inferred — length
+        # jitter around full extension would otherwise thrash the sqrt
+        # where its slope blows up.
+        self.depth_start_ratio = depth_start_ratio
         self.max_pitch = max_pitch
-        # Rescale so a fully camera-pointing arm (raw 90°) hits max_pitch.
-        self._pitch_gain = max_pitch / (math.pi / 2 - self._pitch_threshold)
         self.min_shoulder_width = min_shoulder_width
+        # cos(elbow q) below this = forearm nearly parallel to the upper
+        # arm = the flex plane (yaw) is unobservable; yaw holds.
+        self.min_yaw_cos = min_yaw_cos
+        # URDF link-offset compensation (h1_2.urdf, exact numbers):
+        # - the elbow->wrist offset (0.121, ±0.0329, -0.011) is NOT along
+        #   the elbow frame's x axis: it leans 15° inward and 5° down.
+        #   The forearm equation is solved against this true axis
+        #   (a, ±b, c), A=|az-plane|, delta=atan2(a, c);
+        # - the shoulder->elbow line at all-zero leans ~0.10 rad inward
+        #   from the rotated -z axis (yaw/elbow origin offsets), a
+        #   constant roll bias removed per arm.
+        self._fore_a, self._fore_b, self._fore_c = 0.958, 0.26, -0.087
+        self._fore_A = math.hypot(self._fore_a, self._fore_c)
+        self._fore_delta = math.atan2(self._fore_a, self._fore_c)
+        self.roll_bias = 0.10
         self._last: dict[int, float] = dict(MIMIC_NEUTRAL_TEMPLATE)
 
     @staticmethod
     def _vec(a: dict[str, Any], b: dict[str, Any]) -> tuple[float, float]:
         return float(b["x"]) - float(a["x"]), float(b["y"]) - float(a["y"])
 
+    def _lift(
+        self, lat: float, down: float, expected: float, y_sign: float
+    ) -> tuple[float, float, float]:
+        """2D bone (lateral/down, image units) -> unit 3D robot-frame
+        vector (x forward, y left, z up). Outward lateral maps to the
+        robot arm's outward y via y_sign; depth is forward-only."""
+        planar_sq = lat * lat + down * down
+        eff = self.depth_start_ratio * expected
+        depth = math.sqrt(max(0.0, eff * eff - planar_sq))
+        norm = math.sqrt(planar_sq + depth * depth)
+        if norm < 1e-9:
+            return (1.0, 0.0, 0.0)
+        return (depth / norm, y_sign * lat / norm, -down / norm)
+
     def targets(self, keypoints: dict[str, Any]) -> dict[int, float]:
         out = dict(self._last)
-        l_shoulder = keypoints.get("l_shoulder")
-        r_shoulder = keypoints.get("r_shoulder")
-        shoulder_width = (
-            math.hypot(*self._vec(l_shoulder, r_shoulder))
-            if isinstance(l_shoulder, dict) and isinstance(r_shoulder, dict)
-            else 0.0
-        )
-        for prefix, out_sign, roll_joint, roll_sign, elbow_joint, pitch_joint in self._ARMS:
+        l_sh = keypoints.get("l_shoulder")
+        r_sh = keypoints.get("r_shoulder")
+        width = 0.0
+        lat_axis = down_axis = None
+        if isinstance(l_sh, dict) and isinstance(r_sh, dict):
+            wx, wy = self._vec(r_sh, l_sh)  # person-right -> person-left
+            width = math.hypot(wx, wy)
+        if width >= self.min_shoulder_width:
+            lat_axis = (wx / width, wy / width)  # toward person-LEFT side
+            # Down axis: shoulder-mid -> hip-mid when hips are visible,
+            # else the in-image perpendicular that points to image-bottom.
+            l_hip, r_hip = keypoints.get("l_hip"), keypoints.get("r_hip")
+            if isinstance(l_hip, dict) and isinstance(r_hip, dict):
+                sx = (float(l_sh["x"]) + float(r_sh["x"])) / 2.0
+                sy = (float(l_sh["y"]) + float(r_sh["y"])) / 2.0
+                hx = (float(l_hip["x"]) + float(r_hip["x"])) / 2.0
+                hy = (float(l_hip["y"]) + float(r_hip["y"])) / 2.0
+                dn = math.hypot(hx - sx, hy - sy)
+                if dn > 1e-6:
+                    down_axis = ((hx - sx) / dn, (hy - sy) / dn)
+            if down_axis is None:
+                down_axis = (-lat_axis[1], lat_axis[0])
+            if down_axis[1] < 0.0:
+                down_axis = (-down_axis[0], -down_axis[1])
+        for prefix, pitch_j, roll_j, yaw_j, elbow_j, y_sign, tilt in self._ARMS:
             shoulder = keypoints.get(f"{prefix}_shoulder")
             elbow = keypoints.get(f"{prefix}_elbow")
             wrist = keypoints.get(f"{prefix}_wrist")
             if not (isinstance(shoulder, dict) and isinstance(elbow, dict)):
                 continue
-            ux, uy = self._vec(shoulder, elbow)
-            upper_len = math.hypot(ux, uy)
-            # Pitch from foreshortening. Unlike roll/elbow this stays valid
-            # for a near-zero segment — a vanishing upper arm IS the signal
-            # (arm at the camera), only its direction is meaningless. Needs
-            # both shoulders for scale; otherwise the pitch holds.
-            if shoulder_width >= self.min_shoulder_width:
-                ratio = _clamp(upper_len / (self.arm_ratio * shoulder_width), 0.0, 1.0)
-                raw = math.acos(ratio)
-                pitch = (
-                    0.0 if raw <= self._pitch_threshold
-                    # H1-2 sign convention: NEGATIVE pitch raises the arm forward.
-                    else -min(self.max_pitch, (raw - self._pitch_threshold) * self._pitch_gain)
-                )
-                if abs(pitch - out[pitch_joint]) > self.dead_band_rad:
-                    out[pitch_joint] = pitch
-            if upper_len < self.min_segment:
+            u2 = self._vec(shoulder, elbow)
+            upper_len = math.hypot(*u2)
+            # Outward lateral: person-left arm's outward is +lat_axis,
+            # person-right arm's is -lat_axis (a mirror keeps outwardness).
+            out_sign = 1.0 if prefix == "l" else -1.0
+
+            if lat_axis is None:
+                # Planar fallback (no scale reference): frontal-plane roll
+                # and elbow bend from 2D directions; pitch and yaw hold.
+                if upper_len < self.min_segment:
+                    continue
+                elevation = math.atan2(out_sign * u2[0], u2[1])
+                # y_sign -1 (robot right): outward elevation -> negative
+                # roll, matching JOINT_LIMITS conventions.
+                self._apply(out, roll_j, y_sign * elevation)
+                if isinstance(wrist, dict):
+                    f2 = self._vec(elbow, wrist)
+                    if math.hypot(*f2) >= self.min_segment:
+                        dot = u2[0] * f2[0] + u2[1] * f2[1]
+                        cross = u2[0] * f2[1] - u2[1] * f2[0]
+                        bend = abs(math.atan2(cross, dot))
+                        self._apply(out, elbow_j, math.pi / 2 - bend)
                 continue
-            # 0 = arm hanging down (image y grows downward), +pi/2 = out
-            # horizontal, ~pi = overhead. Slightly negative = crossed inward.
-            elevation = math.atan2(out_sign * ux, uy)
-            roll = roll_sign * elevation
-            if abs(roll - out[roll_joint]) > self.dead_band_rad:
-                out[roll_joint] = roll
+
+            u_lat = (u2[0] * lat_axis[0] + u2[1] * lat_axis[1]) * out_sign
+            u_down = u2[0] * down_axis[0] + u2[1] * down_axis[1]
+            u3 = self._lift(u_lat, u_down, self.upper_ratio * width, y_sign)
+            # Analytic chain inverse. v = R_x(-tilt)·u3; then
+            # v = R_y(pitch)·R_x(phi)·(0,0,-1) with joint roll = phi+tilt.
+            v = _rot_x(u3, -tilt)
+            planar = math.hypot(v[0], v[2])
+            phi = math.atan2(v[1], planar)  # branch A: |phi| <= pi/2
+            pitch = math.atan2(-v[0], -v[2]) if planar > 1e-9 else 0.0
+            if abs(pitch) > 1.65:
+                # Overhead branch: the arm crossed the shoulder line; fold
+                # roll past 90° and re-derive a near-sagittal pitch.
+                phi = math.copysign(math.pi, phi) - phi
+                pitch = math.atan2(v[0], v[2])
+            pitch = _clamp(pitch, -self.max_pitch, 0.4)
+            roll = phi + tilt - y_sign * self.roll_bias
+            self._apply(out, pitch_j, pitch)
+            self._apply(out, roll_j, roll)
+
             if isinstance(wrist, dict):
-                fx, fy = self._vec(elbow, wrist)
-                if math.hypot(fx, fy) >= self.min_segment:
-                    # Interior bend angle: 0 = straight arm, pi = folded.
-                    dot = ux * fx + uy * fy
-                    cross = ux * fy - uy * fx
-                    bend = abs(math.atan2(cross, dot))
-                    if abs(bend - out[elbow_joint]) > self.dead_band_rad:
-                        out[elbow_joint] = bend
+                f2 = self._vec(elbow, wrist)
+                f_lat = (f2[0] * lat_axis[0] + f2[1] * lat_axis[1]) * out_sign
+                f_down = f2[0] * down_axis[0] + f2[1] * down_axis[1]
+                f3 = self._lift(f_lat, f_down, self.fore_ratio * width, y_sign)
+                # Forearm in the post-roll local frame:
+                # f_local = R_x(tilt-roll)·R_y(-pitch)·R_x(-tilt)·f3
+                #         = R_z(yaw)·R_y(q)·(1,0,0)
+                # -> elbow q from its z, shoulder yaw from its x/y.
+                f_local = _rot_x(
+                    _rot_y(_rot_x(f3, -tilt), -pitch), tilt - roll
+                )
+                # Solve f_local = R_z(yaw)·R_y(q)·(a, b, c) with (a, b, c)
+                # the true forearm axis: its z gives q via
+                # f_z = A·cos(q + delta); its xy phase minus the axis's own
+                # phase after R_y(q) gives yaw.
+                b = -y_sign * self._fore_b
+                q_elbow = (
+                    math.acos(_clamp(f_local[2] / self._fore_A, -1.0, 1.0))
+                    - self._fore_delta
+                )
+                self._apply(out, elbow_j, q_elbow)
+                in_plane = math.hypot(f_local[0], f_local[1])
+                if in_plane >= self.min_yaw_cos:
+                    axis_x = (
+                        self._fore_a * math.cos(q_elbow)
+                        + self._fore_c * math.sin(q_elbow)
+                    )
+                    yaw = math.atan2(f_local[1], f_local[0]) - math.atan2(b, axis_x)
+                    self._apply(out, yaw_j, yaw)
         out = {
             joint: _clamp(value, *MIMIC_LIMITS[joint])
             for joint, value in out.items()
         }
         self._last = dict(out)
         return out
+
+    def _apply(self, out: dict[int, float], joint: int, value: float) -> None:
+        if abs(value - out[joint]) > self.dead_band_rad:
+            out[joint] = value

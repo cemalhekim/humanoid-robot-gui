@@ -35,31 +35,40 @@ which copies one static pose from an attached image via the LLM.
    `r_wrist` keypoints (COCO 7–10, conf ≥ 0.3) — **the AI-host copy must be
    redeployed** (copy `deployment/ai_host/detect_service.py` and restart
    `person-detect.service`) before mimic sees arms.
-5. **Retargeting** (`tracking.MimicMapper`, pure/unit-tested): the deployed
+5. **Retargeting** (`tracking.MimicMapper`, rewritten 2026-07-28 as full
+   deterministic **single-view 3D lifting** — Taylor 2000): the deployed
    webcam is robot-relative (not mirrored), so the person's LEFT keypoints
    drive the robot's RIGHT arm and vice versa — the robot behaves like a
-   mirror. Frontal-plane math per arm:
-   - upper-arm **elevation** (angle of shoulder→elbow from hanging-down;
-     positive = outward) → shoulder **ROLL** (abduction), sign per arm
-     (negative abducts the right arm, positive the left);
-   - shoulder→elbow→wrist interior **bend** angle → **ELBOW** joint;
-   - upper-arm **foreshortening** → shoulder **PITCH** (forward raise,
-     added 2026-07-28): an arm swung toward the camera *shrinks* on screen,
-     so `acos(observed / expected)` recovers the out-of-plane angle, with
-     expected upper-arm length = **0.75 × shoulder width** (needs both
-     shoulders visible for scale, else pitch holds). Depth *sign* is
-     unobservable in 2D — shrinkage always reads as **forward** (H1-2:
-     negative pitch), never backward. No pitch until the arm shortens below
-     90 % of expected (~26° dead zone — acos noise-amplification near full
-     length), then a linear ramp caps at **1.2 rad** with the arm pointing
-     straight at the camera. Verified monotonic, ≤ 0.08 rad per 3° of arm
-     motion, and zero response to ±1 px keypoint jitter at hanging;
-   - shoulder yaw + wrists stay neutral.
-   Segments < 1.5 % of the image are ignored for roll/elbow (direction is
-   noise) but still drive pitch — a *vanishing* upper arm IS the
-   pointing-at-camera signal. Changes < 0.04 rad (keypoint flicker) are
-   ignored; an arm with missing keypoints **holds** its last targets while
-   the staleness machine decides.
+   mirror. Per frame:
+   1. **Torso frame**: shoulder line = lateral axis, shoulder-mid→hip-mid =
+      down axis (image-down fallback); shoulder width = the scale.
+   2. **3D lift per bone**: lateral/down measured in that frame, forward =
+      `sqrt(max(0, L_eff² − measured²))` with L_eff = 0.9 × expected length
+      (upper arm 0.75 ×, forearm 0.65 × shoulder width) — projection can
+      only *shrink* a bone, so shrinkage IS the out-of-plane angle. Depth
+      sign is unobservable in one view: always read as **forward**. The
+      0.9 factor is a ~26° dead zone absorbing keypoint length jitter.
+   3. **Analytic inverse of the URDF chain** (h1_2.urdf, incl. the exact
+      ±15° shoulder-mount tilt): upper-arm vector → shoulder **PITCH +
+      ROLL**; forearm vector in the post-roll local frame → shoulder
+      **YAW** (atan2 of its in-plane components) + **ELBOW q**, solved
+      against the URDF's true forearm axis (15° inward / 5° down offsets
+      compensated, plus a 0.10 rad constant roll bias from link offsets).
+   ⚠️ **Elbow q semantics** (verified against h1_2.urdf + the live digital
+   twin, which feeds motor q straight into URDF joints): **q=0 is a 90°
+   bend forearm-FORWARD; q≈+1.5 is the straight arm; negative q curls
+   deeper.** The pre-2026-07-28 mapper commanded the interior bend angle
+   directly — 90° off; fixed by the rewrite.
+   Degeneracy rules (all deterministic): no shoulder width → planar 2D
+   fallback (roll+elbow only); vanishing bone WITH scale → depth dominates
+   (limb points at the camera); forearm ≈ parallel to upper arm → yaw
+   holds (gimbal); missing keypoints → arm holds, staleness machine parks.
+   Validated by an **FK round-trip gold test** (`MimicRoundTripTests`:
+   URDF FK → project → map → compare; worst error 0.39 rad, roll ≤ 0.01,
+   from the deliberate safety dead zone). Changes < 0.04 rad are ignored
+   (flicker dead band). `MIMIC_NEUTRAL_TEMPLATE` now equals the robot's
+   real standby stance (read from rt/lowstate 2026-07-28: pitch 0.15,
+   roll ±0.2, elbow 0.7); `MIMIC_LIMITS` elbow is (−0.9, 1.6) in q-space.
 
 ## Camera-view overlay (what mimic sees)
 
@@ -116,14 +125,20 @@ First live attempt "did nothing"; two independent causes, both fixed:
 
 ## Status / hardware TODO
 
-⚠️ Signs and planes are verified against joint-limit tables and unit tests
-(`tests/test_mimic.py`, 30 tests incl. the 2026-07-28 foreshortening-pitch
-set), **not yet on real arms**. Pitch-specific live checks for the first
-run: hold an arm out sideways (pitch must stay 0), raise it slowly forward
-(robot should follow smoothly from ~30°), point it at the camera (robot
-should stop at the 1.2 rad cap). If pitch is jumpy, raise
-`pitch_start_ratio` (0.9) or lower `max_pitch` (1.2) in
-`MimicMapper.__init__`. First live run:
+✅ Pitch (foreshortening v1) live-verified 2026-07-28 13:10: standing
+straight → 0.00 both arms; forward raise tracked smoothly to −0.5 rad;
+clean return; occlusion → hold → stale → re-acquire all behaved.
+
+⚠️ The full 3D rewrite (yaw + corrected elbow-q semantics, same day) is
+verified against the URDF FK round-trip + 30 unit tests, **not yet on real
+arms**. First-run live checks: arms hanging → robot arms hang straight
+(elbow ~1.5, NOT bent); elbow bent 90° forearm forward (wrist hidden
+behind elbow on camera) → robot matches with forearm forward; forearm
+sweep right↔front↔left with bent elbow → yaw follows, capped ±0.8; arm
+straight out sideways → no yaw jitter (gimbal hold). Tunables in
+`MimicMapper.__init__`: `depth_start_ratio` (0.9 dead zone),
+`max_pitch` (1.2), `min_yaw_cos` (0.25 gimbal guard), `fore_ratio`
+(0.65 forearm anthropometry). First live run:
 spotter present, robot in open space, be ready on the toggle. Known
 limitation to tune on hardware: with shoulder yaw pinned at 0, elbow flexion
 moves the forearm in the robot's natural (sagittal-ish) plane, not

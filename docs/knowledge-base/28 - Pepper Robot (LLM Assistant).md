@@ -82,7 +82,11 @@ but the only way to use Python 3 on this image.
 This note is a pointer. The complete Pepper knowledge base — hardware, voice
 pipeline, tablet UI, Autonomous Life, motion control, debugging history and
 platform gotchas — plus a snapshot of the robot's code lives in a separate
-repository: **`~/Workspace/pepper`** (`docs/knowledge-base/Home.md`).
+repository: **`~/Workspace/pepper`** (`docs/knowledge-base/Home.md`), pushed to
+GitHub as the private repo
+[cemalhekim/pepper-retrofit](https://github.com/cemalhekim/pepper-retrofit).
+The older `~/Workspace/pepper-llm-control` checkout is a superseded ancestor of
+the same history (its only unique commit is a README rename) — don't work there.
 
 Manual arm/hand motion control is verified working there via
 `tools/pepper_motion.py`.

@@ -17,6 +17,14 @@ summary: Hosts, IP addresses, ports, service map, and the 60 s auto-update timer
 
 - Jetson SSH user: `jetson` (`ssh jetson` alias on the Mac; key auth via `id_ed25519_robot`).
 
+## Lab Wi-Fi (Vaderfone@CSIG)
+
+Our T+M (test & measurement) devices at Vodafone must be connected to the
+**`Vaderfone@CSIG`** Wi-Fi SSID. The passphrase is a secret and lives only in
+the local credentials store on the Mac (memory note `credentials.md`) — never
+in this repo. The Jetson AGX Orin already carries a saved NM profile for this
+SSID (see 29 - Jetson AGX Orin).
+
 - Robot SSH user: `unitree` (`ssh unitree@10.2.100.142` or `@192.168.123.164`).
 - Robot runtime checkout: `/home/unitree/robot_telemetry_web`.
 - Local dev checkout: `/Users/vodafone/Workspace/humanoid-robot-gui`.

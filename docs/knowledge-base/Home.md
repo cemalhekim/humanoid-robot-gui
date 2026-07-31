@@ -54,6 +54,7 @@ deployment for the **Unitree H1-2** humanoid robot.
 | [[25 - Known Issues & Optimization Audit]] | Fixed + deferred perf/safety findings |
 | [[27 - Mimic Mode (Live Motion)]] | Robot mirrors the operator's upper-body pose live (both arms, webcam keypoints) |
 | [[28 - Pepper Robot (LLM Assistant)]] | Second lab robot: SoftBank Pepper at `10.2.100.187` with on-board German voice-assistant (`pepper_llm`) |
+| [[29 - Jetson AGX Orin]] | Edge GPU box: AGX Orin 64 GB at `192.168.123.100` (static, robot subnet), JetPack 5.1.2, `ssh jetson` |
 | [[26 - Repository Docs Index]] | Every `docs/` file mapped to its KB note |
 
 ## Key facts at a glance

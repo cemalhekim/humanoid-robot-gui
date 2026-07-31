@@ -26,7 +26,7 @@ multicast (`ping6 ff02::1%en0`), then given a static IP on the robot subnet.
 | --- | --- | --- |
 | `eth0` | **`192.168.123.100/24` static** | NM profile "Wired connection 1", `ipv4.method manual`, no gateway, autoconnect on |
 | `l4tbr0` (USB device mode) | `192.168.55.1/24` | NVIDIA default USB-ethernet bridge |
-| `wlan0` | down | Has a saved `Vaderfone@CSIG` Wi-Fi profile, not connected |
+| `wlan0` | `10.2.100.178/24` (DHCP, lease-based — may change) | Connected to `Vaderfone@CSIG` lab Wi-Fi since 2026-07-31, autoconnect on, internet works |
 
 The static address lives on the **robot subnet** (`192.168.123.0/24`) so the
 Jetson works both on a direct Mac↔Jetson cable and later on the robot switch.
@@ -37,6 +37,8 @@ Jetson works both on a direct Mac↔Jetson cable and later on the robot switch.
 
 - `ssh jetson` from the Mac (alias in `~/.ssh/config` → `jetson@192.168.123.100`,
   key `id_ed25519_robot`, password auth also enabled).
+- Over Wi-Fi: `ssh jetson@10.2.100.178` (same key) — works from the lab Wi-Fi
+  without the direct cable.
 - Password is in the local credentials store (never in this repo) — see the
   memory note `credentials.md` on the Mac.
 - USB device mode alternative: plug USB-C, then `ssh jetson@192.168.55.1`.

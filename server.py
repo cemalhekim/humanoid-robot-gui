@@ -469,6 +469,17 @@ LLM_TWIN_IMAGE_MAX_BYTES = 650_000
 LLM_MIMIC_IMAGE_MAX_BYTES = 900_000
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
+
+# ---------------------------------------------------------------------------
+# Lab Home Assistant — read-only relay of the robot's smart-plug state for the
+# welcome page's single wake/sleep button. The token stays server-side; with no
+# token the endpoint reports "unknown" and the button falls back to a blind
+# toggle. Switching the plug happens via HA's own local-only webhooks, not here.
+# ---------------------------------------------------------------------------
+HA_BASE_URL = os.environ.get("HA_BASE_URL", "http://10.2.200.100").rstrip("/")
+HA_TOKEN = os.environ.get("HA_TOKEN", "")
+HA_SWITCH_ENTITY = os.environ.get("HA_SWITCH_ENTITY", "switch.5g_construction_display")
+HA_TIMEOUT_SECONDS = float(os.environ.get("HA_TIMEOUT_SECONDS", "6"))
 # Transient connection failures to the LLM (flaky robot Wi-Fi) are retried, since
 # the request never reached the model — no tool ran, so retrying is side-effect-free.
 # The robot's USB Wi-Fi dongle drops for ~10-15s at a time (periodic driver scans),
@@ -6525,6 +6536,34 @@ class TelemetryStore:
             self._entrance_probe_cache = (now, result)
         return result
 
+    def power_status(self) -> dict[str, Any]:
+        """State of the smart plug powering the robot (see /api/power/status).
+
+        Queries the lab Home Assistant with the server-side token so the https
+        welcome page can label its wake/sleep button. "unknown" means the relay
+        is unconfigured or HA is unreachable — never an error to the client."""
+        if not HA_TOKEN:
+            return {"enabled": False, "state": "unknown"}
+        now = time.time()
+        with self.lock:
+            cached = getattr(self, "_power_status_cache", None)
+            if cached and now - cached[0] < 3.0:
+                return cached[1]
+        request = urllib.request.Request(
+            f"{HA_BASE_URL}/api/states/{HA_SWITCH_ENTITY}",
+            headers={"Authorization": f"Bearer {HA_TOKEN}"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=HA_TIMEOUT_SECONDS) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            state = payload.get("state") or "unknown"
+        except Exception:
+            state = "unknown"
+        result = {"enabled": True, "state": state, "entity": HA_SWITCH_ENTITY}
+        with self.lock:
+            self._power_status_cache = (now, result)
+        return result
+
     def chill_motors(self) -> tuple[int, dict[str, Any]]:
         return self.request_chill({"armed": True, "i_understand_risk": True})
 
@@ -7310,6 +7349,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             # operator Mac's https tunnel — browsers block the page's own direct
             # http probes as mixed content.
             self._send_json_cors(self.store.probe_entrances())
+        elif request_path == "/api/power/status":
+            # Smart-plug state for the welcome page's wake/sleep button,
+            # relayed from the lab Home Assistant (CORS-open, read-only; the
+            # HA token never leaves this server).
+            self._send_json_cors(self.store.power_status())
         elif request_path == "/app.js":
             self._send_file(STATIC_DIR / "app.js", "application/javascript; charset=utf-8")
         elif request_path == "/viewer.js":

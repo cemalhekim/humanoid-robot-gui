@@ -124,6 +124,7 @@
     .pbtn:disabled { opacity: 0.45; cursor: wait; }
     .pbtn.wake { background: linear-gradient(180deg, #0f7a3d, #07572a); }
     .pbtn.sleep { background: linear-gradient(180deg, #2b3743, #1a232c); }
+    .pbtn.unknown { background: linear-gradient(180deg, #4a3a12, #33280c); }
     .power-msg { margin-top: 16px; min-height: 20px; font-size: 13px; color: var(--muted); }
     .power-msg.ok { color: var(--green); }
     .power-msg.err { color: #ff7a7a; }
@@ -290,10 +291,9 @@
 
     <section id="power">
       <h2 class="sec-title revealable">Power</h2>
-      <p class="sec-sub revealable">Wake Hans up or put him to sleep — the smart plug that powers the H1-2. Works from the lab network only; from anywhere else the buttons simply won't reach it.</p>
+      <p class="sec-sub revealable">One button for the smart plug that powers the H1-2 — it wakes Hans when he sleeps and puts him to sleep when he's awake. Switching works from the lab network only; from anywhere else the button simply won't reach it.</p>
       <div class="power revealable">
-        <button class="pbtn wake" id="powerWake">⏻&nbsp; Wake Hans</button>
-        <button class="pbtn sleep" id="powerSleep">🌙&nbsp; Put Hans to sleep</button>
+        <button class="pbtn unknown" id="powerBtn" disabled>⏻&nbsp; Checking Hans…</button>
       </div>
       <p class="power-msg" id="powerMsg" role="status"></p>
     </section>
@@ -433,6 +433,9 @@
 
   <script>
     const LAST_KEY = "h12-welcome-last-net";
+    // Resolved by resolveRemote(): the operator Mac's tunnel URL (or null).
+    let tunnelReady;
+    const tunnelPromise = new Promise((resolve) => { tunnelReady = resolve; });
     // Where the current tunnel hostname is published. Same-origin first (robot
     // or Mac copies of the dashboard serve it), then the repo's raw copy which
     // is reachable from anywhere (CORS: *), robot on or off.
@@ -531,6 +534,7 @@
       }
 
       const hasMirror = setCardTunnel("offlineCard", "offlineAddr", data && data.url);
+      tunnelReady((data && data.url) || null);
 
       const entrances = hasMirror ? await fetchEntrances(data.url) : null;
       if (entrances) {
@@ -573,45 +577,92 @@
     resolveRemote();
   
 
-    // ---------- power buttons (Home Assistant webhooks) ----------
-    // Local-only webhooks on the lab Home Assistant: HA itself rejects any
-    // caller that is not on the lab network, so these URLs are safe to ship
-    // on a public page — off-network they are dead ends by design.
-    (function powerButtons() {
+    // ---------- power button (Home Assistant webhooks) ----------
+    // One state-aware button: label follows the plug ("wake" while Hans
+    // sleeps, "sleep" while he's awake). State is read through the operator
+    // Mac's https relay (/api/power/status — the HA token stays server-side);
+    // switching goes through local-only webhooks on the lab Home Assistant,
+    // which rejects any caller not on the lab network — so these URLs are
+    // safe to ship on a public page and dead ends off-network by design.
+    (function powerButton() {
       const HA_WEBHOOK_BASE = "http://10.2.200.100/api/webhook/";
-      const HOOKS = { wake: "hans-wake-114b31ef77d69793", sleep: "hans-sleep-114b31ef77d69793" };
+      const HOOKS = {
+        wake: "hans-wake-114b31ef77d69793",
+        sleep: "hans-sleep-114b31ef77d69793",
+        toggle: "hans-toggle-114b31ef77d69793",
+      };
+      const button = document.getElementById("powerBtn");
       const msg = document.getElementById("powerMsg");
-      const buttons = { wake: document.getElementById("powerWake"), sleep: document.getElementById("powerSleep") };
+      let plugState = "unknown";
 
       function say(text, cls) { msg.textContent = text; msg.className = "power-msg" + (cls ? " " + cls : ""); }
 
-      async function trigger(kind) {
-        const url = HA_WEBHOOK_BASE + HOOKS[kind];
+      function render() {
+        button.disabled = false;
+        if (plugState === "on") {
+          button.className = "pbtn sleep";
+          button.innerHTML = "🌙&nbsp; Put Hans to sleep";
+        } else if (plugState === "off") {
+          button.className = "pbtn wake";
+          button.innerHTML = "⏻&nbsp; Wake Hans";
+        } else {
+          button.className = "pbtn unknown";
+          button.innerHTML = "⏻&nbsp; Toggle Hans's power";
+        }
+      }
+
+      async function readState() {
+        // Same-origin first (robot/Mac copies of the dashboard serve the
+        // relay), then the operator Mac's tunnel — reachable from anywhere.
+        const sources = ["/api/power/status"];
+        const tunnel = await tunnelPromise;
+        if (tunnel) sources.push(tunnel + "/api/power/status");
+        for (const source of sources) {
+          try {
+            const response = await fetch(source, { cache: "no-store" });
+            if (!response.ok) continue;
+            const data = await response.json();
+            if (data && (data.state === "on" || data.state === "off")) return data.state;
+          } catch { /* try the next source */ }
+        }
+        return "unknown";
+      }
+
+      async function refresh() {
+        plugState = await readState();
+        render();
+      }
+
+      async function trigger() {
+        const kind = plugState === "on" ? "sleep" : plugState === "off" ? "wake" : "toggle";
         if (kind === "sleep" && !confirm("Cut Hans's power? Make sure the robot is in a safe pose (damped or supported) first.")) return;
-        buttons.wake.disabled = buttons.sleep.disabled = true;
-        say(kind === "wake" ? "Waking Hans…" : "Putting Hans to sleep…");
+        if (kind === "toggle" && !confirm("Hans's current state is unknown — blindly toggle the plug anyway?")) return;
+        button.disabled = true;
+        say(kind === "sleep" ? "Putting Hans to sleep…" : "Waking Hans…");
         try {
           if (location.protocol === "https:") {
             // Mixed content blocks a direct http fetch from GitHub Pages; a
             // top-level navigation is allowed, so fire the GET webhook in a
             // short-lived popup and close it again.
-            const popup = window.open(url, "hansPower", "width=360,height=160");
+            const popup = window.open(HA_WEBHOOK_BASE + HOOKS[kind], "hansPower", "width=360,height=160");
             if (!popup) throw new Error("popup blocked");
             setTimeout(() => { try { popup.close(); } catch { /* already closed */ } }, 1500);
           } else {
-            // http origin (robot / lab): plain no-cors POST reaches HA.
-            await fetch(url, { method: "POST", mode: "no-cors", cache: "no-store" });
+            // http origin (lab): plain no-cors POST reaches HA.
+            await fetch(HA_WEBHOOK_BASE + HOOKS[kind], { method: "POST", mode: "no-cors", cache: "no-store" });
           }
-          say(kind === "wake" ? "Sent — Hans's plug is switching on." : "Sent — Hans's plug is switching off.", "ok");
+          say("Sent — Hans's plug is switching " + (kind === "sleep" ? "off." : "on."), "ok");
         } catch {
           say("Could not reach the lab Home Assistant — power control only works from the lab network.", "err");
-        } finally {
-          setTimeout(() => { buttons.wake.disabled = buttons.sleep.disabled = false; }, 1800);
         }
+        // Re-read until the relay reflects the flip (plug + HA need a moment).
+        setTimeout(refresh, 4000);
+        setTimeout(refresh, 9000);
       }
 
-      buttons.wake.addEventListener("click", () => trigger("wake"));
-      buttons.sleep.addEventListener("click", () => trigger("sleep"));
+      button.addEventListener("click", trigger);
+      refresh();
+      setInterval(refresh, 30000);
     })();
 
     // ---------- typewriter tagline ----------

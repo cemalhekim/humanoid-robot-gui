@@ -113,6 +113,21 @@
     .dot.checking { background: #5c6770; animation: pulse 1.1s ease-in-out infinite; }
     @keyframes pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }
 
+    /* ---------- power controls ---------- */
+    .power { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin-top: 26px; }
+    .pbtn { display: inline-flex; align-items: center; gap: 10px; padding: 13px 26px; border-radius: 12px; cursor: pointer;
+      font: 600 14px/1 system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: 0.04em; color: var(--text);
+      border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 4px 0 rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.15);
+      transition: transform 0.12s, filter 0.15s; }
+    .pbtn:hover { filter: brightness(1.15); }
+    .pbtn:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.15); }
+    .pbtn:disabled { opacity: 0.45; cursor: wait; }
+    .pbtn.wake { background: linear-gradient(180deg, #0f7a3d, #07572a); }
+    .pbtn.sleep { background: linear-gradient(180deg, #2b3743, #1a232c); }
+    .power-msg { margin-top: 16px; min-height: 20px; font-size: 13px; color: var(--muted); }
+    .power-msg.ok { color: var(--green); }
+    .power-msg.err { color: #ff7a7a; }
+
     /* ---------- tutorial grid ---------- */
     .tutorials { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; text-align: left; }
     @media (max-width: 900px) { .tutorials { grid-template-columns: repeat(2, 1fr); } }
@@ -273,6 +288,16 @@
       </div>
     </section>
 
+    <section id="power">
+      <h2 class="sec-title revealable">Power</h2>
+      <p class="sec-sub revealable">Wake Hans up or put him to sleep — the smart plug that powers the H1-2. Works from the lab network only; from anywhere else the buttons simply won't reach it.</p>
+      <div class="power revealable">
+        <button class="pbtn wake" id="powerWake">⏻&nbsp; Wake Hans</button>
+        <button class="pbtn sleep" id="powerSleep">🌙&nbsp; Put Hans to sleep</button>
+      </div>
+      <p class="power-msg" id="powerMsg" role="status"></p>
+    </section>
+
     <section id="learn">
       <h2 class="sec-title revealable">Learn the console</h2>
       <p class="sec-sub revealable">Ninety seconds of tutorials — everything the dashboard can do, with the exact clicks.</p>
@@ -401,7 +426,7 @@
     <p class="note"><b>Robot switched off?</b> The Wi-Fi and Ethernet entrances will be dark — use <b>Offline</b> (read-only) to keep working,
       or bookmark this page: it is hosted independently of the robot. Robot control is deliberately only possible from the lab network.</p>
     <p class="foot-links">
-      <a href="#entrances">Entrances</a> · <a href="#learn">Tutorials</a> · <a href="#safety">Safety</a> · <a href="#help">Troubleshooting</a>
+      <a href="#entrances">Entrances</a> · <a href="#power">Power</a> · <a href="#learn">Tutorials</a> · <a href="#safety">Safety</a> · <a href="#help">Troubleshooting</a>
     </p>
     <p class="served" id="servedFrom"></p>
   </main>
@@ -547,6 +572,47 @@
     // Wi-Fi/Ethernet status via the tunnel relay.
     resolveRemote();
   
+
+    // ---------- power buttons (Home Assistant webhooks) ----------
+    // Local-only webhooks on the lab Home Assistant: HA itself rejects any
+    // caller that is not on the lab network, so these URLs are safe to ship
+    // on a public page — off-network they are dead ends by design.
+    (function powerButtons() {
+      const HA_WEBHOOK_BASE = "http://10.2.200.100/api/webhook/";
+      const HOOKS = { wake: "hans-wake-114b31ef77d69793", sleep: "hans-sleep-114b31ef77d69793" };
+      const msg = document.getElementById("powerMsg");
+      const buttons = { wake: document.getElementById("powerWake"), sleep: document.getElementById("powerSleep") };
+
+      function say(text, cls) { msg.textContent = text; msg.className = "power-msg" + (cls ? " " + cls : ""); }
+
+      async function trigger(kind) {
+        const url = HA_WEBHOOK_BASE + HOOKS[kind];
+        if (kind === "sleep" && !confirm("Cut Hans's power? Make sure the robot is in a safe pose (damped or supported) first.")) return;
+        buttons.wake.disabled = buttons.sleep.disabled = true;
+        say(kind === "wake" ? "Waking Hans…" : "Putting Hans to sleep…");
+        try {
+          if (location.protocol === "https:") {
+            // Mixed content blocks a direct http fetch from GitHub Pages; a
+            // top-level navigation is allowed, so fire the GET webhook in a
+            // short-lived popup and close it again.
+            const popup = window.open(url, "hansPower", "width=360,height=160");
+            if (!popup) throw new Error("popup blocked");
+            setTimeout(() => { try { popup.close(); } catch { /* already closed */ } }, 1500);
+          } else {
+            // http origin (robot / lab): plain no-cors POST reaches HA.
+            await fetch(url, { method: "POST", mode: "no-cors", cache: "no-store" });
+          }
+          say(kind === "wake" ? "Sent — Hans's plug is switching on." : "Sent — Hans's plug is switching off.", "ok");
+        } catch {
+          say("Could not reach the lab Home Assistant — power control only works from the lab network.", "err");
+        } finally {
+          setTimeout(() => { buttons.wake.disabled = buttons.sleep.disabled = false; }, 1800);
+        }
+      }
+
+      buttons.wake.addEventListener("click", () => trigger("wake"));
+      buttons.sleep.addEventListener("click", () => trigger("sleep"));
+    })();
 
     // ---------- typewriter tagline ----------
     (function typewriter() {

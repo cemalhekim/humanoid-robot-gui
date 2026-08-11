@@ -3719,12 +3719,15 @@ connectEvents();
   const pushMode = (on) => fetch("/api/sentry/mode", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ on }),
+    // The toggle is the operator's deliberate arming act: with the ack the
+    // server (SENTRY_AUTO_FOLLOW) immediately follows whoever is in front.
+    body: JSON.stringify(on ? { on: true, armed: true, i_understand_risk: true } : { on: false }),
   }).then((resp) => resp.json())
     .then((data) => {
       applyServerFlag(data.sentry_mode);
       trackingRequested = false;
       pointing = !!(data.tracking && data.tracking.active);
+      trackError = data.auto_follow_error || null;
       if (!data.sentry_mode) {
         lockedId = null;
         pendingLock = null;

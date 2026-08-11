@@ -523,6 +523,12 @@ TRACKING_ENABLED = os.environ.get("TRACKING_ENABLED", "0").strip().lower() in {"
 # view-only detect stream (boxes + counter); Mimic is unaffected. Flip the
 # env var (or the default) to re-enable.
 PERSON_LOCK_ENABLED = os.environ.get("PERSON_LOCK_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+# Bullseye auto-follow (operator request 2026-08-11): arming Bullseye with a
+# risk-ack immediately starts one permanent, unlocked pointing session —
+# associate() follows whoever is in front (largest head-anchored person) and
+# parks at neutral while nobody is visible. No lock buttons involved, so
+# PERSON_LOCK_ENABLED stays authoritative for explicit lock/point requests.
+SENTRY_AUTO_FOLLOW = os.environ.get("SENTRY_AUTO_FOLLOW", "1").strip().lower() in {"1", "true", "yes"}
 TRACKING_DETECT_URL = os.environ.get("TRACKING_DETECT_URL", "http://10.2.125.3:8188/detect").strip()
 TRACKING_CAMERA = os.environ.get("TRACKING_CAMERA", "head").strip().lower()
 TRACKING_RATE_HZ = max(1.0, min(15.0, float(os.environ.get("TRACKING_RATE_HZ", "8") or 8)))
@@ -5627,9 +5633,12 @@ class TelemetryStore:
     def set_sentry_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         """Arm/disarm Bullseye detection.
 
-        Enabling Bullseye is deliberately motion-free. A physical tracking
-        session starts only from an explicit person-lock action carrying the
-        selected target identity. Disabling Bullseye always stops motion.
+        With SENTRY_AUTO_FOLLOW on, an enable request that carries the risk
+        acknowledgement (armed + i_understand_risk) also starts a permanent
+        unlocked pointing session that follows whoever stands in front —
+        no lock click involved. Without the ack (or with auto-follow off)
+        enabling stays motion-free, exactly as before. Disabling Bullseye
+        always stops motion.
         """
         on = payload.get("on")
         if not isinstance(on, bool):
@@ -5639,7 +5648,32 @@ class TelemetryStore:
         if not on:
             self.request_track_stop()
         self.record_command_event("sentry_mode", {"on": on})
-        return 200, {"ok": True, "sentry_mode": on, "tracking": self.track_snapshot()}
+        result: dict[str, Any] = {"ok": True, "sentry_mode": on}
+        if on and SENTRY_AUTO_FOLLOW and has_risk_ack(payload):
+            status, follow = self._start_auto_follow()
+            if status != 200:
+                # Bullseye stays armed as the view-only detect stream; report
+                # why the follow session could not start alongside it.
+                result["auto_follow_error"] = follow.get("error")
+        result["tracking"] = self.track_snapshot()
+        return 200, result
+
+    def _start_auto_follow(self) -> tuple[int, dict[str, Any]]:
+        """Start the Bullseye auto-follow pointing session (no explicit lock:
+        associate() picks the largest head-anchored person and re-acquires
+        after loss; permanent, so it survives empty frames by parking)."""
+        with self.command_lock:
+            if self.track_thread is not None and self.track_thread.is_alive():
+                return 200, {"ok": True, "tracking": self.track_snapshot()}
+        return self.request_track_start({
+            "armed": True,
+            "i_understand_risk": True,
+            "source": "sentry-auto",
+            "mode": "point",
+            "camera": "webcam",
+            "permanent": True,
+            "closed_loop": True,
+        })
 
     def set_mimic_mode(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         """Arm/disarm Mimic Mode.
@@ -5659,6 +5693,11 @@ class TelemetryStore:
                 self.mimic_mode_on = False
             if was_on:
                 self.request_track_stop()
+                # Mimic borrowed the session slot from Bullseye; hand it back.
+                with self.command_lock:
+                    sentry_on = self.sentry_mode_on
+                if sentry_on and SENTRY_AUTO_FOLLOW:
+                    self._start_auto_follow()
             self.record_command_event("mimic_mode", {"on": False})
             return 200, {"ok": True, "mimic_mode": False, "tracking": self.track_snapshot()}
         if not has_risk_ack(payload):
@@ -5729,9 +5768,13 @@ class TelemetryStore:
                 return 409, {"ok": False, "error": "Mimic mode is off — it is the master switch; turn it on before starting mimic."}
         elif not sentry_on:
             return 409, {"ok": False, "error": "Bullseye mode is off — it is the master switch; turn it on before starting tracking."}
-        elif not PERSON_LOCK_ENABLED:
+        elif not PERSON_LOCK_ENABLED and not (
+            SENTRY_AUTO_FOLLOW and payload.get("source") == "sentry-auto"
+        ):
             # Server-side twin of the hidden lock buttons: no client (UI,
             # chat tool, curl) can start a pointing session while disabled.
+            # The server's own Bullseye auto-follow session is the one
+            # exception — its deliberate arming act is the Bullseye toggle.
             return 409, {"ok": False, "error": "Person-lock pointing is disabled (PERSON_LOCK_ENABLED=0)."}
         if payload.get("source") == "sentry-lock" and (
             config["camera"] != "webcam" or config["target"] is None
@@ -5751,7 +5794,7 @@ class TelemetryStore:
         # A new operator lock (or mimic arming) may safely replace the
         # asynchronous home replay launched when the previous session ended.
         if replay_thread is not None and replay_thread.is_alive():
-            if payload.get("source") not in ("sentry-lock", "mimic-toggle"):
+            if payload.get("source") not in ("sentry-lock", "mimic-toggle", "sentry-auto"):
                 return 409, {"ok": False, "error": "An arm replay is running; stop it first."}
             if replay_cancel is not None:
                 replay_cancel.set()
@@ -5779,6 +5822,8 @@ class TelemetryStore:
             message=(
                 "Mimic session starting."
                 if config["mode"] == "mimic"
+                else "Auto-follow session starting."
+                if payload.get("source") == "sentry-auto"
                 else "Tracking session starting from the selected lock."
             ),
         )

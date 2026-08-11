@@ -137,6 +137,56 @@ class AimSmootherTests(unittest.TestCase):
         self.assertAlmostEqual(cy, 0.55)
 
 
+class OneEuroAimTests(unittest.TestCase):
+    def test_first_sample_passes_through(self):
+        aim = tracking.OneEuroAim()
+        self.assertEqual(aim.update(0.4, 0.6, now=10.0), (0.4, 0.6))
+
+    def test_still_target_stays_put_without_lookahead_drift(self):
+        aim = tracking.OneEuroAim(lookahead_s=0.3)
+        t = 0.0
+        for _ in range(30):
+            t += 0.1
+            cx, cy = aim.update(0.5, 0.5, now=t)
+        self.assertAlmostEqual(cx, 0.5, places=3)
+        self.assertAlmostEqual(cy, 0.5, places=3)
+
+    def test_lookahead_leads_a_moving_target(self):
+        aim = tracking.OneEuroAim(lookahead_s=0.2)
+        t = 0.0
+        x = 0.2
+        for _ in range(20):
+            t += 0.1
+            x += 0.02  # steady walk to the right (0.2 units/s)
+            cx, _ = aim.update(x, 0.5, now=t)
+        # With lookahead the output must be ahead of the filtered position —
+        # at or past the raw sample despite the low-pass lag behind it.
+        self.assertGreaterEqual(cx, x - 0.005)
+
+    def test_detection_gap_resets_velocity(self):
+        aim = tracking.OneEuroAim(lookahead_s=0.5)
+        t = 0.0
+        x = 0.2
+        for _ in range(10):
+            t += 0.1
+            x += 0.05  # fast motion builds up a big velocity estimate
+            aim.update(x, 0.5, now=t)
+        # Person lost for > RESET_GAP_S, re-appears elsewhere: snap there,
+        # no lunge along the stale velocity vector.
+        cx, cy = aim.update(0.8, 0.4, now=t + 1.0)
+        self.assertEqual((cx, cy), (0.8, 0.4))
+
+    def test_output_clamped_to_image(self):
+        aim = tracking.OneEuroAim(lookahead_s=0.5)
+        t = 0.0
+        x = 0.5
+        for _ in range(15):
+            t += 0.1
+            x = min(1.0, x + 0.06)
+            cx, _ = aim.update(x, 0.5, now=t)
+        self.assertLessEqual(cx, 1.0)
+
+
 def _person(cx, cy, area, head=True):
     half = area ** 0.5 / 2
     person = {"cx": cx, "cy": cy, "x1": cx - half, "x2": cx + half,

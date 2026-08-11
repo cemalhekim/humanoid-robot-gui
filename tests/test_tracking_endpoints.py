@@ -229,13 +229,18 @@ class TrackPayloadTests(unittest.TestCase):
         )
         self.assertGreater(server.SENTRY_MAX_STEP_RAD_S, 0.45)
         self.assertLessEqual(server.SENTRY_MAX_STEP_RAD_S, 1.0)
-        # Defaults back to the original conservative filtering (operator
-        # found the 2026-07-27 lighter tuning too aggressive), and never an
+        # 2026-08-11 retune: image-space smoothing moved to the speed-adaptive
+        # OneEuroAim filter, so the joint EMA runs lighter — but never an
         # unfiltered passthrough: detector jitter must still be averaged out.
         self.assertGreaterEqual(server.SENTRY_AIM_ALPHA, 0.25)
         self.assertLess(server.SENTRY_AIM_ALPHA, 1.0)
         self.assertGreaterEqual(server.SENTRY_SMOOTH_ALPHA, 0.35)
         self.assertLess(server.SENTRY_SMOOTH_ALPHA, 1.0)
+        # 1-Euro + lookahead stay inside sane, bounded ranges.
+        self.assertGreater(server.SENTRY_EURO_MIN_CUTOFF, 0.0)
+        self.assertGreaterEqual(server.SENTRY_EURO_BETA, 0.0)
+        self.assertLessEqual(server.SENTRY_LOOKAHEAD_S, 0.5)
+        self.assertLessEqual(server.SENTRY_DEAD_BAND, 0.02)
 
     def test_parses_locked_webcam_session(self):
         parsed = server.parse_track_payload({

@@ -217,6 +217,64 @@ class AimSmoother:
         return self._value
 
 
+class OneEuroAim:
+    """1-Euro-filtered aim point with constant-velocity lookahead.
+
+    Replaces the fixed-alpha AimSmoother on the Bullseye webcam path
+    (2026-08-11): the filter cutoff rises with the aim point's own speed, so
+    smoothing is heavy while the person stands still (no jitter chase) yet
+    near-passthrough while they walk (low lag). The filtered velocity also
+    extrapolates the aim a short lookahead forward, cancelling most of the
+    camera → detector → arm pipeline latency while the person is moving.
+    """
+
+    # A detection gap this long makes the velocity estimate meaningless
+    # (person lost / re-acquired): restart at the new point instead of
+    # lunging along a stale velocity vector.
+    RESET_GAP_S = 0.6
+
+    def __init__(
+        self,
+        min_cutoff: float = 1.0,
+        beta: float = 0.3,
+        d_cutoff: float = 1.0,
+        lookahead_s: float = 0.2,
+    ) -> None:
+        self.min_cutoff = max(0.01, min_cutoff)
+        self.beta = max(0.0, beta)
+        self.d_cutoff = max(0.01, d_cutoff)
+        self.lookahead_s = max(0.0, lookahead_s)
+        self._t: float | None = None
+        self._pos = [0.0, 0.0]
+        self._vel = [0.0, 0.0]
+
+    @staticmethod
+    def _alpha(cutoff: float, dt: float) -> float:
+        tau = 1.0 / (2.0 * math.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+
+    def update(self, cx: float, cy: float, now: float) -> tuple[float, float]:
+        cx = _clamp(float(cx), 0.0, 1.0)
+        cy = _clamp(float(cy), 0.0, 1.0)
+        if self._t is None or now <= self._t or now - self._t > self.RESET_GAP_S:
+            self._t = now
+            self._pos = [cx, cy]
+            self._vel = [0.0, 0.0]
+            return cx, cy
+        dt = now - self._t
+        self._t = now
+        out = []
+        for i, raw in enumerate((cx, cy)):
+            vel_raw = (raw - self._pos[i]) / dt
+            a_d = self._alpha(self.d_cutoff, dt)
+            self._vel[i] += a_d * (vel_raw - self._vel[i])
+            cutoff = self.min_cutoff + self.beta * abs(self._vel[i])
+            a = self._alpha(cutoff, dt)
+            self._pos[i] += a * (raw - self._pos[i])
+            out.append(_clamp(self._pos[i] + self._vel[i] * self.lookahead_s, 0.0, 1.0))
+        return out[0], out[1]
+
+
 def aim_point(target: dict[str, Any]) -> tuple[float, float]:
     """Where to aim on a person: the detector's head anchor (nose, else ear
     midpoint) when present, else near the top of the box as a head-height

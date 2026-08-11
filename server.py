@@ -531,7 +531,7 @@ PERSON_LOCK_ENABLED = os.environ.get("PERSON_LOCK_ENABLED", "0").strip().lower()
 SENTRY_AUTO_FOLLOW = os.environ.get("SENTRY_AUTO_FOLLOW", "1").strip().lower() in {"1", "true", "yes"}
 TRACKING_DETECT_URL = os.environ.get("TRACKING_DETECT_URL", "http://10.2.125.3:8188/detect").strip()
 TRACKING_CAMERA = os.environ.get("TRACKING_CAMERA", "head").strip().lower()
-TRACKING_RATE_HZ = max(1.0, min(15.0, float(os.environ.get("TRACKING_RATE_HZ", "8") or 8)))
+TRACKING_RATE_HZ = max(1.0, min(15.0, float(os.environ.get("TRACKING_RATE_HZ", "12") or 12)))
 # Target rate of the sentry push-stream detect loop (the real rate is capped
 # by the AI-host roundtrip; the loop never overlaps requests).
 SENTRY_STREAM_HZ = max(1.0, min(30.0, float(os.environ.get("SENTRY_STREAM_HZ", "15") or 15)))
@@ -546,23 +546,47 @@ SENTRY_PITCH_OFFSET = float(os.environ.get("SENTRY_PITCH_OFFSET", "-1.52") or -1
 # still applied before every publish, so detector jumps cannot become steps.
 SENTRY_REPLAY_RESPONSE = max(
     0.0,
-    min(2.5, float(os.environ.get("SENTRY_REPLAY_RESPONSE", "1.25") or 1.25)),
+    min(2.5, float(os.environ.get("SENTRY_REPLAY_RESPONSE", "1.6") or 1.6)),
 )
 SENTRY_MAX_STEP_RAD_S = max(
     0.1,
-    min(1.0, float(os.environ.get("SENTRY_MAX_STEP_RAD_S", "0.65") or 0.65)),
+    min(1.0, float(os.environ.get("SENTRY_MAX_STEP_RAD_S", "0.9") or 0.9)),
 )
-# Bullseye smoothing filters (webcam path only). Defaults match the original
-# conservative filtering (the 2026-07-27 "snappier" tuning felt too aggressive
-# in practice); raise the alphas via env vars for less lag if ever needed. The
-# velocity limiter above still bounds every published step regardless.
+# Bullseye filtering (webcam path). Retuned 2026-08-11 for snappier tracking:
+# the image-space EMA was replaced by a speed-adaptive 1-Euro filter with
+# constant-velocity lookahead (tracking.OneEuroAim) — calm at rest, low-lag in
+# motion — so the remaining joint-space EMA can run much lighter. The velocity
+# limiter above still bounds every published step regardless.
+# SENTRY_AIM_ALPHA now only shapes the head-camera fallback path.
 SENTRY_AIM_ALPHA = max(
     0.05,
     min(1.0, float(os.environ.get("SENTRY_AIM_ALPHA", "0.25") or 0.25)),
 )
 SENTRY_SMOOTH_ALPHA = max(
     0.05,
-    min(1.0, float(os.environ.get("SENTRY_SMOOTH_ALPHA", "0.35") or 0.35)),
+    min(1.0, float(os.environ.get("SENTRY_SMOOTH_ALPHA", "0.6") or 0.6)),
+)
+# 1-Euro aim filter + lookahead (webcam Bullseye path). min_cutoff is the
+# at-rest smoothing strength (Hz), beta adds cutoff per unit of normalized
+# image speed, lookahead extrapolates along the filtered velocity to cancel
+# pipeline latency (measured ~150-250 ms webcam→YOLO→loop, 2026-08-11).
+SENTRY_EURO_MIN_CUTOFF = max(
+    0.1,
+    min(5.0, float(os.environ.get("SENTRY_EURO_MIN_CUTOFF", "1.0") or 1.0)),
+)
+SENTRY_EURO_BETA = max(
+    0.0,
+    min(5.0, float(os.environ.get("SENTRY_EURO_BETA", "0.3") or 0.3)),
+)
+SENTRY_LOOKAHEAD_S = max(
+    0.0,
+    min(0.5, float(os.environ.get("SENTRY_LOOKAHEAD_S", "0.2") or 0.2)),
+)
+# The 1-Euro filter absorbs detector flicker, so the mapper's image-space
+# dead band can be tighter than the old EMA needed (was 0.02).
+SENTRY_DEAD_BAND = max(
+    0.0,
+    min(0.1, float(os.environ.get("SENTRY_DEAD_BAND", "0.01") or 0.01)),
 )
 # Mimic dance profile (2026-07-28): mirroring a moving person needs more
 # velocity headroom and less filter lag than Bullseye pointing. The higher
@@ -5852,6 +5876,7 @@ class TelemetryStore:
                 fov_pitch_rad=SENTRY_FOV_PITCH,
                 yaw_offset=SENTRY_YAW_OFFSET,
                 pitch_offset=SENTRY_PITCH_OFFSET,
+                dead_band=SENTRY_DEAD_BAND,
             )
             if camera == "webcam"
             else tracking.PointingMapper()
@@ -5872,6 +5897,17 @@ class TelemetryStore:
             sentry_hand_z = sentry_right_hand_z(reference_mapper.targets(0.5, 0.5))
         # Stability-focused control: filter image coordinates first, then
         # joint targets, and finally apply a bounded but responsive velocity.
+        # Webcam Bullseye aims through the speed-adaptive 1-Euro filter with
+        # velocity lookahead; the head-camera fallback keeps the plain EMA.
+        aim_euro = (
+            tracking.OneEuroAim(
+                min_cutoff=SENTRY_EURO_MIN_CUTOFF,
+                beta=SENTRY_EURO_BETA,
+                lookahead_s=SENTRY_LOOKAHEAD_S,
+            )
+            if camera == "webcam" and not mimic
+            else None
+        )
         aim_smoother = tracking.AimSmoother(
             alpha=SENTRY_AIM_ALPHA if camera == "webcam" else 0.25
         )
@@ -5974,7 +6010,10 @@ class TelemetryStore:
                         )
                     else:
                         aim_cx, aim_cy = tracking.aim_point(state.target)
-                        aim_cx, aim_cy = aim_smoother.update(aim_cx, aim_cy)
+                        if aim_euro is not None:
+                            aim_cx, aim_cy = aim_euro.update(aim_cx, aim_cy, now)
+                        else:
+                            aim_cx, aim_cy = aim_smoother.update(aim_cx, aim_cy)
                         goal = mapper.targets(aim_cx, aim_cy)
                         if camera == "webcam":
                             goal = sentry_constant_hand_z_goal(goal, sentry_hand_z)

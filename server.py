@@ -278,6 +278,9 @@ ARM_REPLAY_ESCALATION_STEP = 0.25
 ARM_REPLAY_ABSOLUTE_CEILING_SECONDS = 90.0
 HAND_STATE_TOPIC = "rt/inspire/state"
 HAND_COMMAND_TOPIC = "rt/inspire/cmd"
+# rt/inspire/state is published continuously while inspire_h1 runs, so a gap
+# this long means the bridge is down -- not that the hands are idle.
+HAND_STATE_STALE_SECONDS = 5.0
 HAND_TRAJECTORY_EPSILON = 0.02
 HAND_TRAJECTORY_MAX_FRAME_DELTA = 0.18
 HAND_TRAJECTORY_MAX_VELOCITY = 3.0
@@ -2142,15 +2145,31 @@ def handstate_to_dict(msg: Any | None, samples: int, timestamp: float | None) ->
             "note": "No hand state received. Start inspire_h1 service if the RH56BFX hands are connected over serial.",
         }
 
+    # The last sample is retained forever, so "we have a message" is NOT the
+    # same as "the bridge is publishing". Pulling an arm takes its USB serial
+    # converter with it; inspire_h1 then waits for the missing device and
+    # rt/inspire/state just goes quiet. Without this age check the dashboard
+    # kept reporting connected hands, replaying the last frame's joints.
+    age = None if timestamp is None else max(0.0, time.time() - timestamp)
+    stale = age is None or age > HAND_STATE_STALE_SECONDS
+
     states = getattr(msg, "states", [])
-    return {
-        "connected": True,
+    hands: dict[str, Any] = {
+        "connected": not stale,
         "topic": HAND_STATE_TOPIC,
         "samples": samples,
         "timestamp": timestamp,
+        "age_s": None if age is None else round(age, 1),
         "joint_count": len(states),
         "joints": [hand_motor_to_dict(i, motor) for i, motor in enumerate(states)],
     }
+    if stale:
+        hands["note"] = (
+            "Hand state stopped arriving on rt/inspire/state. The joints below are the "
+            "last received frame, not live values. Check inspire-hands.service and that "
+            "both hand serial adapters are still plugged in."
+        )
+    return hands
 
 
 def numeric(value: Any) -> float | None:
@@ -2264,8 +2283,13 @@ def health_flags(snapshot: dict[str, Any], motor_summary: dict[str, Any]) -> lis
     if imu_temp is not None and imu_temp >= 75:
         flags.append({"level": "warning", "message": f"IMU temperature is {round(imu_temp, 1)} C."})
 
-    if not (snapshot.get("hands") or {}).get("connected"):
-        flags.append({"level": "info", "message": "Hand telemetry is offline on rt/inspire/state."})
+    hand_state = snapshot.get("hands") or {}
+    if not hand_state.get("connected"):
+        hand_age = numeric(hand_state.get("age_s"))
+        detail = f" (no sample for {round(hand_age)} s)" if hand_age is not None else ""
+        flags.append(
+            {"level": "info", "message": f"Hand telemetry is offline on rt/inspire/state{detail}."}
+        )
 
     if (snapshot.get("battery") or {}).get("state"):
         flags.append({"level": "info", "message": "Battery details are not exposed by this LowState firmware."})

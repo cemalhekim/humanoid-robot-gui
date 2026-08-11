@@ -37,6 +37,29 @@ class TelemetryContractsTest(unittest.TestCase):
         self.assertEqual(server.HAND_JOINT_NAMES[6], "LeftPinky")
         self.assertEqual(server.HAND_JOINT_NAMES[11], "LeftThumbRotation")
 
+    def test_hand_state_goes_offline_when_the_bridge_stops_publishing(self) -> None:
+        # Detaching an arm unplugs its USB serial converter, inspire_h1 stops,
+        # and rt/inspire/state goes quiet -- but the last message is retained.
+        # The snapshot must report that as offline instead of replaying the
+        # last frame as live hand positions.
+        msg = mock.Mock(states=[FakeMotorState() for _ in range(12)])
+
+        fresh = server.handstate_to_dict(msg, 100, time.time())
+        self.assertTrue(fresh["connected"])
+        self.assertNotIn("note", fresh)
+
+        stale_at = time.time() - server.HAND_STATE_STALE_SECONDS - 1.0
+        stale = server.handstate_to_dict(msg, 100, stale_at)
+        self.assertFalse(stale["connected"])
+        self.assertEqual(len(stale["joints"]), 12)
+        self.assertIn("last received frame", stale["note"])
+
+        flags = server.health_flags({"hands": stale}, {})
+        self.assertTrue(
+            any("Hand telemetry is offline" in flag["message"] for flag in flags),
+            flags,
+        )
+
     def test_wrist_commands_require_explicit_risk_flags(self) -> None:
         store = server.TelemetryStore(domain=0, robot_host="127.0.0.1")
 

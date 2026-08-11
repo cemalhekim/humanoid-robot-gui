@@ -573,6 +573,8 @@ SENTRY_SMOOTH_ALPHA = max(
 # at-rest smoothing strength (Hz), beta adds cutoff per unit of normalized
 # image speed, lookahead extrapolates along the filtered velocity to cancel
 # pipeline latency (measured ~150-250 ms webcam→YOLO→loop, 2026-08-11).
+# Lookahead ships OFF (operator request, same day): set SENTRY_LOOKAHEAD_S
+# to ~0.2 to re-enable the velocity extrapolation.
 SENTRY_EURO_MIN_CUTOFF = max(
     0.1,
     min(5.0, float(os.environ.get("SENTRY_EURO_MIN_CUTOFF", "1.0") or 1.0)),
@@ -583,7 +585,7 @@ SENTRY_EURO_BETA = max(
 )
 SENTRY_LOOKAHEAD_S = max(
     0.0,
-    min(0.5, float(os.environ.get("SENTRY_LOOKAHEAD_S", "0.2") or 0.2)),
+    min(0.5, float(os.environ.get("SENTRY_LOOKAHEAD_S", "0") or 0)),
 )
 # The 1-Euro filter absorbs detector flicker, so the mapper's image-space
 # dead band can be tighter than the old EMA needed (was 0.02).

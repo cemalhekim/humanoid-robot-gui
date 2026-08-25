@@ -196,7 +196,7 @@ def run_trial(trial: dict, motions: list[dict], args, log_dir: Path, worker_inde
             return {**trial, "error": "worker did not come up", "score": None}
         dash = sweep.Dashboard(worker.url)
         move_args = argparse.Namespace(response=args.response, rate=20.0, hold_seconds=args.hold_seconds, timeout=args.timeout,
-                                       settle_band=0.02, samples=False)
+                                       settle_band=0.02, samples=args.store_samples)
         results = []
         t0 = time.time()
         for m in motions:
@@ -213,7 +213,8 @@ def run_trial(trial: dict, motions: list[dict], args, log_dir: Path, worker_inde
             else:
                 r = sweep.run_move(dash, goal, move_args, print)
                 results.append({"id": m["id"], "kind": "pose", "direction": m["direction"], "cost": motion_cost(r),
-                                **{k: r.get(k) for k in ("t_converge", "final_err", "overshoot", "hold_drift", "hold_shake", "vel_ripple", "reversals", "ripple_joint", "escalation", "ceiling", "fault", "error")}})
+                                **{k: r.get(k) for k in ("t_converge", "final_err", "overshoot", "hold_drift", "hold_shake", "vel_ripple", "reversals", "ripple_joint", "escalation", "ceiling", "fault", "error")},
+                                **({"samples": r.get("samples")} if args.store_samples else {})})
         costs = sorted(r["cost"] for r in results)
         worst = costs[-max(1, len(costs) // 10):]
         by_dir: dict[str, list] = {}
@@ -325,6 +326,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=HERE / "optimize")
     ap.add_argument("--include-baseline", action="store_true", default=True)
     ap.add_argument("--params-file", type=Path, help="evaluate only these parameter sets (JSON list) instead of sampling")
+    ap.add_argument("--store-samples", action="store_true", help="keep the 20 Hz joint traces of every move in results.jsonl (~2 MB/trial) so runs can be re-scored offline")
     ap.add_argument("--report", type=Path, help="print the ranking of an existing results.jsonl and exit")
     ap.add_argument("--strategy", choices=("random", "cmaes"), default="random")
     ap.add_argument("--generations", type=int, default=8)

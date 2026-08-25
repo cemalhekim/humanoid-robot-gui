@@ -256,10 +256,20 @@ def run_move(dash: Dashboard, targets: dict[int, float], args, log) -> dict:
             vel_ripple, ripple_joint = r, i
         reversals = max(reversals, n)
     hold_shake = 0.0
+    shake_windows: list[float] = []
     if t_hold_reported is not None:
         steady = [s for s in samples if s[0] >= t_hold_reported + 1.5]
         if len(steady) > 3:
             hold_shake = max(_pstdev([s[1][i] for s in steady]) for i in targets)
+        # Long holds: shake per 10 s window, so a limit cycle that starts late shows
+        # up as a growing series instead of being averaged away.
+        t_end = samples[-1][0]
+        w0 = t_hold_reported + 1.5
+        while w0 + 10.0 <= t_end:
+            win = [s for s in samples if w0 <= s[0] < w0 + 10.0]
+            if len(win) > 3:
+                shake_windows.append(round(max(_pstdev([s[1][i] for s in win]) for i in targets), 5))
+            w0 += 10.0
     return {
         "t_converge": None if t_hold_reported is None else round(t_hold_reported, 2),
         "t_settle": None if t_settle is None else round(t_settle, 2),
@@ -273,6 +283,7 @@ def run_move(dash: Dashboard, targets: dict[int, float], args, log) -> dict:
         "reversals": reversals,
         "ripple_joint": JOINT_NAMES.get(ripple_joint, None),
         "hold_shake": round(hold_shake, 5),
+        "shake_windows_10s": shake_windows,
         "escalation": status["escalation"],
         "ceiling": bool(status["ceiling"]),
         "fault": status["fault"],

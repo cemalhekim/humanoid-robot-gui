@@ -45,6 +45,30 @@ An inline six-joint pose posted to `/api/recording/replay/robot` with
 `execute_arm_sdk: true, closed_loop: true` converged in 3.5 s with every joint
 inside 0.003 rad; the 120 Hz hold loop measured ≈110 Hz on the twin side.
 
+## Workspace sweep (the regression gate for the controller)
+
+`sweep_arm_workspace.py` drives the real Recorder "Move" path
+(`POST /api/recording/replay/robot`, `execute_arm_sdk` + `closed_loop`) through
+18 poses that load the arm in every direction — hanging, forward-horizontal,
+straight up, T-pose, behind the body, elbow-loaded, overhead-bent, wrist
+extremes, one across the body — both arms mirrored. Each transition is
+classified by the hand's vertical travel (against gravity / with gravity /
+parallel) and measured: converge time, settle time, final error, overshoot,
+post-hold settle, drift, torque vs limit, escalation/ceiling/fault. Poses are
+checked against `JOINT_LIMITS` and the sphere self-collision model first.
+`--sequences` adds generated trajectories at three speeds and reports tracking
+lag + residual RMS (accounting for the server's `playback_speed`).
+
+```bash
+simulation/h1_2_twin/sweep_arm_workspace.py --url http://127.0.0.1:8088 --sequences --label ai-dev
+```
+
+Report: `reports/<stamp>-sweep-<label>.md` + `.json` (with 20 Hz samples).
+Exit 1 when a step misses a threshold (`--max-converge 15 --max-final-err 0.02
+--max-overshoot 0.06 --max-drift 0.01`). Runs on any dashboard, twin or robot
+— on the robot it moves the arms through the full workspace, so only with a
+spotter and the operator at the stop button.
+
 ## Twin-vs-real caveats
 
 - `tau_est` is the clean MuJoCo actuator force. The real motors add friction

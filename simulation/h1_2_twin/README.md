@@ -9,10 +9,10 @@ resulting state comes back on `rt/lowstate` — the closed loop is real.
 | Wire | Twin | Real robot |
 |---|---|---|
 | `rt/lowstate` (`unitree_hg` `LowState_`) | published at 500 Hz: `q`, `dq`, `ddq`, `tau_est`, IMU | ~500 Hz |
-| `rt/arm_sdk` (`unitree_hg` `LowCmd_`) | consumed; slots 12–26, slot 27 = weight | arm bridge |
+| `rt/arm_sdk` (`unitree_hg` `LowCmd_`) | consumed; arm slots 13–26 only, slot 27 = weight | arm bridge (waist is not an arm_sdk joint) |
 | `rt/lowcmd` (`unitree_hg` `LowCmd_`) | consumed; any slot with `mode != 0` | low-level path |
 | motor law | `tau_ff + kp(q_des−q) + kd(dq_des−dq)`, clipped to MJCF `ctrlrange` | motor driver |
-| onboard controller | PD hold on legs/waist; arms latch where the last external command left them | Unitree motion mode |
+| onboard controller | PD hold on legs + waist (`--hold-kp/kd`); arms latch where the last external command left them (`--arm-hold-kp/kd`) | Unitree motion mode |
 | `LocoClient` RPC | **not implemented** — `/api/loco/*` returns 503 | proprietary |
 
 Model: `execution/semantic_teleoperation/external/unitree_mujoco/unitree_robots/h1_2/scene.xml`

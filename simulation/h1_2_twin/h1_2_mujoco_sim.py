@@ -12,7 +12,7 @@ Motor model: per joint ``tau = tau_ff + kp*(q_des - q) + kd*(dq_des - dq)``
 MJCF ``ctrlrange``. Command priority per joint, evaluated every physics step:
 
 1. ``rt/lowcmd`` motor with ``mode != 0`` (fresh)      -> full authority
-2. ``rt/arm_sdk`` motor 12..26 with ``mode != 0``       -> blended by slot-27 weight
+2. ``rt/arm_sdk`` motor 13..26 with ``mode != 0``       -> blended by slot-27 weight
 3. otherwise the "onboard controller" stand-in         -> PD hold on the latched pose
 
 The stand-in mirrors what the real H1-2 does in its normal motion mode: legs
@@ -58,11 +58,13 @@ EXPECTED_JOINTS = [
     "right_elbow_joint", "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint",
 ]
 NUM_MOTORS = len(EXPECTED_JOINTS)  # 27
-ARM_SDK_JOINTS = list(range(12, 27))  # what the dashboard fills; waist is ignored by the real arm bridge
+# rt/arm_sdk drives arms only (13-26). WaistYaw (12) is NOT an arm_sdk joint on the H1-2:
+# it belongs to the onboard controller like the legs and moves only via rt/lowcmd.
+ARM_SDK_JOINTS = list(range(13, 27))
 ARM_SDK_WEIGHT_SLOT = 27
 NUM_SLOTS = 35
-LEG_JOINTS = list(range(0, 12))
-UPPER_JOINTS = list(range(12, 27))
+BODY_JOINTS = list(range(0, 13))  # legs + waist: held by the onboard-controller stand-in
+ARM_JOINTS = list(range(13, 27))  # latch where the last external command left them
 
 
 def load_model(scene: Path, fix_base: bool) -> mujoco.MjModel:
@@ -179,16 +181,16 @@ class H12Twin:
                 tau = self._pd(lowcmd.motor_cmd[i], q, dq)
                 external = True
             elif armcmd is not None and i in ARM_SDK_JOINTS and weight > 0.0 and int(armcmd.motor_cmd[i].mode) != 0:
-                kp, kd = (arm_hold_kp, arm_hold_kd) if i in UPPER_JOINTS else (hold_kp, hold_kd)
+                kp, kd = (arm_hold_kp, arm_hold_kd) if i in ARM_JOINTS else (hold_kp, hold_kd)
                 hold = kp * (self.hold_q[i] - q) - kd * dq
                 tau = weight * self._pd(armcmd.motor_cmd[i], q, dq) + (1.0 - weight) * hold
                 external = True
             else:
-                kp, kd = (arm_hold_kp, arm_hold_kd) if i in UPPER_JOINTS else (hold_kp, hold_kd)
+                kp, kd = (arm_hold_kp, arm_hold_kd) if i in ARM_JOINTS else (hold_kp, hold_kd)
                 tau = kp * (self.hold_q[i] - q) - kd * dq
             # Latch the hold pose for upper-body joints the moment external authority ends,
             # like the onboard controller holding the arms where arm_sdk left them.
-            if self.arm_external_prev[i] and not external and i in UPPER_JOINTS:
+            if self.arm_external_prev[i] and not external and i in ARM_JOINTS:
                 self.hold_q[i] = q
             self.arm_external_prev[i] = external
             self.data.ctrl[i] = tau

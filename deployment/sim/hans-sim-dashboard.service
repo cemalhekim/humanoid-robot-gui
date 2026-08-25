@@ -1,0 +1,17 @@
+[Unit]
+Description=Hans dashboard (server.py) against the MuJoCo twin
+After=hans-twin.service
+Wants=hans-twin.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/humanoid-robot-gui
+Environment=HANS_SIM_PYTHON=%h/hans-sim-env/bin/python
+Environment=HANS_SIM_PORT=8088
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/humanoid-robot-gui/simulation/h1_2_twin/run_server_against_twin.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -245,6 +245,21 @@ def run_move(dash: Dashboard, targets: dict[int, float], args, log) -> dict:
         peak = max(abs(s[2][i]) for s in samples)
         g = GROUP[i]
         tau_peak[g] = max(tau_peak.get(g, 0.0), peak / TAU_LIMIT[i])
+    # Motion smoothness: velocity residual after a 0.5 s moving average and the number
+    # of velocity reversals while moving (a clean smoothstep has none). Hold shake: the
+    # std of q in the steady part of the hold (after the first 1.5 s).
+    moving = [s for s in samples if t_hold_reported is None or s[0] < t_hold_reported]
+    vel_ripple, reversals, ripple_joint = 0.0, 0, None
+    for i in targets:
+        r, n = _velocity_ripple([s[1][i] for s in moving], args.rate)
+        if r > vel_ripple:
+            vel_ripple, ripple_joint = r, i
+        reversals = max(reversals, n)
+    hold_shake = 0.0
+    if t_hold_reported is not None:
+        steady = [s for s in samples if s[0] >= t_hold_reported + 1.5]
+        if len(steady) > 3:
+            hold_shake = max(_pstdev([s[1][i] for s in steady]) for i in targets)
     return {
         "t_converge": None if t_hold_reported is None else round(t_hold_reported, 2),
         "t_settle": None if t_settle is None else round(t_settle, 2),
@@ -254,12 +269,37 @@ def run_move(dash: Dashboard, targets: dict[int, float], args, log) -> dict:
         "hold_drift": round(drift, 4),
         "post_hold_settle": round(post_hold_settle, 4),
         "tau_frac": {g: round(v, 2) for g, v in tau_peak.items()},
+        "vel_ripple": round(vel_ripple, 4),
+        "reversals": reversals,
+        "ripple_joint": JOINT_NAMES.get(ripple_joint, None),
+        "hold_shake": round(hold_shake, 5),
         "escalation": status["escalation"],
         "ceiling": bool(status["ceiling"]),
         "fault": status["fault"],
         "writes": status["writes"],
         "samples": [(round(s[0], 3), {str(i): round(v, 4) for i, v in s[1].items()}) for s in samples] if args.samples else None,
     }
+
+
+def _pstdev(values: list[float]) -> float:
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mean = sum(values) / n
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / n)
+
+
+def _velocity_ripple(series: list[float], rate_hz: float, window: int = 10) -> tuple[float, int]:
+    """(std of the velocity residual after a centred moving average, velocity reversals)."""
+    if len(series) < window + 2:
+        return 0.0, 0
+    v = [(series[i + 1] - series[i]) * rate_hz for i in range(len(series) - 1)]
+    residual = []
+    for i in range(len(v)):
+        lo, hi = max(0, i - window // 2), min(len(v), i + window // 2 + 1)
+        residual.append(v[i] - sum(v[lo:hi]) / (hi - lo))
+    reversals = sum(1 for i in range(1, len(v)) if v[i] * v[i - 1] < 0 and abs(v[i]) > 0.03)
+    return _pstdev(residual), reversals
 
 
 def verdict(m: dict, args) -> list[str]:
@@ -276,6 +316,10 @@ def verdict(m: dict, args) -> list[str]:
         fails.append(f"overshoot {m['overshoot']} > {args.max_overshoot}")
     if m["hold_drift"] > args.max_drift:
         fails.append(f"drift {m['hold_drift']} > {args.max_drift}")
+    if m.get("reversals", 0) > args.max_reversals:
+        fails.append(f"oscillation: {m['reversals']} reversals on {m.get('ripple_joint')}")
+    if m.get("hold_shake", 0.0) > args.max_shake:
+        fails.append(f"hold shake {m['hold_shake']} > {args.max_shake}")
     if m["ceiling"]:
         fails.append("ceiling reached")
     if m["fault"]:
@@ -294,20 +338,20 @@ def smoothstep(x: float) -> float:
 
 def run_sequence(dash: Dashboard, start: dict[int, float], end: dict[int, float], duration: float, args, log) -> dict:
     """Replay a generated trajectory start->end and measure tracking lag / residual."""
-    dt = 1.0 / 60.0
+    # 30 Hz frames with only the commanded joints: the server densifies sparse frames
+    # itself (TRAJECTORY_DENSE_MAX_DT = 1/30) and caps request bodies at 1 MB.
+    dt = 1.0 / 30.0
     n = max(2, int(round(duration / dt)))
-    motors = dash.motors()
     frames = []
     for k in range(n + 1):
         a = smoothstep(k / n)
-        frames.append({"timestamp": k * dt, "motors": [
-            {"index": m["index"], "name": m["name"], "q": (start[m["index"]] + a * (end[m["index"]] - start[m["index"]])) if m["index"] in end else m["q"]}
-            for m in motors[:27]
+        frames.append({"timestamp": round(k * dt, 5), "motors": [
+            {"index": j, "q": round(start[j] + a * (end[j] - start[j]), 5)} for j in sorted(end)
         ]})
     code, plan = dash.post("/api/recording/replay/robot", {"points": frames, "command_scope": "arms", "dry_run": True})
     p = plan.get("plan", {})
     if code != 200 or not p.get("valid_for_execution"):
-        return {"error": f"plan invalid: {p.get('violations')}", "plan": p}
+        return {"error": f"plan invalid ({code}): {plan.get('error') or p.get('violations') or p.get('reason')}", "plan": p}
     t0 = time.time()
     code, res = dash.post("/api/recording/replay/robot", {
         "points": frames, "command_scope": "arms", "execute_arm_sdk": True, "closed_loop": True,
@@ -374,6 +418,8 @@ def main() -> int:
     ap.add_argument("--max-final-err", type=float, default=0.02)
     ap.add_argument("--max-overshoot", type=float, default=0.06)
     ap.add_argument("--max-drift", type=float, default=0.01)
+    ap.add_argument("--max-reversals", type=int, default=3, help="velocity reversals while moving (with-gravity oscillation)")
+    ap.add_argument("--max-shake", type=float, default=0.004, help="std of q during the steady hold [rad]")
     ap.add_argument("--no-samples", dest="samples", action="store_false")
     ap.add_argument("--out", type=Path, default=HERE / "reports")
     ap.add_argument("--label", default="")
@@ -417,7 +463,7 @@ def main() -> int:
         step.update(m)
         step["fails"] = fails
         log(f"    converge={m.get('t_converge')}s settle={m.get('t_settle')}s final_err={m.get('final_err')} "
-            f"overshoot={m.get('overshoot')} drift={m.get('hold_drift')} tau={m.get('tau_frac')} "
+            f"overshoot={m.get('overshoot')} drift={m.get('hold_drift')} shake={m.get('hold_shake')} ripple={m.get('vel_ripple')}/{m.get('reversals')} tau={m.get('tau_frac')} "
             f"esc={m.get('escalation')} {'FAIL ' + '; '.join(fails) if fails else 'ok'}")
         steps.append(step)
         prev_targets, prev_z = targets, z
@@ -443,18 +489,18 @@ def main() -> int:
     lines = [f"# Arm workspace sweep {stamp} {args.label}", "",
              f"url `{args.url}` · response {args.response} · {'both arms' if both else 'right arm'} · "
              f"thresholds converge≤{args.max_converge}s err≤{args.max_final_err} overshoot≤{args.max_overshoot} drift≤{args.max_drift}", "",
-             "| # | pose | arms | direction | dz m | converge s | settle s | final err rad | worst joint | overshoot | post-hold settle | drift | tau sh/el/wr | esc | verdict |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| # | pose | arms | direction | dz m | converge s | settle s | final err rad | worst joint | overshoot | post-hold settle | drift | shake | ripple / reversals | tau sh/el/wr | esc | verdict |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for k, s in enumerate(steps, 1):
         if "skipped" in s:
-            lines.append(f"| {k} | {s['pose']} | {s.get('arms')} | {s['direction']} | {s['hand_dz_m']} | — | — | — | — | — | — | — | — | — | skipped: {s['skipped']} |")
+            lines.append(f"| {k} | {s['pose']} | {s.get('arms')} | {s['direction']} | {s['hand_dz_m']} | — | — | — | — | — | — | — | — | — | — | — | skipped: {s['skipped']} |")
             continue
         if s.get("error"):
-            lines.append(f"| {k} | {s['pose']} | {s.get('arms')} | {s['direction']} | {s['hand_dz_m']} | — | — | — | — | — | — | — | — | — | ERROR {s['error']} |")
+            lines.append(f"| {k} | {s['pose']} | {s.get('arms')} | {s['direction']} | {s['hand_dz_m']} | — | — | — | — | — | — | — | — | — | — | — | ERROR {s['error']} |")
             continue
         tf = s["tau_frac"]
         lines.append(f"| {k} | {s['pose']} | {s.get('arms')} | {s['direction']} | {s['hand_dz_m']:+.2f} | {s['t_converge']} | {s['t_settle']} | {s['final_err']} | {s['worst_joint']} | "
-                     f"{s['overshoot']} | {s['post_hold_settle']} | {s['hold_drift']} | {tf.get('shoulder', 0)}/{tf.get('elbow', 0)}/{tf.get('wrist', 0)} | {s['escalation']} | "
+                     f"{s['overshoot']} | {s['post_hold_settle']} | {s['hold_drift']} | {s.get('hold_shake')} | {s.get('vel_ripple')} / {s.get('reversals')} ({s.get('ripple_joint')}) | {tf.get('shoulder', 0)}/{tf.get('elbow', 0)}/{tf.get('wrist', 0)} | {s['escalation']} | "
                      f"{'FAIL: ' + '; '.join(s['fails']) if s['fails'] else 'ok'} |")
     lines += ["", "## By direction", "", "| direction | moves | fails | mean converge s | max final err | max overshoot | max drift |", "|---|---|---|---|---|---|---|"]
     for d, group in by_dir.items():

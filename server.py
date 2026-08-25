@@ -330,6 +330,52 @@ ARM_SDK_KD = [2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1
 # gravity just like the arm_sdk path.
 ARM_SDK_GAIN_BY_INDEX = {joint: (ARM_SDK_KP[k], ARM_SDK_KD[k]) for k, joint in enumerate(ARM_SDK_JOINTS)}
 
+
+# --- Simulation-only tuning overrides -----------------------------------------
+# RTW_TUNING_JSON=<file> replaces the arm-replay constants above at import time,
+# so an optimizer can evaluate parameter sets against the MuJoCo twin
+# (simulation/h1_2_twin/optimize_params.py). Unset -- as on the robot -- this is
+# a no-op. Only ARM_REPLAY_* constants and ARM_SDK_KP/KD may be overridden;
+# unknown keys or shape mismatches abort start-up instead of silently running
+# with half-applied tuning.
+def _apply_tuning_overrides() -> dict[str, Any]:
+    path = os.environ.get("RTW_TUNING_JSON", "").strip()
+    if not path:
+        return {}
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise SystemExit("RTW_TUNING_JSON must contain a JSON object")
+    scope = globals()
+    applied: dict[str, Any] = {}
+    for key, value in data.items():
+        if not (key.startswith("ARM_REPLAY_") or key in ("ARM_SDK_KP", "ARM_SDK_KD")) or key not in scope:
+            raise SystemExit(f"RTW_TUNING_JSON: unknown tuning key {key!r}")
+        current = scope[key]
+        if isinstance(current, dict):
+            if not isinstance(value, dict) or set(value) - set(current):
+                raise SystemExit(f"RTW_TUNING_JSON: {key} expects keys {sorted(current)}")
+            merged = dict(current)
+            for sub, sub_value in value.items():
+                merged[sub] = tuple(float(v) for v in sub_value) if isinstance(current[sub], tuple) else float(sub_value)
+            scope[key] = merged
+        elif isinstance(current, list):
+            if not isinstance(value, list) or len(value) != len(current):
+                raise SystemExit(f"RTW_TUNING_JSON: {key} expects a list of {len(current)} numbers")
+            scope[key] = [float(v) for v in value]
+        else:
+            scope[key] = float(value)
+        applied[key] = scope[key]
+    # Re-derive the constants computed from the ones that may have changed.
+    scope["ARM_REPLAY_TOLERANCE_RAD"] = scope["ARM_REPLAY_LOCK_TOLERANCE_RAD"]
+    scope["ARM_SDK_GAIN_BY_INDEX"] = {
+        joint: (scope["ARM_SDK_KP"][k], scope["ARM_SDK_KD"][k]) for k, joint in enumerate(ARM_SDK_JOINTS)
+    }
+    print(f"[tuning] {len(applied)} overrides from {path}: {sorted(applied)}", file=sys.stderr, flush=True)
+    return applied
+
+
+TUNING_OVERRIDES = _apply_tuning_overrides()
+
 REPLAY_COMMAND_SCOPES = {
     "all": list(JOINT_NAMES),
     "arms": JOINT_GROUPS["left_arm"] + JOINT_GROUPS["right_arm"] + JOINT_GROUPS["waist"],

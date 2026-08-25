@@ -19,6 +19,7 @@ one direction loses ("omnidirectional").
 
     optimize_params.py --motions motions.json --trials 50 --motions-per-trial 100 --workers 5
     optimize_params.py --report results.jsonl          # rank what has finished so far
+    optimize_params.py --strategy cmaes --seed-from round1/results.jsonl --generations 8 --popsize 12
 """
 from __future__ import annotations
 
@@ -68,9 +69,12 @@ SCALAR_RANGES = {
 }
 
 
-def sample_params(rng: random.Random) -> dict:
-    """One random parameter set: PID gains scaled per term across all groups, the rest per key."""
-    mult = {k: math.exp(rng.uniform(math.log(lo), math.log(hi))) for k, (lo, hi) in SCALAR_RANGES.items()}
+KEYS = list(SCALAR_RANGES)
+
+
+def params_from_mult(mult: dict) -> dict:
+    """Multipliers (one per SCALAR_RANGES key) -> server constants. PID gains are scaled
+    per term (kp/ki/kd) across all joint groups, everything else per key."""
     params: dict = {}
     gains = {}
     for group, (kp, ki, kd) in BASELINE["ARM_REPLAY_PID_GAINS"].items():
@@ -81,6 +85,27 @@ def sample_params(rng: random.Random) -> dict:
             continue
         params[key] = round(base * mult[key], 5)
     return params
+
+
+def mult_from_params(params: dict) -> dict:
+    sh = params["ARM_REPLAY_PID_GAINS"]["shoulder"]
+    base = BASELINE["ARM_REPLAY_PID_GAINS"]["shoulder"]
+    mult = {"pid_kp": sh[0] / base[0], "pid_ki": sh[1] / base[1], "pid_kd": sh[2] / base[2]}
+    for key, value in BASELINE.items():
+        if key != "ARM_REPLAY_PID_GAINS":
+            mult[key] = params[key] / value
+    return mult
+
+
+def sample_params(rng: random.Random) -> dict:
+    """One random parameter set (log-uniform inside SCALAR_RANGES)."""
+    return params_from_mult({k: math.exp(rng.uniform(math.log(lo), math.log(hi))) for k, (lo, hi) in SCALAR_RANGES.items()})
+
+
+def fitness(score: dict) -> float:
+    """CMA-ES objective: average cost plus the worst-10 % cost, so both the typical
+    move and the worst direction improve."""
+    return score["mean"] + score["cvar10"]
 
 
 def free_port() -> int:
@@ -204,25 +229,84 @@ def run_trial(trial: dict, motions: list[dict], args, log_dir: Path, worker_inde
         worker.stop()
 
 
+def run_cmaes(args, motions: list[dict], log_dir: Path, results_path: Path) -> None:
+    """Covariance-matrix-adaptation evolution strategy over log-multipliers.
+    Seeded from the best finished trials of --seed-from (mean of the top-k in
+    log space), otherwise from the shipped constants. State is pickled after every
+    generation, so a killed run continues from the next generation."""
+    import cma  # pip install cma
+
+    lo = [math.log(SCALAR_RANGES[k][0]) for k in KEYS]
+    hi = [math.log(SCALAR_RANGES[k][1]) for k in KEYS]
+    state_path = args.out / "cmaes.pkl"
+    done_rows = [json.loads(l) for l in results_path.read_text().splitlines() if l.strip()] if results_path.exists() else []
+    next_id = max((r["id"] for r in done_rows), default=-1) + 1
+    if state_path.exists():
+        es = cma.CMAEvolutionStrategy.pickle_loads(state_path.read_bytes())
+        print(f"resuming CMA-ES at generation {es.countiter}", flush=True)
+    else:
+        x0 = [0.0] * len(KEYS)
+        if args.seed_from:
+            rows = [json.loads(l) for l in args.seed_from.read_text().splitlines() if l.strip()]
+            rows = sorted((r for r in rows if r.get("score")), key=lambda r: fitness(r["score"]))[: args.seed_top]
+            if rows:
+                logs = [[math.log(mult_from_params(r["params"])[k]) for k in KEYS] for r in rows]
+                x0 = [sum(col) / len(col) for col in zip(*logs)]
+                print(f"seeded from top {len(rows)} of {args.seed_from}: " + ", ".join(f"{k}={math.exp(v):.2f}" for k, v in zip(KEYS, x0)), flush=True)
+        es = cma.CMAEvolutionStrategy(x0, args.sigma0, {"bounds": [lo, hi], "popsize": args.popsize, "seed": args.seed, "verbose": -9})
+    with ThreadPoolExecutor(max_workers=args.workers) as pool, open(results_path, "a", encoding="utf-8") as out:
+        while es.countiter < args.generations:
+            X = es.ask()
+            trials = []
+            for x in X:
+                mult = {k: math.exp(v) for k, v in zip(KEYS, x)}
+                trials.append({"id": next_id, "gen": es.countiter, "params": params_from_mult(mult), "x": [float(v) for v in x]})
+                next_id += 1
+            slots = list(range(args.workers))
+            futures = {}
+            queue = list(trials)
+            finished = {}
+            while queue or futures:
+                while queue and slots:
+                    trial = queue.pop(0)
+                    slot = slots.pop(0)
+                    futures[pool.submit(run_trial, trial, motions, args, log_dir, slot)] = slot
+                fut = next(as_completed(list(futures)))
+                slots.append(futures.pop(fut))
+                res = fut.result()
+                out.write(json.dumps(res) + "\n")
+                out.flush()
+                finished[res["id"]] = res
+                sc = res.get("score")
+                print(f"gen {res['gen']} trial {res['id']:>4}: " + (f"fitness {fitness(sc):.3f} (mean {sc['mean']:.3f} cvar10 {sc['cvar10']:.3f}) esc {sc['escalations']} osc {sc.get('oscillating', 0)} fail {sc['failures']} ({res['seconds']} s)"
+                                                                if sc else f"ERROR {res.get('error')}"), flush=True)
+            values = [fitness(finished[t["id"]]["score"]) if finished[t["id"]].get("score") else 1e3 for t in trials]
+            es.tell(X, values)
+            state_path.write_bytes(es.pickle_dumps())
+            best = min(values)
+            print(f"== generation {es.countiter} done: best {best:.3f}, mean {sum(values) / len(values):.3f}, sigma {es.sigma:.3f}", flush=True)
+    print("CMA-ES finished; best-ever x:", {k: round(math.exp(v), 3) for k, v in zip(KEYS, es.result.xbest)})
+
+
 def report(path: Path, top: int = 15) -> None:
     rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     rows = [r for r in rows if r.get("score")]
     if not rows:
         print("no finished trials")
         return
-    rows.sort(key=lambda r: r["score"]["cvar10"])
+    rows.sort(key=lambda r: fitness(r["score"]))
     base = next((r for r in rows if r.get("baseline")), None)
-    print(f"{len(rows)} trials · ranked by cvar10 (mean of worst 10 %)\n")
-    print(f"{'rank':>4} {'id':>4} {'cvar10':>7} {'mean':>7} {'max':>6} {'esc':>4} {'osc':>4} {'fail':>4}  against  with  parallel  note")
+    print(f"{len(rows)} trials · ranked by fitness = mean + cvar10 (mean of the worst 10 %)\n")
+    print(f"{'rank':>4} {'id':>4} {'gen':>3} {'fitness':>7} {'cvar10':>7} {'mean':>7} {'max':>6} {'esc':>4} {'osc':>4} {'fail':>4}  against  with  parallel  note")
     for k, r in enumerate(rows[:top], 1):
         s = r["score"]
         bd = s["by_direction"]
         note = "BASELINE" if r.get("baseline") else ""
-        print(f"{k:>4} {r['id']:>4} {s['cvar10']:>7.3f} {s['mean']:>7.3f} {s['max']:>6.2f} {s['escalations']:>4} {s.get('oscillating', 0):>4} {s['failures']:>4}  "
+        print(f"{k:>4} {r['id']:>4} {str(r.get('gen', '-')):>3} {fitness(s):>7.3f} {s['cvar10']:>7.3f} {s['mean']:>7.3f} {s['max']:>6.2f} {s['escalations']:>4} {s.get('oscillating', 0):>4} {s['failures']:>4}  "
               f"{bd.get('against_gravity', 0):>7.3f} {bd.get('with_gravity', 0):>5.3f} {bd.get('parallel', 0):>9.3f}  {note}")
     if base:
         rank = rows.index(base) + 1
-        print(f"\nbaseline (shipped constants) ranks {rank}/{len(rows)}: cvar10 {base['score']['cvar10']}, mean {base['score']['mean']}")
+        print(f"\nbaseline (shipped constants) ranks {rank}/{len(rows)}: fitness {fitness(base['score']):.3f} (cvar10 {base['score']['cvar10']}, mean {base['score']['mean']})")
     best = rows[0]
     print("\nbest parameters:\n" + json.dumps(best["params"], indent=1))
 
@@ -242,6 +326,12 @@ def main() -> int:
     ap.add_argument("--include-baseline", action="store_true", default=True)
     ap.add_argument("--params-file", type=Path, help="evaluate only these parameter sets (JSON list) instead of sampling")
     ap.add_argument("--report", type=Path, help="print the ranking of an existing results.jsonl and exit")
+    ap.add_argument("--strategy", choices=("random", "cmaes"), default="random")
+    ap.add_argument("--generations", type=int, default=8)
+    ap.add_argument("--popsize", type=int, default=12)
+    ap.add_argument("--sigma0", type=float, default=0.35, help="initial CMA-ES step in log-multiplier space")
+    ap.add_argument("--seed-from", type=Path, help="results.jsonl of a previous round to seed CMA-ES from")
+    ap.add_argument("--seed-top", type=int, default=5)
     args = ap.parse_args()
     if args.report:
         report(args.report)
@@ -259,6 +349,12 @@ def main() -> int:
     motions = bank["motions"][:]
     rng.shuffle(motions)
     motions = motions[: args.motions_per_trial]
+    log_dir = args.out / "logs"
+    log_dir.mkdir(exist_ok=True)
+    if args.strategy == "cmaes":
+        run_cmaes(args, motions, log_dir, results_path)
+        report(results_path)
+        return 0
     if args.params_file:
         sets = json.loads(args.params_file.read_text())
         trials = [{"id": i, "params": p} for i, p in enumerate(sets)]
@@ -272,8 +368,6 @@ def main() -> int:
     est = len(motions) * 9.0 * len(pending) / max(1, args.workers) / 60.0
     print(f"{len(pending)} trials pending ({len(done)} done) × {len(motions)} motions on {args.workers} workers — "
           f"~{est:.0f} min at ~9 s/motion", flush=True)
-    log_dir = args.out / "logs"
-    log_dir.mkdir(exist_ok=True)
     with ThreadPoolExecutor(max_workers=args.workers) as pool, open(results_path, "a", encoding="utf-8") as out:
         slots = list(range(args.workers))
         futures = {}

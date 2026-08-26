@@ -271,6 +271,23 @@ ARM_REPLAY_GRAVITY_MODEL_INCLUDE_HANDS = 1.0
 # integrator alone -- an undamped integrator, hence the slow limit cycle seen on the
 # twin (period 5-9 s). This keeps a scaled P+D correction active inside the band.
 ARM_REPLAY_INBAND_CORRECTION_SCALE = 0.0
+# Gravity-learn gating (Candidate B follow-up). 1 = the adaptive learn integral only
+# runs while EVERY commanded joint is stationary (hold phase), so the dynamic
+# coupling / contact torque of a still-moving shoulder is not learned as gravity
+# by a wrist that already sits at its target (the #482 wind-up on the twin). 0 = off.
+ARM_REPLAY_LEARN_ARM_STATIONARY_GATE = 0.0
+# Leak rate (1/s) applied to the learned torque while the joint is NOT in the learn
+# band, so a wound-up value decays instead of pinning the joint at a wrong
+# equilibrium forever. 0 = no leak (shipped behaviour).
+ARM_REPLAY_LEARN_LEAK_PER_S = 0.0
+# Self-collision check along the planned joint-space PATH (live pose -> frame 0 ->
+# ... -> last frame), sampled every ARM_REPLAY_PATH_CHECK_STEP_RAD with the sphere
+# model in tracking.mimic_pose_collides. The result is always reported in the plan
+# (plan["path_collision"]); with BLOCK >= 0.5 a hit also invalidates execution.
+# 18 of 1000 random twin motions had a straight-line path through the torso/hip.
+ARM_REPLAY_PATH_COLLISION_BLOCK = 0.0
+ARM_REPLAY_PATH_CHECK_STEP_RAD = 0.05
+ARM_REPLAY_PATH_CHECK_MAX_SAMPLES = 600
 # Cartesian "silhouette" proxy: weight each joint by an approximate lever arm
 # and require the weighted end-effector error to be small too, so convergence
 # tracks the visible red/blue gap rather than joint angles alone.
@@ -4467,6 +4484,12 @@ class TelemetryStore:
             except Exception:
                 model_tau = {}
         inband_scale = max(0.0, min(1.0, float(ARM_REPLAY_INBAND_CORRECTION_SCALE)))
+        arm_stationary = True
+        if ARM_REPLAY_LEARN_ARM_STATIONARY_GATE >= 0.5:
+            arm_stationary = all(
+                abs(float(getattr(msg.motor_state[j], "dq", 0.0) or 0.0)) <= converge_velocity for j in desired_by_index
+            )
+        leak = max(0.0, float(ARM_REPLAY_LEARN_LEAK_PER_S))
         for joint, desired_q in desired_by_index.items():
             motor_state = msg.motor_state[joint]
             actual_q = float(getattr(motor_state, "q", 0.0) or 0.0)
@@ -4522,9 +4545,11 @@ class TelemetryStore:
             # exactly 0 during the reach (keeps the tau=0 approach path and the
             # exact-target lock contract intact) but erases the settling residual.
             near_band = abs(error) <= lock_tolerance * ARM_REPLAY_LEARN_BAND_FACTOR
-            if near_band and stationary and not jump:
+            if near_band and stationary and not jump and arm_stationary:
                 new_learn = learned + learn_gain * error * dt
                 state["gravity_learn"] = max(-ARM_REPLAY_GRAVITY_LEARN_LIMIT, min(ARM_REPLAY_GRAVITY_LEARN_LIMIT, new_learn))
+            elif leak > 0.0 and not near_band:
+                state["gravity_learn"] = learned * max(0.0, 1.0 - leak * dt)
             state["last_error"] = error
             state["last_desired_q"] = desired_q
             abs_error = abs(error)
@@ -4745,6 +4770,16 @@ class TelemetryStore:
 
         control_path = "lowcmd" if moving_lower_joints else "arm_sdk"
         duration = self._trajectory_duration(frames)
+        path_collision = self._plan_path_collision(frames, scoped_joints)
+        if path_collision.get("label") and ARM_REPLAY_PATH_COLLISION_BLOCK >= 0.5:
+            violations.append({
+                "type": "self_collision_path",
+                "frame": path_collision.get("frame"),
+                "joint": -1,
+                "joint_name": path_collision["label"],
+                "value": path_collision.get("fraction"),
+                "limit": 0.0,
+            })
         hand_plan = self._plan_hand_trajectory(frames) if command_scope == "all" else self._disabled_hand_plan(
             "Hand/finger targets are ignored for scoped arm replay."
         )
@@ -4775,6 +4810,7 @@ class TelemetryStore:
             ],
             "gain_plan": self._select_trajectory_gains(control_path, moving_joints, joint_stats),
             "hand_plan": hand_plan,
+            "path_collision": path_collision,
             "limits": {
                 "max_frame_delta_rad": TRAJECTORY_MAX_FRAME_DELTA_RAD,
                 "max_velocity_rad_s": TRAJECTORY_MAX_VELOCITY_RAD_S,
@@ -4783,6 +4819,53 @@ class TelemetryStore:
             },
             "violations": all_violations,
         }
+
+    def _plan_path_collision(self, frames: list[dict[str, Any]], scoped_joints: set[int]) -> dict[str, Any]:
+        """Sample the joint-space path the replay will actually command -- from the
+        live arm pose to frame 0, then frame to frame -- and run each sample through
+        the sphere self-collision model. Returns the first hit (label, frame,
+        fraction) or label None. Joints outside the scope keep their live value."""
+        arm_joints = [j for j in ARM_JOINT_INDEX_BY_NAME.values()]
+        with self.command_lock:
+            msg = self.lowstate_msg
+        live: dict[int, float] = {}
+        if msg is not None:
+            try:
+                live = {j: float(getattr(msg.motor_state[j], "q", 0.0) or 0.0) for j in arm_joints}
+            except Exception:
+                live = {}
+        pose = {j: live.get(j, 0.0) for j in arm_joints}
+        waypoints: list[tuple[int, dict[int, float]]] = []
+        if live:
+            waypoints.append((-1, dict(pose)))
+        for index, frame in enumerate(frames):
+            targets = self._arm_replay_frame_targets(frame, scoped_joints & set(arm_joints)) if scoped_joints else {}
+            if not targets:
+                continue
+            pose = {**pose, **targets}
+            waypoints.append((index, dict(pose)))
+        if len(waypoints) < 1:
+            return {"checked": False, "samples": 0, "label": None}
+        step = max(0.005, float(ARM_REPLAY_PATH_CHECK_STEP_RAD))
+        samples = 0
+        try:
+            for k in range(len(waypoints)):
+                frame_index, target = waypoints[k]
+                start = waypoints[k - 1][1] if k > 0 else target
+                travel = max(abs(target[j] - start[j]) for j in arm_joints)
+                n = max(1, int(math.ceil(travel / step)))
+                for i in range(1 if k > 0 else 0, n + 1):
+                    a = i / n
+                    q = {j: start[j] + a * (target[j] - start[j]) for j in arm_joints}
+                    samples += 1
+                    if samples > ARM_REPLAY_PATH_CHECK_MAX_SAMPLES:
+                        return {"checked": True, "samples": samples, "label": None, "truncated": True}
+                    label = tracking.mimic_pose_collides(q)
+                    if label:
+                        return {"checked": True, "samples": samples, "label": label, "frame": frame_index, "fraction": round(a, 3)}
+        except Exception as exc:  # the check must never break planning
+            return {"checked": False, "samples": samples, "label": None, "error": str(exc)}
+        return {"checked": True, "samples": samples, "label": None}
 
     @staticmethod
     def _disabled_hand_plan(note: str) -> dict[str, Any]:

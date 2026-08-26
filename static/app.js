@@ -3515,6 +3515,10 @@ connectEvents();
     else detach();
   };
 
+  // The camera streams (MJPEG head camera + webcam) are the heaviest part of the
+  // page, so the panel never reopens itself on load: every visit starts closed and
+  // the operator opens it from the corner icon when needed (2026-08-26).
+  try { localStorage.setItem(OPEN_KEY, "0"); } catch {}
   icon.addEventListener("click", () => { localStorage.setItem(OPEN_KEY, "1"); render(); });
   minimize.addEventListener("click", (event) => {
     event.stopPropagation();

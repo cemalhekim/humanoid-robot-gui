@@ -93,7 +93,7 @@ def mult_from_params(params: dict) -> dict:
     mult = {"pid_kp": sh[0] / base[0], "pid_ki": sh[1] / base[1], "pid_kd": sh[2] / base[2]}
     for key, value in BASELINE.items():
         if key != "ARM_REPLAY_PID_GAINS":
-            mult[key] = params[key] / value
+            mult[key] = params.get(key, value) / value
     return mult
 
 
@@ -189,7 +189,11 @@ def sequence_cost(r: dict) -> float:
 
 def run_trial(trial: dict, motions: list[dict], args, log_dir: Path, worker_index: int) -> dict:
     tuning_path = log_dir / f"trial-{trial['id']:04d}.json"
-    tuning_path.write_text(json.dumps(trial["params"]), encoding="utf-8")
+    params = dict(trial["params"])
+    if getattr(args, "overlay_params", None):
+        params.update(args.overlay_params)
+        trial = {**trial, "params": params, "overlay": sorted(args.overlay_params)}
+    tuning_path.write_text(json.dumps(params), encoding="utf-8")
     worker = Worker(worker_index, tuning_path, args.python, log_dir)
     try:
         if not worker.wait_ready():
@@ -346,6 +350,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=HERE / "optimize")
     ap.add_argument("--include-baseline", action="store_true", default=True)
     ap.add_argument("--params-file", type=Path, help="evaluate only these parameter sets (JSON list) instead of sampling")
+    ap.add_argument("--overlay", type=Path, help="JSON object merged into EVERY trial's params after sampling/CMA-ES (fixed structure switches such as ARM_REPLAY_GRAVITY_MODEL_SCALE)")
     ap.add_argument("--store-samples", action="store_true", help="keep the 20 Hz joint traces of every move in results.jsonl (~2 MB/trial) so runs can be re-scored offline")
     ap.add_argument("--report", type=Path, help="print the ranking of an existing results.jsonl and exit")
     ap.add_argument("--exclude", type=Path, help="JSON list of motion ids to leave out when reporting (e.g. motions-colliding-path.json)")
@@ -361,6 +366,9 @@ def main() -> int:
         return 0
 
     args.out.mkdir(parents=True, exist_ok=True)
+    args.overlay_params = json.loads(args.overlay.read_text()) if args.overlay else None
+    if args.overlay_params:
+        print(f"overlay on every trial: {args.overlay_params}", flush=True)
     results_path = args.out / "results.jsonl"
     done = set()
     if results_path.exists():

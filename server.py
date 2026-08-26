@@ -4836,19 +4836,19 @@ class TelemetryStore:
                 live = {}
         pose = {j: live.get(j, 0.0) for j in arm_joints}
         waypoints: list[tuple[int, dict[int, float]]] = []
-        if live:
-            waypoints.append((-1, dict(pose)))
-        for index, frame in enumerate(frames):
-            targets = self._arm_replay_frame_targets(frame, scoped_joints & set(arm_joints)) if scoped_joints else {}
-            if not targets:
-                continue
-            pose = {**pose, **targets}
-            waypoints.append((index, dict(pose)))
-        if len(waypoints) < 1:
-            return {"checked": False, "samples": 0, "label": None}
-        step = max(0.005, float(ARM_REPLAY_PATH_CHECK_STEP_RAD))
         samples = 0
         try:
+            if live:
+                waypoints.append((-1, dict(pose)))
+            for index, frame in enumerate(frames):
+                targets = self._arm_replay_frame_targets(frame, scoped_joints & set(arm_joints)) if scoped_joints else {}
+                if not targets:
+                    continue
+                pose = {**pose, **targets}
+                waypoints.append((index, dict(pose)))
+            if len(waypoints) < 1:
+                return {"checked": False, "samples": 0, "label": None}
+            step = max(0.005, float(ARM_REPLAY_PATH_CHECK_STEP_RAD))
             for k in range(len(waypoints)):
                 frame_index, target = waypoints[k]
                 start = waypoints[k - 1][1] if k > 0 else target

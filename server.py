@@ -217,7 +217,7 @@ ARM_REPLAY_RESPONSE_LEGACY_MAX = 2.5
 # PID linearly up to 2x the legacy-top aggressiveness at the new 100%.
 # The old 100% now sits at the slider's 50% mark and is the UI default.
 # Doubled again on 2026-08-26: the previous top (5.0, "overdrive") is now the slider's
-# 50 % mark and the UI default; the new top is 10.0. Above 5.0 only the TIME-like
+# 50 % mark; the new top is 10.0; the UI default stays 2.5 (the 25 % mark). Above 5.0 only the TIME-like
 # quantities keep scaling (playback speed, approach/settle time, up to 4x the legacy
 # top); the gain-like ones (inner/approach/PID kp, correction clamp) stay capped at 2x
 # so the extra range adds speed, not stiffness. The 2.0 rad/s velocity envelope

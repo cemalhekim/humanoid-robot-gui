@@ -77,6 +77,11 @@ def _parse_floats(text: str | None, count: int, default: float = 0.0) -> list[fl
     return values if len(values) == count else [default] * count
 
 
+def _ARM_LINK_NAMES(side: str) -> set[str]:
+    """The seven arm links proper; everything else below the shoulder is hand."""
+    return {f"{side}_{part}_link" for part in ("shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow", "wrist_roll", "wrist_pitch", "wrist_yaw")}
+
+
 class ArmKinematics:
     """Chain FK from the pelvis to both arms' shoulder/elbow/hand links."""
 
@@ -102,6 +107,39 @@ class ArmKinematics:
                     "axis": [a / norm for a in axis],
                 },
             )
+        # Link masses and centres of mass (link frame) for the gravity model.
+        self._inertial: dict[str, tuple[float, list[float]]] = {}
+        for link in xml_root.findall("link"):
+            inertial = link.find("inertial")
+            if inertial is None:
+                continue
+            mass_el = inertial.find("mass")
+            origin_el = inertial.find("origin")
+            mass = float(mass_el.get("value", "0")) if mass_el is not None else 0.0
+            if mass > 0.0:
+                self._inertial[link.get("name")] = (
+                    mass,
+                    _parse_floats(origin_el.get("xyz") if origin_el is not None else None, 3),
+                )
+        self._parent_of = parent_of
+        # Every massive link hanging from each shoulder, with its joint chain from the pelvis.
+        self._mass_chains: dict[str, list[tuple[float, list[float], list[dict[str, Any]]]]] = {}
+        for side in ("left", "right"):
+            root = f"{side}_shoulder_pitch_link"
+            entries = []
+            for link, (mass, com) in self._inertial.items():
+                chain: list[dict[str, Any]] = []
+                cursor = link
+                in_arm = False
+                while cursor != _ROOT_LINK and cursor in parent_of:
+                    if cursor == root:
+                        in_arm = True
+                    cursor, joint = parent_of[cursor][0], parent_of[cursor][1]
+                    chain.append(joint)
+                if in_arm and cursor == _ROOT_LINK:
+                    chain.reverse()
+                    entries.append((mass, com, chain, link in _ARM_LINK_NAMES(side)))
+            self._mass_chains[side] = entries
         self._chains: dict[str, list[dict[str, Any]]] = {}
         for side in ("left", "right"):
             for part, suffix in _LANDMARK_LINKS.items():
@@ -187,6 +225,45 @@ class ArmKinematics:
                     round_digits,
                 )
         return result
+
+    def arm_mass(self, side: str, *, include_hands: bool = True) -> float:
+        return sum(mass for mass, _, _, is_arm in self._mass_chains[side] if include_hands or is_arm)
+
+    def _potential_energy(self, by_urdf: dict[str, float], side: str, include_hands: bool, g: float = 9.81) -> float:
+        energy = 0.0
+        for mass, com, chain, is_arm in self._mass_chains[side]:
+            if not include_hands and not is_arm:
+                continue
+            rotation, position = _IDENTITY, [0.0, 0.0, 0.0]
+            for joint in chain:
+                position = [p + o for p, o in zip(position, _mat_vec(rotation, joint["xyz"]))]
+                rotation = _mat_mul(rotation, _rot_rpy(*joint["rpy"]))
+                if joint["type"] in ("revolute", "continuous"):
+                    rotation = _mat_mul(rotation, _rot_axis(joint["axis"], by_urdf.get(joint["name"], 0.0)))
+            world_com = [p + o for p, o in zip(position, _mat_vec(rotation, com))]
+            energy += mass * g * world_com[2]
+        return energy
+
+    def gravity_torques(self, angles_rad: dict[str, float], *, step: float = 1e-4, include_hands: bool = True) -> dict[str, float]:
+        """Joint torque (Nm) each arm motor must apply to hold the arms still against
+        gravity at ``angles_rad`` (telemetry joint names), from the URDF masses and
+        centres of mass: tau_j = dU/dq_j by central finite difference of the potential
+        energy. Pelvis assumed upright. ``include_hands=False`` drops the hand links
+        (the MuJoCo twin is handless; the robot carries Inspire hands). Used as the
+        model-based gravity feed-forward."""
+        by_urdf = self._joint_angles_by_urdf(angles_rad)
+        torques: dict[str, float] = {}
+        for name in angles_rad:
+            urdf_name = TELEMETRY_TO_URDF_JOINT[name]
+            if name == "WaistYaw":
+                continue
+            side = "left" if name.startswith("Left") else "right"
+            plus = dict(by_urdf)
+            minus = dict(by_urdf)
+            plus[urdf_name] = by_urdf.get(urdf_name, 0.0) + step
+            minus[urdf_name] = by_urdf.get(urdf_name, 0.0) - step
+            torques[name] = (self._potential_energy(plus, side, include_hands) - self._potential_energy(minus, side, include_hands)) / (2.0 * step)
+        return torques
 
     def solve_hand_z(
         self,

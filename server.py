@@ -258,6 +258,19 @@ ARM_REPLAY_LEARN_BAND_FACTOR = 3.0
 ARM_REPLAY_CONVERGE_VELOCITY_RAD_S = 0.05
 # Hysteresis so one noisy joint cannot reset the whole convergence latch.
 ARM_REPLAY_SETTLE_HYSTERESIS = 1.6
+# --- Candidate B (structural), both OFF by default so behaviour is unchanged ---
+# Model-based gravity feed-forward: blend the URDF-mass gravity torque (kinematics.
+# gravity_torques) into the feed-forward instead of relying only on the measured
+# tau_est, which contains the controller's own PD reaction and any contact. 0 = off,
+# 1 = feed-forward is the model only (the adaptive learn term still adds on top).
+ARM_REPLAY_GRAVITY_MODEL_SCALE = 0.0
+# 1 = the URDF hand links count in the gravity model (the robot has Inspire hands);
+# 0 = arm links only (the MuJoCo twin is handless).
+ARM_REPLAY_GRAVITY_MODEL_INCLUDE_HANDS = 1.0
+# Inside the lock band the PID correction is zeroed today, leaving the gravity-learn
+# integrator alone -- an undamped integrator, hence the slow limit cycle seen on the
+# twin (period 5-9 s). This keeps a scaled P+D correction active inside the band.
+ARM_REPLAY_INBAND_CORRECTION_SCALE = 0.0
 # Cartesian "silhouette" proxy: weight each joint by an approximate lever arm
 # and require the weighted end-effector error to be small too, so convergence
 # tracks the visible red/blue gap rather than joint angles alone.
@@ -4418,6 +4431,20 @@ class TelemetryStore:
         hold_scale = float(tuning.get("gravity_hold_scale", ARM_REPLAY_GRAVITY_HOLD_SCALE))
         move_scale = float(tuning.get("gravity_move_scale", ARM_REPLAY_GRAVITY_MOVE_SCALE))
         learn_gain = ARM_REPLAY_GRAVITY_LEARN_GAIN * escalation
+        model_scale = max(0.0, min(1.0, float(ARM_REPLAY_GRAVITY_MODEL_SCALE)))
+        model_tau: dict[int, float] = {}
+        if model_scale > 0.0 and ARM_KINEMATICS is not None:
+            try:
+                angles = {
+                    JOINT_NAMES[j]: float(getattr(msg.motor_state[j], "q", 0.0) or 0.0)
+                    for j in ARM_SDK_JOINTS
+                    if j in JOINT_NAMES
+                }
+                by_name = ARM_KINEMATICS.gravity_torques(angles, include_hands=ARM_REPLAY_GRAVITY_MODEL_INCLUDE_HANDS >= 0.5)
+                model_tau = {ARM_JOINT_INDEX_BY_NAME[name]: tau for name, tau in by_name.items() if name in ARM_JOINT_INDEX_BY_NAME}
+            except Exception:
+                model_tau = {}
+        inband_scale = max(0.0, min(1.0, float(ARM_REPLAY_INBAND_CORRECTION_SCALE)))
         for joint, desired_q in desired_by_index.items():
             motor_state = msg.motor_state[joint]
             actual_q = float(getattr(motor_state, "q", 0.0) or 0.0)
@@ -4446,7 +4473,8 @@ class TelemetryStore:
             locked = abs(error) <= lock_tolerance
             stationary = abs(actual_dq) <= converge_velocity
             if locked:
-                correction = 0.0
+                # Candidate B: keep a damped P+D correction inside the band (no integral).
+                correction = inband_scale * (kp * error + kd * derivative)
                 locked_count += 1
             else:
                 correction = kp * error + ki * state["integral"] + kd * derivative
@@ -4462,6 +4490,8 @@ class TelemetryStore:
             gravity_scale = move_scale + (hold_scale - move_scale) * blend
             learned = state.get("gravity_learn", 0.0)
             base_gravity = state.get("gravity_tau", 0.0) * gravity_scale
+            if joint in model_tau:
+                base_gravity = (1.0 - model_scale) * base_gravity + model_scale * model_tau[joint]
             tau_limit = self._arm_replay_gravity_tau_limit(joint)
             gravity_tau = max(-tau_limit, min(tau_limit, base_gravity + learned))
             feedforward_tau[joint] = gravity_tau

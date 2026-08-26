@@ -4028,6 +4028,7 @@ class TelemetryStore:
                 # error is small, or a safety fault / operator cancel occurs.
                 phase_b_start = time.monotonic()
                 last_progress_t = phase_b_start
+                next_progress_status = phase_b_start + 1.0
                 # Run the hold loop faster than playback so the arm is caught
                 # before it can drift; keep the settle window the same wall-clock.
                 hold_dt = 1.0 / ARM_REPLAY_HOLD_HZ
@@ -4100,6 +4101,23 @@ class TelemetryStore:
                         )
                     )
                     writes += 1
+                    # Progress status once a second while still converging, so the
+                    # dashboard (and the twin harness) can see per-joint error,
+                    # correction, feed-forward and escalation before "holding".
+                    if closed_loop and not converged and now >= next_progress_status:
+                        next_progress_status = now + 1.0
+                        self._set_wrist_status(
+                            active=True,
+                            message="arm_sdk closed-loop replay converging.",
+                            last_command=self._arm_replay_status_payload(
+                                path, plan, tuning, approach_frame_count,
+                                writes=writes, closed_loop=closed_loop,
+                                hold_after_convergence=hold_after_convergence,
+                                position_tolerance=position_tolerance,
+                                final_error=final_error, converged=False,
+                                escalation=escalation, holding=False,
+                            ),
+                        )
                     if converged:
                         if hold_after_convergence:
                             if not hold_announced:

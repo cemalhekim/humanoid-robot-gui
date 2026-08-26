@@ -289,9 +289,29 @@ def run_cmaes(args, motions: list[dict], log_dir: Path, results_path: Path) -> N
     print("CMA-ES finished; best-ever x:", {k: round(math.exp(v), 3) for k, v in zip(KEYS, es.result.xbest)})
 
 
-def report(path: Path, top: int = 15) -> None:
+def rescore(results: list[dict]) -> dict:
+    """Recompute a trial score from its per-motion results (used after excluding motions)."""
+    costs = sorted(r["cost"] for r in results)
+    worst = costs[-max(1, len(costs) // 10):]
+    by_dir: dict[str, list] = {}
+    for r in results:
+        by_dir.setdefault(r.get("direction", "?"), []).append(r["cost"])
+    return {"mean": round(sum(costs) / len(costs), 4), "cvar10": round(sum(worst) / len(worst), 4), "max": costs[-1],
+            "by_direction": {d: round(sum(v) / len(v), 4) for d, v in by_dir.items()},
+            "escalations": sum(1 for r in results if r.get("escalation") and float(r["escalation"]) > 1.0),
+            "oscillating": sum(1 for r in results if (r.get("reversals") or 0) > 3),
+            "failures": sum(1 for r in results if r.get("error") or (r.get("kind") == "pose" and r.get("t_converge") is None) or (r.get("kind") == "trajectory" and r.get("t_hold") is None))}
+
+
+def report(path: Path, top: int = 15, exclude: set[int] | None = None) -> None:
     rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     rows = [r for r in rows if r.get("score")]
+    if exclude:
+        for r in rows:
+            kept = [x for x in r["results"] if x["id"] not in exclude]
+            if kept:
+                r["score"] = rescore(kept)
+        print(f"(excluding {len(exclude)} motions, e.g. colliding joint-space paths)")
     if not rows:
         print("no finished trials")
         return
@@ -328,6 +348,7 @@ def main() -> int:
     ap.add_argument("--params-file", type=Path, help="evaluate only these parameter sets (JSON list) instead of sampling")
     ap.add_argument("--store-samples", action="store_true", help="keep the 20 Hz joint traces of every move in results.jsonl (~2 MB/trial) so runs can be re-scored offline")
     ap.add_argument("--report", type=Path, help="print the ranking of an existing results.jsonl and exit")
+    ap.add_argument("--exclude", type=Path, help="JSON list of motion ids to leave out when reporting (e.g. motions-colliding-path.json)")
     ap.add_argument("--strategy", choices=("random", "cmaes"), default="random")
     ap.add_argument("--generations", type=int, default=8)
     ap.add_argument("--popsize", type=int, default=12)
@@ -336,7 +357,7 @@ def main() -> int:
     ap.add_argument("--seed-top", type=int, default=5)
     args = ap.parse_args()
     if args.report:
-        report(args.report)
+        report(args.report, exclude=set(json.loads(args.exclude.read_text())) if args.exclude else None)
         return 0
 
     args.out.mkdir(parents=True, exist_ok=True)

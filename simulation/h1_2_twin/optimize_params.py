@@ -340,7 +340,7 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--python", default=sys.executable)
-    ap.add_argument("--response", type=float, default=2.5)
+    ap.add_argument("--response", type=float, default=5.0, help="replay_response dial (UI default 5.0 since 2026-08-26; rounds 1-3 used 2.5)")
     ap.add_argument("--hold-seconds", type=float, default=2.0)
     ap.add_argument("--timeout", type=float, default=30.0)
     ap.add_argument("--out", type=Path, default=HERE / "optimize")

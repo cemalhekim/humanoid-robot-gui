@@ -417,7 +417,7 @@ def run_sequence(dash: Dashboard, start: dict[int, float], end: dict[int, float]
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default="http://127.0.0.1:8088")
-    ap.add_argument("--response", type=float, default=2.5, help="replay_response dial (UI default 2.5)")
+    ap.add_argument("--response", type=float, default=5.0, help="replay_response dial (UI default 5.0 since 2026-08-26; earlier runs used 2.5)")
     ap.add_argument("--right-only", action="store_true", help="move only the right arm")
     ap.add_argument("--only", nargs="*", help="pose names to run (chain order kept)")
     ap.add_argument("--sequences", action="store_true", help="also run trajectory-tracking replays")

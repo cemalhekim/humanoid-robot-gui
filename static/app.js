@@ -31,12 +31,10 @@ const vrViewUrl = "https://10.2.100.142:8012/?ws=wss://10.2.100.142:8012";
 const trajectorySampleRateHz = 60;
 const trajectoryDenseMaxDt = 1 / 30;
 const trajectoryMaxJointStep = 0.05;
-// Doubled twice: 2.5 was the original top, 5.0 (PID at 2x) became the top in July,
-// and since 2026-08-26 5.0 is the 50% mark and the default; 10.0 is the new 100%,
-// which only adds playback/approach speed (gains stay at the 5.0 level) inside the
-// 2.0 rad/s velocity envelope.
-const replayResponseMax = 10.0;
-const replayResponseDefault = 5.0;
+// Doubled range: the old 100% (2.5) is the new 50% and the default; the new
+// 100% (5.0) drives the PID at twice the old top aggressiveness (overdrive).
+const replayResponseMax = 5.0;
+const replayResponseDefault = 2.5;
 const currentRobotPoseValue = "__current_robot_pose__";
 const sequenceDraftStorageKey = "h1_sequence_builder_draft_v1";
 const fallbackBodyJointNames = [

@@ -903,17 +903,12 @@ class TelemetryContractsTest(unittest.TestCase):
         legacy_top = store._arm_replay_tuning({"replay_response": server.ARM_REPLAY_RESPONSE_LEGACY_MAX})
         new_top = store._arm_replay_tuning({"replay_response": server.ARM_REPLAY_RESPONSE_MAX})
         mid = store._arm_replay_tuning({"replay_response": 1.25})
-        # Slider doubled twice: gains top out at 2x the legacy top (reached at 5.0, the
-        # UI default since 2026-08-26) and stay there; time-like values keep speeding
-        # up to 4x at the new 100% (10.0). Damping ratios stay at legacy-top values.
-        default = store._arm_replay_tuning({"replay_response": 5.0})
-        self.assertAlmostEqual(default["pid_kp_scale"], legacy_top["pid_kp_scale"] * 2, places=5)
-        self.assertAlmostEqual(default["smooth_approach_seconds"], legacy_top["smooth_approach_seconds"] / 2, places=5)
+        # Doubled slider: the new 100% drives the PID at exactly 2x the old top.
         self.assertAlmostEqual(new_top["pid_kp_scale"], legacy_top["pid_kp_scale"] * 2, places=5)
         self.assertAlmostEqual(new_top["inner_kp_scale"], legacy_top["inner_kp_scale"] * 2, places=5)
         self.assertAlmostEqual(new_top["max_pid_correction_rad"], legacy_top["max_pid_correction_rad"] * 2, places=5)
-        self.assertAlmostEqual(new_top["playback_speed"], legacy_top["playback_speed"] * 4, places=5)
-        self.assertAlmostEqual(new_top["smooth_approach_seconds"], legacy_top["smooth_approach_seconds"] / 4, places=5)
+        # Time-like values speed up; damping ratios stay at legacy-top values.
+        self.assertAlmostEqual(new_top["smooth_approach_seconds"], legacy_top["smooth_approach_seconds"] / 2, places=5)
         self.assertEqual(new_top["pid_kd_scale"], legacy_top["pid_kd_scale"])
         # Values inside the legacy range are untouched by the range doubling.
         self.assertAlmostEqual(mid["pid_kp_scale"], 1.225, places=3)

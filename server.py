@@ -216,7 +216,15 @@ ARM_REPLAY_RESPONSE_LEGACY_MAX = 2.5
 # Doubled slider range: (legacy_max, max] is the overdrive zone, scaling the
 # PID linearly up to 2x the legacy-top aggressiveness at the new 100%.
 # The old 100% now sits at the slider's 50% mark and is the UI default.
-ARM_REPLAY_RESPONSE_MAX = 5.0
+# Doubled again on 2026-08-26: the previous top (5.0, "overdrive") is now the slider's
+# 50 % mark and the UI default; the new top is 10.0. Above 5.0 only the TIME-like
+# quantities keep scaling (playback speed, approach/settle time, up to 4x the legacy
+# top); the gain-like ones (inner/approach/PID kp, correction clamp) stay capped at 2x
+# so the extra range adds speed, not stiffness. The 2.0 rad/s velocity envelope
+# (TRAJECTORY_MAX_VELOCITY_RAD_S, enforced by _cap_playback_speed) still applies.
+ARM_REPLAY_RESPONSE_MAX = 10.0
+ARM_REPLAY_OVERDRIVE_GAIN_FACTOR_MAX = 2.0
+ARM_REPLAY_OVERDRIVE_TIME_FACTOR_MAX = 4.0
 # --- Convergence / holding upgrade (drive the arm ONTO the recorded pose) ---
 # Gravity feed-forward completeness. When a joint is inside the lock band and
 # steady we feed forward (almost) the full measured holding torque, so the
@@ -378,7 +386,7 @@ def _apply_tuning_overrides() -> dict[str, Any]:
     scope = globals()
     applied: dict[str, Any] = {}
     for key, value in data.items():
-        if not (key.startswith("ARM_REPLAY_") or key in ("ARM_SDK_KP", "ARM_SDK_KD")) or key not in scope:
+        if not (key.startswith("ARM_REPLAY_") or key in ("ARM_SDK_KP", "ARM_SDK_KD", "TRAJECTORY_MAX_VELOCITY_RAD_S")) or key not in scope:
             raise SystemExit(f"RTW_TUNING_JSON: unknown tuning key {key!r}")
         current = scope[key]
         if isinstance(current, dict):
@@ -4317,19 +4325,21 @@ class TelemetryStore:
         # legacy-top values so the doubled stiffness is not paired with reduced
         # damping.
         if response > ARM_REPLAY_RESPONSE_LEGACY_MAX:
-            factor = min(2.0, response / ARM_REPLAY_RESPONSE_LEGACY_MAX)
+            raw = response / ARM_REPLAY_RESPONSE_LEGACY_MAX
+            gain_factor = min(ARM_REPLAY_OVERDRIVE_GAIN_FACTOR_MAX, raw)
+            time_factor = min(ARM_REPLAY_OVERDRIVE_TIME_FACTOR_MAX, raw)
             for key in (
                 "inner_kp_scale",
                 "direct_kp_scale",
                 "approach_kp_scale",
-                "playback_speed",
                 "pid_kp_scale",
                 "pid_ki_scale",
                 "max_pid_correction_rad",
             ):
-                tuning[key] *= factor
+                tuning[key] *= gain_factor
+            tuning["playback_speed"] *= time_factor
             for key in ("smooth_approach_seconds", "settle_seconds"):
-                tuning[key] /= factor
+                tuning[key] /= time_factor
         return {key: round(value, 6) for key, value in tuning.items()}
 
     def _smooth_arm_replay_frames(

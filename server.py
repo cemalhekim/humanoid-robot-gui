@@ -4435,8 +4435,12 @@ class TelemetryStore:
         model_tau: dict[int, float] = {}
         if model_scale > 0.0 and ARM_KINEMATICS is not None:
             try:
+                # Evaluate at the COMMANDED angles for the joints being driven (an
+                # open-loop signal, as xr_teleoperate does with pin.rnea at sol_q) and
+                # at the measured angles for the rest -- evaluating everything at the
+                # measured q would re-open a feedback path through the feed-forward.
                 angles = {
-                    JOINT_NAMES[j]: float(getattr(msg.motor_state[j], "q", 0.0) or 0.0)
+                    JOINT_NAMES[j]: float(desired_by_index[j]) if j in desired_by_index else float(getattr(msg.motor_state[j], "q", 0.0) or 0.0)
                     for j in ARM_SDK_JOINTS
                     if j in JOINT_NAMES
                 }

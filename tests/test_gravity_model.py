@@ -35,6 +35,15 @@ class GravityModelTest(unittest.TestCase):
         self.assertAlmostEqual(r_arm["RightShoulderPitch"], l_arm["LeftShoulderPitch"], places=1)
         self.assertLess(abs(r_arm["RightShoulderPitch"]), abs(right["RightShoulderPitch"]))
 
+    def test_analytic_matches_finite_difference(self) -> None:
+        angles = {"RightShoulderPitch": -1.1, "RightShoulderRoll": -0.4, "RightShoulderYaw": 0.7, "RightElbow": 1.3,
+                  "RightWristRoll": 0.5, "RightWristPitch": 0.2, "RightWristYaw": -0.6,
+                  "LeftShoulderPitch": 0.4, "LeftShoulderRoll": 0.9, "LeftElbow": 0.2}
+        fast = self.kin.gravity_torques(angles)
+        slow = self.kin.gravity_torques_fd(angles)
+        for name in angles:
+            self.assertAlmostEqual(fast[name], slow[name], places=4, msg=name)
+
     def test_handless_model_matches_the_twin_within_ten_percent(self) -> None:
         # MuJoCo (handless H1-2 scene) needs -11.11 Nm on the shoulder pitch at this pose.
         tau = self.kin.gravity_torques({"RightShoulderPitch": -1.0, "RightShoulderRoll": -0.5, "RightElbow": 0.8}, include_hands=False)

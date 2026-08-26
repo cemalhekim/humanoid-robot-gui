@@ -244,13 +244,40 @@ class ArmKinematics:
             energy += mass * g * world_com[2]
         return energy
 
-    def gravity_torques(self, angles_rad: dict[str, float], *, step: float = 1e-4, include_hands: bool = True) -> dict[str, float]:
+    def gravity_torques(self, angles_rad: dict[str, float], *, include_hands: bool = True, g: float = 9.81) -> dict[str, float]:
         """Joint torque (Nm) each arm motor must apply to hold the arms still against
-        gravity at ``angles_rad`` (telemetry joint names), from the URDF masses and
-        centres of mass: tau_j = dU/dq_j by central finite difference of the potential
-        energy. Pelvis assumed upright. ``include_hands=False`` drops the hand links
-        (the MuJoCo twin is handless; the robot carries Inspire hands). Used as the
-        model-based gravity feed-forward."""
+        gravity at ``angles_rad`` (telemetry joint names): one FK pass per massive
+        link, then tau_j = sum_i m_i g (a_j x (c_i - p_j))_z over the links distal to
+        joint j (Jacobian transpose), which equals dU/dq_j. Pelvis assumed upright.
+        ``include_hands=False`` drops the hand links (the MuJoCo twin is handless; the
+        robot carries Inspire hands). ~1 ms for 14 joints, fit for the 120 Hz loop."""
+        by_urdf = self._joint_angles_by_urdf(angles_rad)
+        wanted = {TELEMETRY_TO_URDF_JOINT[name]: name for name in angles_rad if name != "WaistYaw"}
+        torques = {name: 0.0 for name in wanted.values()}
+        for side in ("left", "right"):
+            for mass, com, chain, is_arm in self._mass_chains[side]:
+                if not include_hands and not is_arm:
+                    continue
+                rotation, position = _IDENTITY, [0.0, 0.0, 0.0]
+                pivots: list[tuple[str, list[float], list[float]]] = []
+                for joint in chain:
+                    position = [p + o for p, o in zip(position, _mat_vec(rotation, joint["xyz"]))]
+                    rotation = _mat_mul(rotation, _rot_rpy(*joint["rpy"]))
+                    if joint["type"] in ("revolute", "continuous"):
+                        if joint["name"] in wanted:
+                            pivots.append((joint["name"], list(position), _mat_vec(rotation, joint["axis"])))
+                        rotation = _mat_mul(rotation, _rot_axis(joint["axis"], by_urdf.get(joint["name"], 0.0)))
+                world_com = [p + o for p, o in zip(position, _mat_vec(rotation, com))]
+                weight = mass * g
+                for urdf_name, pivot, axis in pivots:
+                    rx, ry = world_com[0] - pivot[0], world_com[1] - pivot[1]
+                    # z-component of axis x r
+                    torques[wanted[urdf_name]] += weight * (axis[0] * ry - axis[1] * rx)
+        return torques
+
+    def gravity_torques_fd(self, angles_rad: dict[str, float], *, step: float = 1e-4, include_hands: bool = True) -> dict[str, float]:
+        """Reference implementation of gravity_torques by central finite difference of
+        the potential energy (slow, ~10 ms); kept for tests."""
         by_urdf = self._joint_angles_by_urdf(angles_rad)
         torques: dict[str, float] = {}
         for name in angles_rad:

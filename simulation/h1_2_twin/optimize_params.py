@@ -117,6 +117,8 @@ def free_port() -> int:
 class Worker:
     """A twin + a server.py with a given tuning file, on their own DDS domain."""
 
+    twin_args: list[str] = []  # extra CLI flags for every twin (e.g. --cmd-latency-ms 30)
+
     def __init__(self, index: int, tuning_path: Path, python: str, log_dir: Path) -> None:
         self.domain = 10 + index
         self.port = free_port()
@@ -124,7 +126,7 @@ class Worker:
         env = dict(os.environ, RTW_SKIP_XR_SUSPEND="1", PYTHONUNBUFFERED="1",
                    PYTHONPATH=str(REPO / "execution/semantic_teleoperation/external/unitree_sdk2_python"))
         self.twin = subprocess.Popen(
-            [python, str(HERE / "h1_2_mujoco_sim.py"), "--domain", str(self.domain), "--status-every", "0"],
+            [python, str(HERE / "h1_2_mujoco_sim.py"), "--domain", str(self.domain), "--status-every", "0", *Worker.twin_args],
             env=env, stdout=open(log_dir / f"twin-{index}.log", "a"), stderr=subprocess.STDOUT, start_new_session=True)
         env["RTW_TUNING_JSON"] = str(tuning_path)
         self.server = subprocess.Popen(
@@ -350,6 +352,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=HERE / "optimize")
     ap.add_argument("--include-baseline", action="store_true", default=True)
     ap.add_argument("--params-file", type=Path, help="evaluate only these parameter sets (JSON list) instead of sampling")
+    ap.add_argument("--twin-args", default="", help="extra flags passed to every twin, e.g. \"--cmd-latency-ms 30 --frictionloss 1.0\"")
     ap.add_argument("--overlay", type=Path, help="JSON object merged into EVERY trial's params after sampling/CMA-ES (fixed structure switches such as ARM_REPLAY_GRAVITY_MODEL_SCALE)")
     ap.add_argument("--store-samples", action="store_true", help="keep the 20 Hz joint traces of every move in results.jsonl (~2 MB/trial) so runs can be re-scored offline")
     ap.add_argument("--report", type=Path, help="print the ranking of an existing results.jsonl and exit")
@@ -366,6 +369,9 @@ def main() -> int:
         return 0
 
     args.out.mkdir(parents=True, exist_ok=True)
+    Worker.twin_args = args.twin_args.split() if args.twin_args else []
+    if Worker.twin_args:
+        print(f"twin args: {Worker.twin_args}", flush=True)
     args.overlay_params = json.loads(args.overlay.read_text()) if args.overlay else None
     if args.overlay_params:
         print(f"overlay on every trial: {args.overlay_params}", flush=True)

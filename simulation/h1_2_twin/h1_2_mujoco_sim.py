@@ -129,6 +129,9 @@ class H12Twin:
         self.armcmd_at = 0.0
         self.armcmd_count = 0
         self.arm_external_prev = [False] * NUM_MOTORS
+        self.latency = max(0.0, float(getattr(args, "cmd_latency_ms", 0.0) or 0.0)) / 1000.0
+        self.lowcmd_queue: list[tuple[float, LowCmd_]] = []
+        self.armcmd_queue: list[tuple[float, LowCmd_]] = []
         self.state_msg = unitree_hg_msg_dds__LowState_()
         self.tick = 0
 
@@ -147,15 +150,30 @@ class H12Twin:
 
     def _on_lowcmd(self, msg: LowCmd_) -> None:
         with self.lock:
-            self.lowcmd = msg
-            self.lowcmd_at = time.monotonic()
             self.lowcmd_count += 1
+            if self.latency > 0.0:
+                self.lowcmd_queue.append((time.monotonic() + self.latency, msg))
+            else:
+                self.lowcmd = msg
+                self.lowcmd_at = time.monotonic()
 
     def _on_armcmd(self, msg: LowCmd_) -> None:
         with self.lock:
-            self.armcmd = msg
-            self.armcmd_at = time.monotonic()
             self.armcmd_count += 1
+            if self.latency > 0.0:
+                self.armcmd_queue.append((time.monotonic() + self.latency, msg))
+            else:
+                self.armcmd = msg
+                self.armcmd_at = time.monotonic()
+
+    def _drain_queues(self, now: float) -> None:
+        """Promote delayed commands whose delivery time has come (called under the lock)."""
+        while self.lowcmd_queue and self.lowcmd_queue[0][0] <= now:
+            _, self.lowcmd = self.lowcmd_queue.pop(0)
+            self.lowcmd_at = now
+        while self.armcmd_queue and self.armcmd_queue[0][0] <= now:
+            _, self.armcmd = self.armcmd_queue.pop(0)
+            self.armcmd_at = now
 
     @staticmethod
     def _pd(cmd, q: float, dq: float) -> float:
@@ -165,6 +183,8 @@ class H12Twin:
         now = time.monotonic()
         stale = self.args.cmd_timeout
         with self.lock:
+            if self.latency > 0.0:
+                self._drain_queues(now)
             lowcmd = self.lowcmd if (now - self.lowcmd_at) < stale else None
             armcmd = self.armcmd if (now - self.armcmd_at) < stale else None
         weight = 0.0
@@ -265,6 +285,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--viewer", action="store_true", help="open the MuJoCo passive viewer (needs a display)")
     p.add_argument("--status-every", type=float, default=2.0, help="seconds between status lines (0 = quiet)")
     p.add_argument("--duration", type=float, default=0.0, help="stop after N seconds of sim time (0 = run forever)")
+    # Realism knobs (literature: 20-60 ms DDS+motor delay on Unitree stacks; Coulomb
+    # friction of a 40 Nm QDD gearbox is 0.5-2 Nm, the MJCF default is 0.2).
+    p.add_argument("--cmd-latency-ms", type=float, default=0.0, help="delay applied to every incoming rt/lowcmd and rt/arm_sdk command")
+    p.add_argument("--frictionloss", type=float, default=None, help="override joint frictionloss (Nm) on the 14 arm joints")
+    p.add_argument("--armature", type=float, default=None, help="override joint armature on the 14 arm joints")
+    p.add_argument("--integrator", choices=("euler", "implicitfast"), default="euler")
     return p.parse_args()
 
 
@@ -275,11 +301,23 @@ def main() -> int:
         return 2
     model = load_model(args.scene, args.fix_base)
     model.opt.timestep = args.physics_dt
+    if args.integrator == "implicitfast":
+        model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
+    if args.frictionloss is not None or args.armature is not None:
+        for i in range(13, 27):
+            dof = int(model.jnt_dofadr[model.actuator_trnid[i, 0]])
+            if args.frictionloss is not None:
+                model.dof_frictionloss[dof] = args.frictionloss
+            if args.armature is not None:
+                model.dof_armature[dof] = args.armature
     ChannelFactoryInitialize(args.domain, args.interface)
     twin = H12Twin(model, args)
     print(
         f"H1-2 twin: {model.nu} motors, base {'fixed' if args.fix_base else 'free'}, "
-        f"physics {1/args.physics_dt:.0f} Hz, lowstate {args.state_hz:.0f} Hz, DDS domain {args.domain} on {args.interface}",
+        f"physics {1/args.physics_dt:.0f} Hz, lowstate {args.state_hz:.0f} Hz, DDS domain {args.domain} on {args.interface}, "
+        f"latency {args.cmd_latency_ms:.0f} ms, integrator {args.integrator}"
+        + (f", frictionloss {args.frictionloss}" if args.frictionloss is not None else "")
+        + (f", armature {args.armature}" if args.armature is not None else ""),
         flush=True,
     )
     viewer = None

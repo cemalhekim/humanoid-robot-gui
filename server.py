@@ -458,6 +458,11 @@ WAIST_YAW_JOINT = 12
 WAIST_LOWCMD_KP = 200.0
 WAIST_LOWCMD_KD = 5.0
 WAIST_LOWCMD_MAX_VEL_RAD_S = 0.6
+# H1-2 loco FSM ids (observed on the robot 2026-08-27, not the H1 ids the SDK's
+# LocoClient helpers assume): RC L2+B (damp) -> 1, RC L2+Up (ready / stand up) -> 3.
+# The SDK's StandUp() sends 2, which the H1-2 ignores. Start (RC R2+X) is still
+# sent through the SDK helper (204) until its H1-2 id has been observed.
+LOCO_FSM_STAND_UP = 3
 LOCO_LIMITS = {
     "vx": [-1.0, 1.0],
     "vy": [-0.5, 0.5],
@@ -7130,7 +7135,7 @@ finally:
             if action in ("ready", "balance_stand"):
                 call_code = loco_client.BalanceStand()
             elif action == "stand_up":
-                call_code = loco_client.StandUp()
+                call_code = loco_client.SetFsmId(LOCO_FSM_STAND_UP)
             elif action == "start":
                 call_code = loco_client.Start()
             elif action == "stop_move":

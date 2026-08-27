@@ -460,9 +460,10 @@ WAIST_LOWCMD_KD = 5.0
 WAIST_LOWCMD_MAX_VEL_RAD_S = 0.6
 # H1-2 loco FSM ids (observed on the robot 2026-08-27, not the H1 ids the SDK's
 # LocoClient helpers assume): RC L2+B (damp) -> 1, RC L2+Up (ready / stand up) -> 3.
-# The SDK's StandUp() sends 2, which the H1-2 ignores. Start (RC R2+X) is still
-# sent through the SDK helper (204) until its H1-2 id has been observed.
+# The SDK's StandUp() sends 2 and Start() sends 204; the H1-2 ignores both.
+# RC R2+X (motion mode) -> 201, observed the same way.
 LOCO_FSM_STAND_UP = 3
+LOCO_FSM_START = 201
 LOCO_LIMITS = {
     "vx": [-1.0, 1.0],
     "vy": [-0.5, 0.5],
@@ -7137,7 +7138,7 @@ finally:
             elif action == "stand_up":
                 call_code = loco_client.SetFsmId(LOCO_FSM_STAND_UP)
             elif action == "start":
-                call_code = loco_client.Start()
+                call_code = loco_client.SetFsmId(LOCO_FSM_START)
             elif action == "stop_move":
                 call_code = loco_client.SetVelocity(0.0, 0.0, 0.0, 0.4)
             elif action == "damp":

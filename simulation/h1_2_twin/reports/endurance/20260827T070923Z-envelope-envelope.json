@@ -1,0 +1,994 @@
+{
+ "mode": "envelope",
+ "response": 10.0,
+ "hold_seconds": 120.0,
+ "runs": [
+  {
+   "tuning": "/home/vodafone/t-b1gated-env2.json",
+   "rows": [
+    {
+     "pose": "hang",
+     "t_converge": 1.01,
+     "t_settle": 0.41,
+     "final_err": 0.0025,
+     "overshoot": 0.0029,
+     "reversals": 0,
+     "vel_ripple": 0.02,
+     "hold_shake": 9e-05,
+     "tau_frac": {
+      "shoulder": 0.08,
+      "elbow": 0.18,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_45",
+     "t_converge": 1.76,
+     "t_settle": 1.36,
+     "final_err": 0.0007,
+     "overshoot": 0.0042,
+     "reversals": 1,
+     "vel_ripple": 0.2229,
+     "hold_shake": 9e-05,
+     "tau_frac": {
+      "shoulder": 0.26,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_horizontal",
+     "t_converge": 1.76,
+     "t_settle": 1.31,
+     "final_err": 0.0008,
+     "overshoot": 0.0027,
+     "reversals": 0,
+     "vel_ripple": 0.2081,
+     "hold_shake": 0.0001,
+     "tau_frac": {
+      "shoulder": 0.34,
+      "elbow": 0.12,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "straight_up",
+     "t_converge": 2.76,
+     "t_settle": 2.42,
+     "final_err": 0.001,
+     "overshoot": 0.0025,
+     "reversals": 0,
+     "vel_ripple": 0.2172,
+     "hold_shake": 0.00011,
+     "tau_frac": {
+      "shoulder": 0.32,
+      "elbow": 0.16,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_horizontal_2",
+     "t_converge": 2.76,
+     "t_settle": 2.46,
+     "final_err": 0.0009,
+     "overshoot": 0.0039,
+     "reversals": 0,
+     "vel_ripple": 0.2146,
+     "hold_shake": 0.00014,
+     "tau_frac": {
+      "shoulder": 0.26,
+      "elbow": 0.16,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "side_horizontal_T",
+     "t_converge": 3.01,
+     "t_settle": 2.77,
+     "final_err": 0.0002,
+     "overshoot": 0.0054,
+     "reversals": 1,
+     "vel_ripple": 0.2655,
+     "hold_shake": 9e-05,
+     "tau_frac": {
+      "shoulder": 0.3,
+      "elbow": 0.08,
+      "wrist": 0.0
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "side_45",
+     "t_converge": 1.76,
+     "t_settle": 1.21,
+     "final_err": 0.0002,
+     "overshoot": 0.0075,
+     "reversals": 0,
+     "vel_ripple": 0.1917,
+     "hold_shake": 0.00012,
+     "tau_frac": {
+      "shoulder": 0.26,
+      "elbow": 0.12,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "hang_2",
+     "t_converge": 2.02,
+     "t_settle": 1.41,
+     "final_err": 0.0002,
+     "overshoot": 0.0119,
+     "reversals": 2,
+     "vel_ripple": 0.2157,
+     "hold_shake": 9e-05,
+     "tau_frac": {
+      "shoulder": 0.18,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "elbow_forearm_forward",
+     "t_converge": 3.02,
+     "t_settle": 2.62,
+     "final_err": 0.0002,
+     "overshoot": 0.0002,
+     "reversals": 0,
+     "vel_ripple": 0.2053,
+     "hold_shake": 0.0002,
+     "tau_frac": {
+      "shoulder": 0.14,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "curl_forearm_up",
+     "t_converge": 2.77,
+     "t_settle": 2.22,
+     "final_err": 0.0003,
+     "overshoot": 0.0062,
+     "reversals": 1,
+     "vel_ripple": 0.197,
+     "hold_shake": 0.00021,
+     "tau_frac": {
+      "shoulder": 0.36,
+      "elbow": 0.15,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_elbow_45",
+     "t_converge": 1.77,
+     "t_settle": 1.32,
+     "final_err": 0.0006,
+     "overshoot": 0.0009,
+     "reversals": 0,
+     "vel_ripple": 0.2002,
+     "hold_shake": 9e-05,
+     "tau_frac": {
+      "shoulder": 0.33,
+      "elbow": 0.24,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "overhead_bent",
+     "t_converge": 2.02,
+     "t_settle": 1.62,
+     "final_err": 0.0012,
+     "overshoot": 0.0072,
+     "reversals": 1,
+     "vel_ripple": 0.2145,
+     "hold_shake": 0.0001,
+     "tau_frac": {
+      "shoulder": 0.39,
+      "elbow": 0.13,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "backward",
+     "t_converge": 6.8,
+     "t_settle": 6.36,
+     "final_err": 0.0011,
+     "overshoot": 0.0047,
+     "reversals": 1,
+     "vel_ripple": 0.2247,
+     "hold_shake": 6e-05,
+     "tau_frac": {
+      "shoulder": 0.29,
+      "elbow": 0.23,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "low_side_back",
+     "t_converge": 1.76,
+     "t_settle": 1.41,
+     "final_err": 0.0003,
+     "overshoot": 0.0064,
+     "reversals": 0,
+     "vel_ripple": 0.2252,
+     "hold_shake": 0.00011,
+     "tau_frac": {
+      "shoulder": 0.18,
+      "elbow": 0.09,
+      "wrist": 0.0
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "yaw_in_forward",
+     "t_converge": 4.02,
+     "t_settle": 3.52,
+     "final_err": 0.0009,
+     "overshoot": 0.0029,
+     "reversals": 0,
+     "vel_ripple": 0.2069,
+     "hold_shake": 0.0002,
+     "tau_frac": {
+      "shoulder": 0.32,
+      "elbow": 0.14,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "across_body",
+     "t_converge": 2.52,
+     "t_settle": 2.12,
+     "final_err": 0.0005,
+     "overshoot": 0.0007,
+     "reversals": 0,
+     "vel_ripple": 0.2075,
+     "hold_shake": 9e-05,
+     "tau_frac": {
+      "shoulder": 0.3,
+      "elbow": 0.16,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "wrist_extremes",
+     "t_converge": 3.02,
+     "t_settle": 2.67,
+     "final_err": 0.001,
+     "overshoot": 0.001,
+     "reversals": 0,
+     "vel_ripple": 0.2117,
+     "hold_shake": 0.00025,
+     "tau_frac": {
+      "shoulder": 0.29,
+      "elbow": 0.19,
+      "wrist": 0.08
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "hang_final",
+     "t_converge": 3.03,
+     "t_settle": 2.62,
+     "final_err": 0.0008,
+     "overshoot": 0.0023,
+     "reversals": 0,
+     "vel_ripple": 0.2066,
+     "hold_shake": 0.00027,
+     "tau_frac": {
+      "shoulder": 0.28,
+      "elbow": 0.23,
+      "wrist": 0.08
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    }
+   ]
+  },
+  {
+   "tuning": "/home/vodafone/t-b1gated-env3.json",
+   "rows": [
+    {
+     "pose": "hang",
+     "t_converge": 1.02,
+     "t_settle": 0.31,
+     "final_err": 0.002,
+     "overshoot": 0.0021,
+     "reversals": 0,
+     "vel_ripple": 0.026,
+     "hold_shake": 6e-05,
+     "tau_frac": {
+      "shoulder": 0.08,
+      "elbow": 0.19,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_45",
+     "t_converge": 1.52,
+     "t_settle": 1.13,
+     "final_err": 0.0007,
+     "overshoot": 0.0058,
+     "reversals": 0,
+     "vel_ripple": 0.2851,
+     "hold_shake": 0.00022,
+     "tau_frac": {
+      "shoulder": 0.28,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_horizontal",
+     "t_converge": 1.76,
+     "t_settle": 1.12,
+     "final_err": 0.0004,
+     "overshoot": 0.0099,
+     "reversals": 1,
+     "vel_ripple": 0.2462,
+     "hold_shake": 0.00015,
+     "tau_frac": {
+      "shoulder": 0.35,
+      "elbow": 0.12,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "straight_up",
+     "t_converge": 2.51,
+     "t_settle": 2.02,
+     "final_err": 0.0009,
+     "overshoot": 0.0024,
+     "reversals": 0,
+     "vel_ripple": 0.2475,
+     "hold_shake": 0.0001,
+     "tau_frac": {
+      "shoulder": 0.31,
+      "elbow": 0.16,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_horizontal_2",
+     "t_converge": 2.51,
+     "t_settle": 2.02,
+     "final_err": 0.0003,
+     "overshoot": 0.0,
+     "reversals": 0,
+     "vel_ripple": 0.2587,
+     "hold_shake": 0.0002,
+     "tau_frac": {
+      "shoulder": 0.29,
+      "elbow": 0.16,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "side_horizontal_T",
+     "t_converge": 2.77,
+     "t_settle": 2.27,
+     "final_err": 0.001,
+     "overshoot": 0.0033,
+     "reversals": 0,
+     "vel_ripple": 0.2462,
+     "hold_shake": 0.00011,
+     "tau_frac": {
+      "shoulder": 0.31,
+      "elbow": 0.08,
+      "wrist": 0.0
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "side_45",
+     "t_converge": 1.51,
+     "t_settle": 1.01,
+     "final_err": 0.0004,
+     "overshoot": 0.0131,
+     "reversals": 4,
+     "vel_ripple": 0.2787,
+     "hold_shake": 9e-05,
+     "tau_frac": {
+      "shoulder": 0.25,
+      "elbow": 0.12,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "hang_2",
+     "t_converge": 1.51,
+     "t_settle": 1.12,
+     "final_err": 0.0007,
+     "overshoot": 0.0041,
+     "reversals": 1,
+     "vel_ripple": 0.2582,
+     "hold_shake": 0.00017,
+     "tau_frac": {
+      "shoulder": 0.19,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "elbow_forearm_forward",
+     "t_converge": 2.51,
+     "t_settle": 2.16,
+     "final_err": 0.0005,
+     "overshoot": 0.0016,
+     "reversals": 0,
+     "vel_ripple": 0.2573,
+     "hold_shake": 0.00021,
+     "tau_frac": {
+      "shoulder": 0.14,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "curl_forearm_up",
+     "t_converge": 2.27,
+     "t_settle": 1.82,
+     "final_err": 0.0005,
+     "overshoot": 0.0045,
+     "reversals": 1,
+     "vel_ripple": 0.2605,
+     "hold_shake": 0.00021,
+     "tau_frac": {
+      "shoulder": 0.37,
+      "elbow": 0.15,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_elbow_45",
+     "t_converge": 1.51,
+     "t_settle": 1.06,
+     "final_err": 0.0005,
+     "overshoot": 0.0028,
+     "reversals": 0,
+     "vel_ripple": 0.2567,
+     "hold_shake": 0.0002,
+     "tau_frac": {
+      "shoulder": 0.33,
+      "elbow": 0.26,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "overhead_bent",
+     "t_converge": 1.76,
+     "t_settle": 1.31,
+     "final_err": 0.0005,
+     "overshoot": 0.0103,
+     "reversals": 1,
+     "vel_ripple": 0.2506,
+     "hold_shake": 0.00021,
+     "tau_frac": {
+      "shoulder": 0.38,
+      "elbow": 0.13,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "backward",
+     "t_converge": 5.55,
+     "t_settle": 5.1,
+     "final_err": 0.0014,
+     "overshoot": 0.0032,
+     "reversals": 1,
+     "vel_ripple": 0.2601,
+     "hold_shake": 0.0001,
+     "tau_frac": {
+      "shoulder": 0.28,
+      "elbow": 0.22,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "low_side_back",
+     "t_converge": 1.51,
+     "t_settle": 1.11,
+     "final_err": 0.0006,
+     "overshoot": 0.0077,
+     "reversals": 0,
+     "vel_ripple": 0.2487,
+     "hold_shake": 0.00014,
+     "tau_frac": {
+      "shoulder": 0.17,
+      "elbow": 0.09,
+      "wrist": 0.0
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "yaw_in_forward",
+     "t_converge": 3.52,
+     "t_settle": 2.97,
+     "final_err": 0.0004,
+     "overshoot": 0.01,
+     "reversals": 1,
+     "vel_ripple": 0.2355,
+     "hold_shake": 6e-05,
+     "tau_frac": {
+      "shoulder": 0.35,
+      "elbow": 0.14,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "across_body",
+     "t_converge": 2.01,
+     "t_settle": 1.76,
+     "final_err": 0.0006,
+     "overshoot": 0.0032,
+     "reversals": 0,
+     "vel_ripple": 0.2561,
+     "hold_shake": 0.00021,
+     "tau_frac": {
+      "shoulder": 0.3,
+      "elbow": 0.16,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "wrist_extremes",
+     "t_converge": 2.77,
+     "t_settle": 2.32,
+     "final_err": 0.0009,
+     "overshoot": 0.0027,
+     "reversals": 0,
+     "vel_ripple": 0.2235,
+     "hold_shake": 0.00025,
+     "tau_frac": {
+      "shoulder": 0.29,
+      "elbow": 0.19,
+      "wrist": 0.1
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "hang_final",
+     "t_converge": 2.53,
+     "t_settle": 2.13,
+     "final_err": 0.0007,
+     "overshoot": 0.0035,
+     "reversals": 0,
+     "vel_ripple": 0.2291,
+     "hold_shake": 0.00022,
+     "tau_frac": {
+      "shoulder": 0.28,
+      "elbow": 0.24,
+      "wrist": 0.09
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    }
+   ]
+  },
+  {
+   "tuning": "/home/vodafone/t-b1gated-env4.json",
+   "rows": [
+    {
+     "pose": "hang",
+     "t_converge": 0.75,
+     "t_settle": 0.3,
+     "final_err": 0.0019,
+     "overshoot": 0.0019,
+     "reversals": 0,
+     "vel_ripple": 0.0351,
+     "hold_shake": 7e-05,
+     "tau_frac": {
+      "shoulder": 0.09,
+      "elbow": 0.19,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_45",
+     "t_converge": 1.52,
+     "t_settle": 1.12,
+     "final_err": 0.0006,
+     "overshoot": 0.0082,
+     "reversals": 0,
+     "vel_ripple": 0.2678,
+     "hold_shake": 8e-05,
+     "tau_frac": {
+      "shoulder": 0.25,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_horizontal",
+     "t_converge": 1.26,
+     "t_settle": 1.01,
+     "final_err": 0.001,
+     "overshoot": 0.0015,
+     "reversals": 0,
+     "vel_ripple": 0.3124,
+     "hold_shake": 0.00022,
+     "tau_frac": {
+      "shoulder": 0.36,
+      "elbow": 0.12,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "straight_up",
+     "t_converge": 2.27,
+     "t_settle": 1.92,
+     "final_err": 0.0012,
+     "overshoot": 0.002,
+     "reversals": 1,
+     "vel_ripple": 0.2984,
+     "hold_shake": 0.00016,
+     "tau_frac": {
+      "shoulder": 0.33,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_horizontal_2",
+     "t_converge": 2.51,
+     "t_settle": 2.01,
+     "final_err": 0.0003,
+     "overshoot": 0.0125,
+     "reversals": 1,
+     "vel_ripple": 0.289,
+     "hold_shake": 0.00015,
+     "tau_frac": {
+      "shoulder": 0.28,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "side_horizontal_T",
+     "t_converge": 2.52,
+     "t_settle": 2.12,
+     "final_err": 0.0006,
+     "overshoot": 0.0008,
+     "reversals": 1,
+     "vel_ripple": 0.2816,
+     "hold_shake": 9e-05,
+     "tau_frac": {
+      "shoulder": 0.3,
+      "elbow": 0.08,
+      "wrist": 0.0
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "side_45",
+     "t_converge": 1.27,
+     "t_settle": 0.97,
+     "final_err": 0.0006,
+     "overshoot": 0.0057,
+     "reversals": 0,
+     "vel_ripple": 0.306,
+     "hold_shake": 0.00015,
+     "tau_frac": {
+      "shoulder": 0.25,
+      "elbow": 0.12,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "hang_2",
+     "t_converge": 1.51,
+     "t_settle": 1.06,
+     "final_err": 0.0008,
+     "overshoot": 0.0022,
+     "reversals": 0,
+     "vel_ripple": 0.2996,
+     "hold_shake": 0.00018,
+     "tau_frac": {
+      "shoulder": 0.19,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "elbow_forearm_forward",
+     "t_converge": 2.51,
+     "t_settle": 2.12,
+     "final_err": 0.0003,
+     "overshoot": 0.0,
+     "reversals": 0,
+     "vel_ripple": 0.2572,
+     "hold_shake": 0.00016,
+     "tau_frac": {
+      "shoulder": 0.15,
+      "elbow": 0.17,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "curl_forearm_up",
+     "t_converge": 2.26,
+     "t_settle": 1.71,
+     "final_err": 0.0006,
+     "overshoot": 0.0095,
+     "reversals": 2,
+     "vel_ripple": 0.2731,
+     "hold_shake": 0.00012,
+     "tau_frac": {
+      "shoulder": 0.37,
+      "elbow": 0.15,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "forward_elbow_45",
+     "t_converge": 1.51,
+     "t_settle": 1.01,
+     "final_err": 0.0006,
+     "overshoot": 0.0032,
+     "reversals": 1,
+     "vel_ripple": 0.2533,
+     "hold_shake": 0.00022,
+     "tau_frac": {
+      "shoulder": 0.33,
+      "elbow": 0.27,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "overhead_bent",
+     "t_converge": 1.75,
+     "t_settle": 1.26,
+     "final_err": 0.0007,
+     "overshoot": 0.0137,
+     "reversals": 2,
+     "vel_ripple": 0.3235,
+     "hold_shake": 0.0002,
+     "tau_frac": {
+      "shoulder": 0.39,
+      "elbow": 0.13,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "backward",
+     "t_converge": 5.53,
+     "t_settle": 4.93,
+     "final_err": 0.0009,
+     "overshoot": 0.007,
+     "reversals": 2,
+     "vel_ripple": 0.2819,
+     "hold_shake": 7e-05,
+     "tau_frac": {
+      "shoulder": 0.3,
+      "elbow": 0.24,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "low_side_back",
+     "t_converge": 1.51,
+     "t_settle": 1.06,
+     "final_err": 0.0005,
+     "overshoot": 0.0051,
+     "reversals": 1,
+     "vel_ripple": 0.2867,
+     "hold_shake": 0.00014,
+     "tau_frac": {
+      "shoulder": 0.19,
+      "elbow": 0.09,
+      "wrist": 0.0
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "yaw_in_forward",
+     "t_converge": 3.02,
+     "t_settle": 2.73,
+     "final_err": 0.0007,
+     "overshoot": 0.0067,
+     "reversals": 0,
+     "vel_ripple": 0.2846,
+     "hold_shake": 0.00022,
+     "tau_frac": {
+      "shoulder": 0.34,
+      "elbow": 0.15,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "across_body",
+     "t_converge": 2.03,
+     "t_settle": 1.69,
+     "final_err": 0.0006,
+     "overshoot": 0.0017,
+     "reversals": 1,
+     "vel_ripple": 0.2588,
+     "hold_shake": 0.00015,
+     "tau_frac": {
+      "shoulder": 0.3,
+      "elbow": 0.16,
+      "wrist": 0.01
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "wrist_extremes",
+     "t_converge": 2.51,
+     "t_settle": 2.11,
+     "final_err": 0.0008,
+     "overshoot": 0.0028,
+     "reversals": 0,
+     "vel_ripple": 0.2654,
+     "hold_shake": 0.00026,
+     "tau_frac": {
+      "shoulder": 0.29,
+      "elbow": 0.2,
+      "wrist": 0.1
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    },
+    {
+     "pose": "hang_final",
+     "t_converge": 2.52,
+     "t_settle": 2.03,
+     "final_err": 0.0007,
+     "overshoot": 0.0024,
+     "reversals": 0,
+     "vel_ripple": 0.2782,
+     "hold_shake": 0.00027,
+     "tau_frac": {
+      "shoulder": 0.28,
+      "elbow": 0.25,
+      "wrist": 0.1
+     },
+     "escalation": 1.0,
+     "fault": null,
+     "error": null
+    }
+   ]
+  }
+ ]
+}

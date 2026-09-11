@@ -14,17 +14,13 @@ running local services are not disrupted by repository organization changes.
 
 ## arm-mmini offline mirror (since 2026-09-11)
 
-The public read-only mirror moved from the Intel operator Mac to the M1 mini
-(`arm-mmini`). Same chain, different runtimes:
-
-- dashboard (offline, `--disable-camera`), read-only proxy and the cloudflared
-  quick tunnel run as Docker services `hans-dashboard` / `hans-readonly-proxy` /
-  `hans-cloudflared` — compose file:
-  `~/Workspace/cemos/integrations/robotics-server/docker-compose.yml`.
-- `com.cemalhekim.hans-tunnel-url.plist` (this directory) is the only
-  LaunchAgent: every 5 min it runs `tools/update_remote_entrance.py` with
-  `HANS_TUNNEL_LOG_DIR=~/Library/Logs/hans-tunnel` (cloudflared's `--logfile`
-  dir, bind-mounted out of the container) and pushes a changed URL to
-  `static/remote-entrance.json`.
+The offline dashboard copy runs on the M1 mini (`arm-mmini`) as the Docker
+service `hans-dashboard` (offline, `--disable-camera`) — compose file:
+`~/Workspace/cemos/integrations/robotics-server/docker-compose.yml`. It is
+**local-only**: loopback `127.0.0.1:8088` plus tailnet HTTPS via
+`tailscale serve`. The public cloudflared quick tunnel, the read-only proxy
+and the tunnel-url LaunchAgent that briefly replicated the Intel-Mac chain
+here were removed the same day on operator request;
+`static/remote-entrance.json` publishes `null` accordingly.
 
 The `com.vodafone.*` plists remain the retired Intel-Mac versions.

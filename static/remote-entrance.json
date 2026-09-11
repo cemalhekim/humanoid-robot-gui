@@ -1,5 +1,5 @@
 {
-  "url": "https://minerals-partition-nuts-cards.trycloudflare.com",
-  "updated_at": "2026-09-11T14:01:52+00:00",
-  "note": "Auto-updated by tools/update_remote_entrance.py on the operator Mac; quick-tunnel hostnames change when cloudflared restarts. url = read-only mirror (Offline card). No live-control tunnel is published, by design."
+  "url": null,
+  "updated_at": "2026-09-11T14:30:00+00:00",
+  "note": "Public tunnel retired 2026-09-11: the offline mirror now runs local-only on arm-mmini (loopback :8088, tailnet via tailscale serve). No trycloudflare URL is published anymore."
 }

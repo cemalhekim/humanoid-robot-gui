@@ -24,6 +24,7 @@ GitHub copy — which is reachable even when both the robot and the Mac are off.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -34,7 +35,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 TARGET = REPO / "static" / "remote-entrance.json"
-LOG_DIR = Path("/tmp/robot-dashboard-remote")
+# Default is the old operator-Mac layout; the arm-mmini deployment runs
+# cloudflared in Docker and bind-mounts its logfile dir, passed in via env.
+LOG_DIR = Path(os.environ.get("HANS_TUNNEL_LOG_DIR", "/tmp/robot-dashboard-remote"))
 # SECURITY: only the READ-ONLY mirror is ever published. A second "live relay"
 # tunnel straight to the robot's dashboard was removed on operator request —
 # it exposed unauthenticated robot control to the public internet.

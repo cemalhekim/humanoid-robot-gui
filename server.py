@@ -3806,6 +3806,18 @@ class TelemetryStore:
             handle.write(json.dumps(body, ensure_ascii=False))
         return path
 
+    def _xr_teleop_process_running(self) -> bool:
+        """True while a teleop_hand_and_arm.py process exists on this PC (the
+        other rt/arm_sdk publisher). Cheap enough for a once-per-second poll."""
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", XR_TELEOP_PROCESS_PATTERN],
+                capture_output=True, check=False, text=True, timeout=1.0,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return result.returncode == 0 and bool(result.stdout.strip())
+
     def request_robot_replay(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         filename = str(payload.get("filename", "")).strip()
         command_scope = str(payload.get("command_scope", "all") or "all").strip()
@@ -4058,6 +4070,7 @@ class TelemetryStore:
                 # stalls) until every joint is settled and the weighted end-effector
                 # error is small, or a safety fault / operator cancel occurs.
                 phase_b_start = time.monotonic()
+                last_xr_owner_check = phase_b_start
                 last_progress_t = phase_b_start
                 next_progress_status = phase_b_start + 1.0
                 # Run the hold loop faster than playback so the arm is caught
@@ -4188,6 +4201,17 @@ class TelemetryStore:
                             ceiling_announced = True
                         if not hold_after_convergence:
                             fault_reason = "ceiling_not_converged"
+                            break
+                    # Only one owner of rt/arm_sdk: if the XR teleop process comes up
+                    # while this replay/hold is publishing (GUI XR-mode switch, the
+                    # installer's enable --now, a manual start), the onboard
+                    # controller alternates between the two targets and the arms
+                    # tremble as soon as the FSM is in a motion mode (seen
+                    # 2026-10-08). Hand the topic over by ending this session.
+                    if now - last_xr_owner_check >= 1.0:
+                        last_xr_owner_check = now
+                        if self._xr_teleop_process_running():
+                            fault_reason = "released_xr_teleop_took_over"
                             break
                     time.sleep(hold_dt)
             finally:

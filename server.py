@@ -96,7 +96,7 @@ NETWORK_STATUS_TTL_SECONDS = 5.0
 WELCOME_PAGE_URL = "https://cemalhekim.github.io/humanoid-robot-gui/"
 # Entrances the welcome page offers; probed by /api/entrances.
 ENTRANCE_PROBES = {
-    "wifi": "http://10.2.100.142:8088",
+    "wifi": "http://10.2.100.240:8088",
     "ethernet": "http://192.168.123.164:8088",
 }
 DOCS_DIR = APP_DIR / "docs"

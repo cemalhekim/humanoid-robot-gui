@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-DEFAULT_MCP_URL = "http://10.2.100.142:8088/mcp"
+DEFAULT_MCP_URL = "http://10.2.100.240:8088/mcp"
 DEFAULT_LLM_URL = "http://10.2.125.3:11434"
 DEFAULT_MODEL = "qwen3:30b-a3b-instruct-2507-q4_K_M"
 MCP_PROTOCOL_VERSION = "2025-06-18"

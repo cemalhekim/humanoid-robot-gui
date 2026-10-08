@@ -37,7 +37,7 @@ Robot runtime checkout:
 Robot network values used by the current setup:
 
 ```text
-Robot Wi-Fi host: 10.2.100.240
+Robot Wi-Fi host: 10.2.100.186
 Robot SSH user:  unitree
 Robot DDS host:  192.168.123.164
 Robot DDS iface: eth0
@@ -47,10 +47,10 @@ Main ports:
 
 | Port | Service | URL |
 | --- | --- | --- |
-| 8088 | Dashboard HTTP, API, and SSE | `http://10.2.100.240:8088` |
-| 8088 | Welcome page (choose Wi-Fi or Ethernet entry) | `http://10.2.100.240:8088/welcome` or `http://192.168.123.164:8088/welcome` |
-| 8012 | XR / Vuer HTTPS and WSS | `https://10.2.100.240:8012/?ws=wss://10.2.100.240:8012` |
-| 60001 | TeleImager WebRTC camera | `https://10.2.100.240:60001` |
+| 8088 | Dashboard HTTP, API, and SSE | `http://10.2.100.186:8088` |
+| 8088 | Welcome page (choose Wi-Fi or Ethernet entry) | `http://10.2.100.186:8088/welcome` or `http://192.168.123.164:8088/welcome` |
+| 8012 | XR / Vuer HTTPS and WSS | `https://10.2.100.186:8012/?ws=wss://10.2.100.186:8012` |
+| 60001 | TeleImager WebRTC camera | `https://10.2.100.186:60001` |
 
 ## Repository Layout
 
@@ -230,7 +230,7 @@ cd humanoid-robot-gui
 The expected runtime path on the robot PC is:
 
 ```bash
-ssh unitree@10.2.100.240
+ssh unitree@10.2.100.186
 cd /home/unitree
 git clone <repo-url> robot_telemetry_web
 cd /home/unitree/robot_telemetry_web
@@ -287,7 +287,7 @@ and the 3D model renders. It does not prove live robot telemetry is working.
 SSH into the robot PC:
 
 ```bash
-ssh unitree@10.2.100.240
+ssh unitree@10.2.100.186
 cd /home/unitree/robot_telemetry_web
 ```
 
@@ -342,9 +342,9 @@ The dashboard service runs this command on the robot:
 Open these from a laptop on the robot Wi-Fi network:
 
 ```text
-Dashboard: http://10.2.100.240:8088
-XR / Vuer: https://10.2.100.240:8012/?ws=wss://10.2.100.240:8012
-Camera:    https://10.2.100.240:60001
+Dashboard: http://10.2.100.186:8088
+XR / Vuer: https://10.2.100.186:8012/?ws=wss://10.2.100.186:8012
+Camera:    https://10.2.100.186:60001
 ```
 
 The browser may require you to open the XR or camera HTTPS page once and accept
@@ -354,11 +354,11 @@ the self-signed certificate.
 
 | Service | Purpose | Main port/path |
 | --- | --- | --- |
-| `robot-telemetry-web.service` | Dashboard, HTTP API, DDS telemetry, guarded wrist/loco endpoints | `http://10.2.100.240:8088` |
+| `robot-telemetry-web.service` | Dashboard, HTTP API, DDS telemetry, guarded wrist/loco endpoints | `http://10.2.100.186:8088` |
 | `robot-telemetry-web-autoupdate.timer` | Periodically updates the robot checkout from `origin/main` | systemd timer |
-| `teleimager.service` | Unitree TeleImager WebRTC camera server | `https://10.2.100.240:60001` |
+| `teleimager.service` | Unitree TeleImager WebRTC camera server | `https://10.2.100.186:60001` |
 | `inspire-hands.service` | Inspire DFX/RH56 hand bridge | DDS hand topics |
-| `xr-teleop.service` | Vision Pro / XR Vuer teleoperation server | `https://10.2.100.240:8012` |
+| `xr-teleop.service` | Vision Pro / XR Vuer teleoperation server | `https://10.2.100.186:8012` |
 | `xr-home-watchdog.service` | Watchdog for lost XR home/pose packets | XR port `8012`, dashboard API `8088` |
 
 Robot logs are generally written under:
@@ -421,31 +421,31 @@ POST endpoints:
 State check:
 
 ```bash
-curl -sS http://10.2.100.240:8088/api/state
+curl -sS http://10.2.100.186:8088/api/state
 ```
 
 Loco status:
 
 ```bash
-curl -sS http://10.2.100.240:8088/api/loco/status
+curl -sS http://10.2.100.186:8088/api/loco/status
 ```
 
 Wrist status:
 
 ```bash
-curl -sS http://10.2.100.240:8088/api/wrist/status
+curl -sS http://10.2.100.186:8088/api/wrist/status
 ```
 
 Recording status:
 
 ```bash
-curl -sS http://10.2.100.240:8088/api/recording/status
+curl -sS http://10.2.100.186:8088/api/recording/status
 ```
 
 Start recording:
 
 ```bash
-curl -sS -X POST http://10.2.100.240:8088/api/recording/start \
+curl -sS -X POST http://10.2.100.186:8088/api/recording/start \
   -H 'Content-Type: application/json' \
   -d '{"label":"h1_2_full_body_hands"}'
 ```
@@ -453,7 +453,7 @@ curl -sS -X POST http://10.2.100.240:8088/api/recording/start \
 Stop recording:
 
 ```bash
-curl -sS -X POST http://10.2.100.240:8088/api/recording/stop
+curl -sS -X POST http://10.2.100.186:8088/api/recording/stop
 ```
 
 ## MCP Endpoint
@@ -476,7 +476,7 @@ Configuration (service environment):
 Connect from Claude Code on the operator Mac:
 
 ```bash
-claude mcp add --transport http robot http://10.2.100.240:8088/mcp \
+claude mcp add --transport http robot http://10.2.100.186:8088/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
@@ -759,13 +759,13 @@ The camera panel:
 XR page:
 
 ```text
-https://10.2.100.240:8012/?ws=wss://10.2.100.240:8012
+https://10.2.100.186:8012/?ws=wss://10.2.100.186:8012
 ```
 
 Camera page:
 
 ```text
-https://10.2.100.240:60001
+https://10.2.100.186:60001
 ```
 
 ## Helper Commands
@@ -834,7 +834,7 @@ curl -sSI http://127.0.0.1:8088/models/h1_2_description/h1_2.urdf
 Read the raw state endpoint:
 
 ```bash
-curl -sS http://10.2.100.240:8088/api/state
+curl -sS http://10.2.100.186:8088/api/state
 ```
 
 Check the `error` field. If you are running locally on a Mac, `cyclonedds` or
@@ -891,7 +891,7 @@ Check:
 Check:
 
 - Is `teleimager.service` active?
-- Does `https://10.2.100.240:60001` open directly?
+- Does `https://10.2.100.186:60001` open directly?
 - Is the browser blocking the certificate?
 - Do `XR_TELEOP_CERT` and `XR_TELEOP_KEY` exist?
 - Is `camera-backend` set as expected: `teleimager`, `ros2`, or `auto`?
@@ -905,7 +905,7 @@ Check:
 - Are you using this URL format?
 
 ```text
-https://10.2.100.240:8012/?ws=wss://10.2.100.240:8012
+https://10.2.100.186:8012/?ws=wss://10.2.100.186:8012
 ```
 
 - Did the browser grant camera, hand tracking, and WebXR permissions?

@@ -22,6 +22,36 @@ sed -i 's/XR_NETWORK_INTERFACE:-wlx74da387f0099/XR_NETWORK_INTERFACE:-eth0/' "$L
 sed -i 's/XR_TELEOP_VUER_PORT=8013/XR_TELEOP_VUER_PORT=8012/' "$LAUNCHER"
 sed -i 's/--frequency 30/--frequency "$XR_TELEOP_FREQUENCY"/' "$LAUNCHER"
 sed -i 's#/home/unitree/.local/micromamba run -n tv python#/home/unitree/.micromamba/envs/tv/bin/python#g' "$LAUNCHER"
+# The address the headset uses for the WebRTC camera and signalling: PC2's
+# Wi-Fi DHCP lease (10.2.100.186 since 2026-10-08). The old lease .142 belongs
+# to the lab printer now and the static .240 collides with another device.
+sed -i -E 's/--img-server-ip 10\.2\.100\.[0-9]+/--img-server-ip 10.2.100.186/' "$LAUNCHER"
+# Arms only while an Inspire hand serial device is missing: with --ee the
+# teleop blocks forever in Inspire_Controller_DFX waiting for rt/inspire/state
+# (the right hand USB was absent on 2026-10-08).
+if ! grep -q 'XR_HANDS_AUTODETECT' "$LAUNCHER"; then
+  python3 - "$LAUNCHER" <<'PATCH_XR_HANDS_PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+marker = 'export XR_TELEOP_EE="${XR_TELEOP_EE:-}"\n'
+block = marker + r"""# XR_HANDS_AUTODETECT: fall back to arms only when a hand serial device is missing
+if [[ "${XR_TELEOP_EE:-}" == inspire* ]]; then
+  for dev in $(grep -o 'XR_INSPIRE[_A-Z]*DEVICE=[^ ]*' /home/unitree/.config/systemd/user/inspire-hands.service 2>/dev/null | cut -d= -f2); do
+    if [[ ! -e "$dev" ]]; then
+      echo "hand device $dev missing: starting arms only (XR_TELEOP_EE cleared)" >&2
+      export XR_TELEOP_EE=""
+      break
+    fi
+  done
+fi
+"""
+if marker not in text:
+    raise SystemExit("Could not find XR_TELEOP_EE export in XR launcher")
+path.write_text(text.replace(marker, block, 1))
+PATCH_XR_HANDS_PY
+fi
 
 python3 - "$LAUNCHER" <<'PATCH_XR_TELEOP_PY'
 from pathlib import Path

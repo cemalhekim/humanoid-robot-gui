@@ -96,11 +96,12 @@ NETWORK_STATUS_TTL_SECONDS = 5.0
 WELCOME_PAGE_URL = "https://cemalhekim.github.io/humanoid-robot-gui/"
 # Entrances the welcome page offers; probed by /api/entrances.
 ENTRANCE_PROBES = {
-    "wifi": "http://10.2.100.240:8088",
+    "wifi": "http://10.2.100.186:8088",
     "ethernet": "http://192.168.123.164:8088",
 }
 DOCS_DIR = APP_DIR / "docs"
 XR_TELEOP_MODE_DROPIN = Path.home() / ".config/systemd/user/xr-teleop.service.d/10-control-mode.conf"
+XR_ROOT_CA_PATH = Path.home() / ".config/xr_teleoperate/public/rootCA.crt"
 XR_MOTION_SERVICES = ("xr-home-watchdog.service", "xr-teleop.service")
 XR_TELEOP_PROCESS_PATTERN = "teleop_hand_and_arm.py"
 UNITREE_ROS2_INSTALL = (
@@ -7667,6 +7668,15 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self.end_headers()
         elif request_path == "/favicon.ico":
             self._send_file(STATIC_DIR / "assets" / "app-icon.png", "image/png")
+        elif request_path == "/rootCA.crt":
+            # The XR certificate's root CA, for the headset to install once
+            # (Settings > General > VPN & Device Management, then Certificate
+            # Trust Settings). Written by deployment/make_xr_cert.sh.
+            ca_path = XR_ROOT_CA_PATH
+            if ca_path.exists():
+                self._send_file(ca_path, "application/x-x509-ca-cert")
+            else:
+                self._send_json(404, {"ok": False, "error": "rootCA.crt not generated yet (deployment/make_xr_cert.sh)."})
         elif request_path == "/remote-entrance.json":
             # Current remote-tunnel hostnames for the welcome page's Offline
             # (read-only mirror) and Remote (live Ethernet relay) cards

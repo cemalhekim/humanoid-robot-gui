@@ -265,10 +265,10 @@
       <h2 class="sec-title revealable">Choose your link</h2>
       <p class="sec-sub revealable">Telemetry, cameras and controls all run over the entrance you pick. Robot control is deliberately possible from the lab network only.</p>
       <div class="cards">
-        <a class="card revealable" id="wifiCard" data-net="wifi" href="http://10.2.100.240:8088/">
+        <a class="card revealable" id="wifiCard" data-net="wifi" href="http://10.2.100.186:8088/">
           <div class="icon">📶</div>
           <h2>Wi-Fi</h2>
-          <p class="addr">10.2.100.240:8088</p>
+          <p class="addr">10.2.100.186:8088</p>
           <p class="desc">Robot Wi-Fi network. Works from anywhere on the lab wireless — full dashboard, live camera and XR links.</p>
           <span class="status"><span class="dot checking" id="wifiDot"></span><span id="wifiText">checking…</span></span>
         </a>
@@ -557,7 +557,7 @@
     function servedFrom() {
       const host = location.hostname;
       let origin = "an unknown host";
-      if (host === "10.2.100.240") origin = "the robot (Wi-Fi)";
+      if (host === "10.2.100.186") origin = "the robot (Wi-Fi)";
       else if (host === "192.168.123.164") origin = "the robot (Ethernet)";
       else if (host.endsWith("github.io")) origin = "GitHub Pages — independent of the robot";
       else if (host.endsWith("trycloudflare.com")) origin = "a secure tunnel via the operator Mac";
@@ -569,7 +569,7 @@
     servedFrom();
     if (location.protocol !== "https:") {
       // Lab network: probe the robot directly from this device.
-      probe("http://10.2.100.240:8088", "wifiDot", "wifiText");
+      probe("http://10.2.100.186:8088", "wifiDot", "wifiText");
       probe("http://192.168.123.164:8088", "ethDot", "ethText");
     }
     // On https (GitHub Pages / tunnel) resolveRemote() also fills the

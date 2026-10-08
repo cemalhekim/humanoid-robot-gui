@@ -31,7 +31,7 @@ SNAPSHOT = {
     },
     "hands": {"connected": True, "joint_count": 12},
     "battery": {"state": "not exposed"},
-    "network": {"host": {"type": "Wi-Fi", "host": "10.2.100.240", "quality": "Connected"}},
+    "network": {"host": {"type": "Wi-Fi", "host": "10.2.100.186", "quality": "Connected"}},
 }
 
 

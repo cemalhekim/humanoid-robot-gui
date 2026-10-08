@@ -115,7 +115,7 @@ def live_robot_check(robot_host: str) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run production safety checks before/after a refactor slice.")
     parser.add_argument("--live", action="store_true", help="Also check robot-side service status over SSH.")
-    parser.add_argument("--robot-host", default="10.2.100.240", help="Robot PC SSH host used by --live.")
+    parser.add_argument("--robot-host", default="10.2.100.186", help="Robot PC SSH host used by --live.")
     args = parser.parse_args()
 
     files = git_files()

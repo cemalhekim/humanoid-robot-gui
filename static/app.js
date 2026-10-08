@@ -27,7 +27,7 @@ const state = {
   },
 };
 
-const vrViewUrl = "https://10.2.100.240:8012/?ws=wss://10.2.100.240:8012";
+const vrViewUrl = "https://10.2.100.186:8012/?ws=wss://10.2.100.186:8012";
 const trajectorySampleRateHz = 60;
 const trajectoryDenseMaxDt = 1 / 30;
 const trajectoryMaxJointStep = 0.05;

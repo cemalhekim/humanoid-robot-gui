@@ -83,7 +83,7 @@ fi
 
 "$REPO_DIR/deployment/patch_xr_teleop_launcher.sh" || echo "warn: patch_xr_teleop_launcher failed" >&2
 for patch in \
-  patch_xr_camera_config.py patch_xr_image_server.py patch_xr_image_client.py patch_xr_dex_retargeting.py \
+  patch_xr_camera_config.py patch_xr_image_server.py patch_xr_image_client.py patch_xr_teleop_lazy_bgr.py patch_xr_dex_retargeting.py \
   patch_xr_inspire_direct_curl.py patch_xr_hand_input_swap.py patch_xr_head_tilt_loco.py \
   patch_xr_root_children_visual.py patch_vuer_loco_pointer_events.py; do
   python3 "$REPO_DIR/deployment/$patch" || echo "warn: $patch failed" >&2

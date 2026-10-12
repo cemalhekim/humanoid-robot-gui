@@ -58,8 +58,12 @@ extracted directly from `server.py` (dispatch around lines 5487–5618). There i
 `low_stand`, `set_height`, `set_swing_height`, `set_balance_mode`, `velocity`,
 `move`, `continuous_gait_on/off`, `next_foot_left/right`, `wave_hand`,
 `shake_hand[_start/_end]`, `enable/disable/get_odom`, `set_target_position`, and
-several `get_*` state queries. Bounds are in `LOCO_LIMITS` (e.g. `vx ∈ [-1,1]`,
-`vy ∈ [-0.5,0.5]`, `vyaw ∈ [-1,1]`, `duration ∈ [0.1,10]`).
+several `get_*` state queries. Bounds are in `LOCO_LIMITS` (at the shipped 1x
+scale `vx ∈ [-1,1]`, `vy ∈ [-0.5,0.5]`, `vyaw ∈ [-1,1]`, `duration ∈ [0.1,10]`);
+the velocity fields are multiplied by the `LOCO_SPEED_SCALE` env (default 1.0,
+hard cap 2.0; the robot's unit ships 2.0 → `vx ∈ [-2,2]`, `vy ∈ [-1,1]`,
+`vyaw ∈ [-2,2]`). `/api/loco/status` echoes the effective `limits` and
+`speed_scale`; see `15 - Locomotion Control.md`.
 
 ## Recording POST endpoints
 

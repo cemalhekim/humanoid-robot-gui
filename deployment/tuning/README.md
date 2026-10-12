@@ -13,3 +13,6 @@ dashboard service; `deployment/enable_tuning.sh off` returns to the shipped cons
 
 All numbers are from the MuJoCo twin; the robot has friction, backlash and Inspire hands the twin does not.
 Start with single poses at low response, compare against `off` with `simulation/h1_2_twin/sweep_arm_workspace.py --url <robot>`.
+
+Not in scope here: the loco velocity envelope. That is the `LOCO_SPEED_SCALE` environment variable (default 1.0, hard cap 2.0,
+shipped as 2.0 in `deployment/systemd/robot-telemetry-web.service`); `RTW_TUNING_JSON` rejects `LOCO_*` keys on purpose.

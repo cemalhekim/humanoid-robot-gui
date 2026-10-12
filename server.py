@@ -466,10 +466,20 @@ WAIST_LOWCMD_MAX_VEL_RAD_S = 0.6
 # RC R2+X (motion mode) -> 201, observed the same way.
 LOCO_FSM_STAND_UP = 3
 LOCO_FSM_START = 201
-LOCO_LIMITS = {
+# Shipped (1x) loco velocity envelope. The deployed limit is this times
+# LOCO_SPEED_SCALE (env, default 1.0, hard-capped at 2.0 in
+# loco_speed_scale_from_env): the robot's systemd unit ships 2.0, so the
+# dashboard enforces vx ±2.0 m/s, vy ±1.0 m/s, vyaw ±2.0 rad/s there. Only the
+# three velocity fields scale; duration, heights and targets stay fixed. The
+# scale is NOT part of RTW_TUNING_JSON (that mechanism is arm-replay only).
+LOCO_BASE_SPEED_LIMITS = {
     "vx": [-1.0, 1.0],
     "vy": [-0.5, 0.5],
     "vyaw": [-1.0, 1.0],
+}
+LOCO_SPEED_SCALE_DEFAULT = 1.0
+LOCO_SPEED_SCALE_MAX = 2.0
+LOCO_FIXED_LIMITS = {
     "duration": [0.1, 10.0],
     "stand_height": [0.0, 1.0],
     "swing_height": [0.0, 0.3],
@@ -478,6 +488,33 @@ LOCO_LIMITS = {
     "target_yaw": [-3.14, 3.14],
     "balance_mode": [0, 1],
 }
+
+
+def loco_speed_scale_from_env(raw: str | None) -> float:
+    """Parse LOCO_SPEED_SCALE: default 1.0, clamped to (0, LOCO_SPEED_SCALE_MAX].
+
+    Garbage, non-finite or non-positive values fall back to the default so a
+    typo in the unit file can never widen the envelope past the shipped limits.
+    """
+    try:
+        scale = float((raw or "").strip() or LOCO_SPEED_SCALE_DEFAULT)
+    except (TypeError, ValueError):
+        return LOCO_SPEED_SCALE_DEFAULT
+    if not math.isfinite(scale) or scale <= 0.0:
+        return LOCO_SPEED_SCALE_DEFAULT
+    return min(LOCO_SPEED_SCALE_MAX, scale)
+
+
+def build_loco_limits(scale: float) -> dict[str, list[float]]:
+    limits = {
+        name: [low * scale, high * scale] for name, (low, high) in LOCO_BASE_SPEED_LIMITS.items()
+    }
+    limits.update({name: list(bounds) for name, bounds in LOCO_FIXED_LIMITS.items()})
+    return limits
+
+
+LOCO_SPEED_SCALE = loco_speed_scale_from_env(os.environ.get("LOCO_SPEED_SCALE"))
+LOCO_LIMITS = build_loco_limits(LOCO_SPEED_SCALE)
 # Loco actions that walk / translate the whole robot and therefore require an
 # explicit risk acknowledgement (armed + i_understand_risk). Stops, posture and
 # read-only get_* actions are intentionally excluded.
@@ -6421,6 +6458,7 @@ class TelemetryStore:
         }
         if include_metadata:
             payload["limits"] = LOCO_LIMITS
+            payload["speed_scale"] = LOCO_SPEED_SCALE
             payload["actions"] = LOCO_ACTIONS
         return payload
 
@@ -7195,16 +7233,19 @@ finally:
             }
 
         try:
-            vx = self._coerce_float(payload, "vx", 0.0, -1.0, 1.0)
-            vy = self._coerce_float(payload, "vy", 0.0, -0.5, 0.5)
-            vyaw = self._coerce_float(payload, "vyaw", 0.0, -1.0, 1.0)
-            duration = self._coerce_float(payload, "duration", 1.0, 0.1, 10.0)
-            stand_height = self._coerce_float(payload, "stand_height", 0.0, 0.0, 1.0)
-            swing_height = self._coerce_float(payload, "swing_height", 0.05, 0.0, 0.3)
-            target_x = self._coerce_float(payload, "target_x", 0.0, -2.0, 2.0)
-            target_y = self._coerce_float(payload, "target_y", 0.0, -2.0, 2.0)
-            target_yaw = self._coerce_float(payload, "target_yaw", 0.0, -3.14, 3.14)
-            balance_mode = int(self._coerce_float(payload, "balance_mode", 0.0, 0.0, 1.0))
+            # Bounds come from LOCO_LIMITS (velocity fields scaled by
+            # LOCO_SPEED_SCALE) so the echoed limits and the clamp never drift.
+            limits = LOCO_LIMITS
+            vx = self._coerce_float(payload, "vx", 0.0, *limits["vx"])
+            vy = self._coerce_float(payload, "vy", 0.0, *limits["vy"])
+            vyaw = self._coerce_float(payload, "vyaw", 0.0, *limits["vyaw"])
+            duration = self._coerce_float(payload, "duration", 1.0, *limits["duration"])
+            stand_height = self._coerce_float(payload, "stand_height", 0.0, *limits["stand_height"])
+            swing_height = self._coerce_float(payload, "swing_height", 0.05, *limits["swing_height"])
+            target_x = self._coerce_float(payload, "target_x", 0.0, *limits["target_x"])
+            target_y = self._coerce_float(payload, "target_y", 0.0, *limits["target_y"])
+            target_yaw = self._coerce_float(payload, "target_yaw", 0.0, *limits["target_yaw"])
+            balance_mode = int(self._coerce_float(payload, "balance_mode", 0.0, *limits["balance_mode"]))
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
         continuous = bool(payload.get("continuous_move"))

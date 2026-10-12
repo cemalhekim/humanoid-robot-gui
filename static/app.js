@@ -1698,8 +1698,30 @@ function locoStatusKey(status) {
   ]);
 }
 
+// Slider ranges follow the server's LOCO_LIMITS (vx/vy/vyaw are scaled by
+// LOCO_SPEED_SCALE on the robot) so the UI can reach exactly what the server
+// enforces -- no more, no less. Only /api/loco/status carries `limits`.
+function applyLocoLimits(limits) {
+  if (!limits || !els.locoVx) return;
+  const sliders = { vx: els.locoVx, vy: els.locoVy, vyaw: els.locoVyaw };
+  let changed = false;
+  for (const [name, slider] of Object.entries(sliders)) {
+    const bounds = limits[name];
+    if (!slider || !Array.isArray(bounds) || bounds.length !== 2) continue;
+    const [low, high] = bounds.map(Number);
+    if (!Number.isFinite(low) || !Number.isFinite(high) || low >= high) continue;
+    if (slider.min !== String(low) || slider.max !== String(high)) {
+      slider.min = String(low);
+      slider.max = String(high);
+      changed = true;
+    }
+  }
+  if (changed) updateLocoSliderLabels();
+}
+
 function renderLocoStatus(status, force = false) {
   if (!els.locoState) return;
+  applyLocoLimits(status.limits);
   const key = locoStatusKey(status);
   if (!force && key === state.locoStatusKey) {
     if (status.robot) {

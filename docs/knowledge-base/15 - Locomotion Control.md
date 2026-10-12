@@ -98,14 +98,33 @@ The read-only `get_*` and `get_odom` actions return their SDK payload under
 
 Every numeric field is coerced with `_coerce_float(payload, name, default, low,
 high)`: non-numbers and non-finite values raise → **400**; out-of-range values
-raise → **400**. `LOCO_LIMITS` (echoed to the UI in the status payload) and the
-call-site defaults are:
+raise → **400**. The call sites read their bounds from `LOCO_LIMITS` (echoed to
+the UI in the status payload together with `speed_scale`), so the clamp and the
+advertised limits cannot drift. `LOCO_LIMITS = build_loco_limits(LOCO_SPEED_SCALE)`:
+the three velocity fields are `LOCO_BASE_SPEED_LIMITS` × `LOCO_SPEED_SCALE`,
+everything else is `LOCO_FIXED_LIMITS`.
 
-| Field | Range (`LOCO_LIMITS`) | Default | Used by |
+`LOCO_SPEED_SCALE` is an environment variable read at import
+(`loco_speed_scale_from_env`): default **1.0**, hard-capped at
+**2.0** (`LOCO_SPEED_SCALE_MAX`); garbage, non-finite or non-positive values
+fall back to 1.0, so a typo can never widen the envelope beyond 2x. It is
+deliberately **not** part of `RTW_TUNING_JSON` (that mechanism is arm-replay
+only). The robot's `deployment/systemd/robot-telemetry-web.service` ships
+`Environment=LOCO_SPEED_SCALE=2.0`, so on the robot the enforced envelope is
+**vx ±2.0 m/s, vy ±1.0 m/s, vyaw ±2.0 rad/s**. The dashboard sliders
+(`applyLocoLimits` in `static/app.js`) take their `min`/`max` from the `limits`
+in `/api/loco/status`, so the UI reaches exactly what the server enforces.
+
+| Field | Range at 1x (`LOCO_BASE_SPEED_LIMITS`) | Range on the robot (scale 2.0) | Default | Used by |
+| --- | --- | --- | --- | --- |
+| `vx` | `-1.0 … 1.0` m/s | `-2.0 … 2.0` m/s | `0.0` | `velocity`, `move` |
+| `vy` | `-0.5 … 0.5` m/s | `-1.0 … 1.0` m/s | `0.0` | `velocity`, `move` |
+| `vyaw` | `-1.0 … 1.0` rad/s | `-2.0 … 2.0` rad/s | `0.0` | `velocity`, `move` |
+
+The remaining fields do not scale (`LOCO_FIXED_LIMITS`):
+
+| Field | Range | Default | Used by |
 | --- | --- | --- | --- |
-| `vx` | `-1.0 … 1.0` m/s | `0.0` | `velocity`, `move` |
-| `vy` | `-0.5 … 0.5` m/s | `0.0` | `velocity`, `move` |
-| `vyaw` | `-1.0 … 1.0` rad/s | `0.0` | `velocity`, `move` |
 | `duration` | `0.1 … 10.0` s | `1.0` | `velocity` |
 | `stand_height` | `0.0 … 1.0` | `0.0` | `set_height` |
 | `swing_height` | `0.0 … 0.3` | `0.05` | `set_swing_height` |

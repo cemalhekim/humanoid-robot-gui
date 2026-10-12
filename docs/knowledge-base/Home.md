@@ -41,7 +41,7 @@ deployment for the **Unitree H1-2** humanoid robot.
 | [[12 - Camera & Video Streaming]] | Head camera / webcam pipeline, MJPEG stream |
 | [[13 - Telemetry Recording & Pose Editor]] | Recording schema, `/api/recording/*`, 6-DOF pose editor |
 | [[14 - Recording Replay & Digital Twin]] | Closed-loop arm replay, red/green twin, dry-run planning |
-| [[15 - Locomotion Control]] | LocoClient actions, bounds, risk-ack gate |
+| [[15 - Locomotion Control]] | LocoClient actions, bounds, risk-ack gate; card 06 Lights drives the lab WLED strip via `/api/lights` |
 | [[16 - Arm Control & Command Surfaces]] | Wrist / home / straight / chill / arm_sdk replay |
 | [[17 - 3D URDF Viewer]] | Three.js viewer, blue/green/red models, IK editing |
 | [[18 - Body, IMU, Battery & Hand Telemetry]] | DDS lowstate → `/api/state` + SSE, hand state |

@@ -199,6 +199,14 @@
     .ill-xr .hs::before { left: 10px; } .ill-xr .hs::after { right: 10px; }
     .ill-xr .wave { position: absolute; inset: 8px 14px; border-radius: 20px; border: 1px solid rgba(64,166,255,0.4); animation: ping 2.6s ease-out infinite; }
 
+    .ill-light { position: relative; width: 120px; height: 76px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+    .ill-light .wheel { width: 48px; height: 48px; border-radius: 50%; border: 2.5px solid rgba(255,255,255,0.6);
+      background: conic-gradient(#ff0040, #ff8c00, #ffd000, #00ff40, #00c8ff, #2040ff, #c000ff, #ff0040); animation: spin 9s linear infinite; }
+    .ill-light .strip { width: 46px; height: 12px; border-radius: 6px; background: repeating-linear-gradient(90deg, #ff0000 0 8px, #3a0000 8px 11px);
+      box-shadow: 0 0 14px rgba(255,0,0,0.55); animation: glow 2.4s ease-in-out infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes glow { 0%,100% { box-shadow: 0 0 8px rgba(255,0,0,0.35); } 50% { box-shadow: 0 0 18px rgba(255,0,0,0.75); } }
+
     /* ---------- safety keycaps ---------- */
     .safety { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; text-align: left; }
     @media (max-width: 720px) { .safety { grid-template-columns: 1fr; } }
@@ -372,6 +380,19 @@
               <li>Open <b>Teleoperation</b> and pick a control method card.</li>
               <li>The <b>VR View</b> opens for the headset (same Wi-Fi).</li>
               <li>Torso Sync is coming soon — the locked fourth card.</li>
+            </ol></details>
+          </div>
+        </article>
+        <article class="tut revealable">
+          <div class="tut-stage"><div class="ill-light" aria-hidden="true"><span class="wheel"></span><span class="strip"></span></div></div>
+          <div class="tut-body">
+            <h3>Light the lab</h3>
+            <p>The LED strip (an ESP32 running WLED) is on the console — colour wheel, brightness, on/off.</p>
+            <details><summary>step by step</summary><ol>
+              <li>Open <b>Loco Control</b> and scroll to card <b>06 Lights</b>.</li>
+              <li>Click the <b>round colour swatch</b> — the colour wheel opens; the strip follows while you drag.</li>
+              <li>Preset swatches jump to a colour; the <b>Brightness</b> slider applies on release; <b>Off</b> turns the strip off.</li>
+              <li>“Strip unreachable” means the robot's Wi-Fi link is down — it comes back on its own.</li>
             </ol></details>
           </div>
         </article>

@@ -232,6 +232,16 @@ duration, stand/swing height, target x/y/yaw, `continuous_move`,
 > trusting any single action. See [[03 - Safety Interlocks]] and
 > 22 - Deployment & Runtime Services.
 
+## Card 06 — Lights (not a loco action)
+
+The last card on the Loco Control page drives the lab LED strip (ESP32 running
+WLED, `WLED-Heinz` at `10.2.100.185`, see 02 - Network & Hosts). It talks to
+`GET/POST /api/lights`, which the server proxies to the strip's `/json/state`,
+so it works from the Ethernet entrance too. A colour from the wheel or a preset
+forces solid effect 0 on segment 0; brightness is 1–255; `on: false` switches
+the strip off. `WLED_BASE_URL=""` hides the card. The welcome page's "Learn the
+console" section has the operator walkthrough.
+
 ## Related
 
 [[03 - Safety Interlocks]]

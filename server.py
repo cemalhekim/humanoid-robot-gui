@@ -3049,6 +3049,9 @@ class TelemetryStore:
         self.wrist_cancel: threading.Event | None = None
         self.wrist_thread: threading.Thread | None = None
         self.replay_cancel: threading.Event | None = None
+        # Serialises XR suspend (kill) against auto-resume (start): the two must
+        # never interleave, or XR comes up while a replay publishes.
+        self.xr_services_lock = threading.Lock()
         self.xr_resume_enabled = XR_AUTO_RESUME
         self.xr_resume_pending = False
         self.xr_suspended_at: float | None = None
@@ -3149,18 +3152,25 @@ class TelemetryStore:
                         cancel.set()
                     print(f"[xr-resume] releasing arm session after {inputs['age_s']:.0f}s so XR can resume", flush=True)
                 elif action == "start":
-                    result = subprocess.run(
-                        ["systemctl", "--user", "start", "--no-block", *XR_MOTION_SERVICES],
-                        capture_output=True, text=True, timeout=15, check=False,
-                    )
-                    ok = result.returncode == 0
-                    with self.command_lock:
-                        if ok:
-                            self.xr_resume_pending = False
-                        self.xr_resume_last = {
-                            "action": "start", "ok": ok, "at": time.time(),
-                            "error": (result.stderr or result.stdout).strip() or None,
-                        }
+                    with self.xr_services_lock:
+                        # Re-decide under the lock: a Home/replay that began after
+                        # the first look has already suspended XR (fresh
+                        # suspended_at -> "wait"), and none can start a suspend
+                        # until this start has been issued.
+                        if xr_resume_action(**self._xr_resume_inputs()) != "start":
+                            continue
+                        result = subprocess.run(
+                            ["systemctl", "--user", "start", "--no-block", *XR_MOTION_SERVICES],
+                            capture_output=True, text=True, timeout=15, check=False,
+                        )
+                        ok = result.returncode == 0
+                        with self.command_lock:
+                            if ok:
+                                self.xr_resume_pending = False
+                            self.xr_resume_last = {
+                                "action": "start", "ok": ok, "at": time.time(),
+                                "error": (result.stderr or result.stdout).strip() or None,
+                            }
                     print(f"[xr-resume] started XR services (ok={ok})", flush=True)
             except Exception as exc:  # pragma: no cover - keep the loop alive
                 with self.command_lock:
@@ -4801,6 +4811,10 @@ class TelemetryStore:
         return ARM_REPLAY_GRAVITY_TAU_LIMITS.get(self._joint_gain_group(joint), 3.0)
 
     def _suspend_xr_motion_publishers(self) -> dict[str, Any]:
+        with self.xr_services_lock:
+            return self._suspend_xr_motion_publishers_locked()
+
+    def _suspend_xr_motion_publishers_locked(self) -> dict[str, Any]:
         if os.environ.get("RTW_SKIP_XR_SUSPEND") == "1":
             return {"ok": True, "skipped": True, "reason": "RTW_SKIP_XR_SUSPEND=1"}
         if shutil.which("systemctl") is None:

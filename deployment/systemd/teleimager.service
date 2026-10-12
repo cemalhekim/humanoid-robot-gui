@@ -22,6 +22,7 @@ ExecStartPre=/home/unitree/.micromamba/envs/tv/bin/python /home/unitree/robot_te
 # cam_config_server.yaml (enable_zmq flipped back to false after a reboot and
 # the dashboard camera died). Re-apply the required config on EVERY start.
 ExecStartPre=/home/unitree/.micromamba/envs/tv/bin/python /home/unitree/robot_telemetry_web/deployment/patch_teleimager_config.py
+ExecStartPre=/home/unitree/.micromamba/envs/tv/bin/python /home/unitree/robot_telemetry_web/deployment/patch_teleimager_bitrate.py
 ExecStart=/home/unitree/.micromamba/envs/tv/bin/python -m teleimager.image_server
 Restart=always
 RestartSec=2

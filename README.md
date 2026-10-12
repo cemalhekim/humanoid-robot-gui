@@ -49,7 +49,7 @@ Main ports:
 | --- | --- | --- |
 | 8088 | Dashboard HTTP, API, and SSE | `http://10.2.100.186:8088` |
 | 8088 | Welcome page (choose Wi-Fi or Ethernet entry) | `http://10.2.100.186:8088/welcome` or `http://192.168.123.164:8088/welcome` |
-| 8012 | XR / Vuer HTTPS and WSS | `https://10.2.100.186:8012/?ws=wss://10.2.100.186:8012` |
+| 8012 | XR / Vuer HTTPS and WSS | `https://10.2.100.186:8012/?ws=wss://10.2.100.186:8012` (Wi-Fi) or `https://192.168.123.164:8012/?ws=wss://192.168.123.164:8012` (Ethernet); the dashboard's XR button follows the address it was opened on |
 | 60001 | TeleImager WebRTC camera | `https://10.2.100.186:60001` |
 
 ## Repository Layout

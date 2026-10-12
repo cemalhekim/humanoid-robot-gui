@@ -27,7 +27,17 @@ const state = {
   },
 };
 
-const vrViewUrl = "https://10.2.100.186:8012/?ws=wss://10.2.100.186:8012";
+// XR / Vuer entry. The teleop server listens on every robot address (eth0
+// 192.168.123.164 and the Wi-Fi lease), and its certificate names all of them,
+// so follow the address the dashboard was opened on; a non-robot host (local
+// dev, the offline mirror) falls back to the Wi-Fi address.
+const vrViewWifiHost = "10.2.100.186";
+const vrViewUrl = (() => {
+  const host = window.location.hostname;
+  const isRobotHost = host === vrViewWifiHost || /^192\.168\.123\.\d+$/.test(host);
+  const xrHost = isRobotHost ? host : vrViewWifiHost;
+  return `https://${xrHost}:8012/?ws=wss://${xrHost}:8012`;
+})();
 const trajectorySampleRateHz = 60;
 const trajectoryDenseMaxDt = 1 / 30;
 const trajectoryMaxJointStep = 0.05;

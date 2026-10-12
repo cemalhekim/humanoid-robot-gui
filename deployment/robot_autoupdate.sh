@@ -66,12 +66,28 @@ EOF
     fi
   fi
 fi
+# An install deferred while the robot was busy may have left an XR restart
+# owed from an earlier tick (see install_robot_services.sh, exit 75).
+xr_restart_pending=/home/unitree/.robot_telemetry_web_xr_restart_pending
+if [ -e "$xr_restart_pending" ]; then
+  xr_update_rc=10
+fi
 if [ "$xr_update_rc" = "10" ]; then
   needs_install=1
 fi
 if [ "$needs_install" = "1" ]; then
   # Reuse the XR result we already computed so install doesn't re-run the XR
   # update (which would report "no change" and skip a needed xr-teleop restart).
-  XR_UPDATE_RC="$xr_update_rc" deployment/install_robot_services.sh
+  install_rc=0
+  XR_UPDATE_RC="$xr_update_rc" deployment/install_robot_services.sh || install_rc=$?
+  if [ "$install_rc" = "75" ]; then
+    # Robot still commanding the arms: marker untouched, next tick retries.
+    echo "install deferred: robot motion active"
+    exit 0
+  fi
+  if [ "$install_rc" != "0" ]; then
+    exit "$install_rc"
+  fi
+  rm -f "$xr_restart_pending"
   echo "$head" > "$marker"
 fi

@@ -27,16 +27,33 @@ fi
 # ---------------------------------------------------------------------------
 
 # SAFETY: never restart the dashboard while it is actively commanding the robot
-# (arm replay or person tracking) — killing the publisher mid-motion drops the
-# arms. Wait bounded, then proceed so a wedged flag cannot block updates forever.
+# (arm replay/hold or person tracking) — killing the publisher mid-motion drops
+# the arms. Wait bounded; if the robot is STILL busy afterwards, defer the whole
+# install to a later timer tick (exit 75, the marker stays unwritten so the next
+# tick retries) instead of restarting anyway. The old "proceed after 5 min"
+# fallback killed a live closed-loop home hold on 2026-10-12 14:45: a
+# hold_after_convergence session is active indefinitely by design, so the
+# bounded wait always expired. A truly wedged flag is cleared by the operator
+# releasing the arms in the dashboard.
+motion_check() {
+  curl -s -m 2 http://localhost:8088/api/motion/active 2>/dev/null | grep -o '"active": *true' || true
+}
 for attempt in $(seq 1 60); do
-  motion="$(curl -s -m 2 http://localhost:8088/api/motion/active 2>/dev/null | grep -o '"active": *true' || true)"
-  if [ -z "$motion" ]; then
+  if [ -z "$(motion_check)" ]; then
     break
   fi
   echo "motion active; delaying dashboard restart (${attempt}/60)..."
   sleep 5
 done
+if [ -n "$(motion_check)" ]; then
+  echo "motion still active after bounded wait; deferring install to a later tick" >&2
+  if [ "${XR_UPDATE_RC:-}" = "10" ]; then
+    # The XR checkout is already updated; remember that xr-teleop still needs
+    # its restart once the robot is idle, or the next tick (rc 0) would skip it.
+    echo pending > /home/unitree/.robot_telemetry_web_xr_restart_pending
+  fi
+  exit 75
+fi
 
 systemctl --user daemon-reload
 systemctl --user enable --now robot-telemetry-web.service

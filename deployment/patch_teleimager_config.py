@@ -12,8 +12,11 @@ teleimager.service, this re-applies the required settings idempotently:
 - webrtc.bitrate / gop_length — without this block aiortc encodes the 1080p
   headset stream at its 1 Mbit/s default (0.5-3 Mbit/s adaptive), which is a
   blur in the Vision Pro (seen 2026-10-12: 1.1 Mbit/s on the Wi-Fi link).
-  2/4/8 Mbit/s matches the upstream "shared Wi-Fi" guidance; gop 30 recovers
-  faster from loss on the 2.4 GHz link. Existing values are left alone.
+  1/1.5/2.5 Mbit/s is what the robot's 2.4 GHz USB dongle actually carries:
+  2/4/8 produced a 3.2 Mbit/s stream that saturated the link (ping 540-800 ms,
+  20 % loss, hand-tracking WebSocket RTT 0.6-1 s), so the headset lagged a
+  second behind. gop 30 recovers faster from loss. Existing values are left
+  alone, so tune on the robot's yaml when the Wi-Fi changes.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from pathlib import Path
 import yaml
 
 CONFIG = Path("/home/unitree/teleimager/cam_config_server.yaml")
-WEBRTC_BITRATE = {"min": 2_000_000, "default": 4_000_000, "max": 8_000_000}
+WEBRTC_BITRATE = {"min": 1_000_000, "default": 1_500_000, "max": 2_500_000}
 WEBRTC_GOP_LENGTH = 30
 
 

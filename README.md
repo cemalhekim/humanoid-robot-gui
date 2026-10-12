@@ -412,6 +412,7 @@ POST endpoints:
 | `/api/robot/straight` | Requests the straight posture preset |
 | `/api/loco/command` | Sends H1 LocoClient commands |
 | `/api/xr/mode` | Requests an XR mode change |
+| `/api/xr/resume` | GET: XR auto-resume state. POST `{"enabled": bool}`: toggle. Every closed-loop arm command suspends xr-teleop; the server restarts it once the arm session is over (holds are released, a session still converging after 30 s is released) |
 | `/api/recording/start` | Starts a JSONL telemetry recording |
 | `/api/recording/stop` | Stops the active telemetry recording |
 | `/api/recording/pose` | Captures the current full-body pose as a single target point |

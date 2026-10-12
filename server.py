@@ -105,6 +105,43 @@ XR_TELEOP_MODE_DROPIN = Path.home() / ".config/systemd/user/xr-teleop.service.d/
 XR_ROOT_CA_PATH = Path.home() / ".config/xr_teleoperate/public/rootCA.crt"
 XR_MOTION_SERVICES = ("xr-home-watchdog.service", "xr-teleop.service")
 XR_TELEOP_PROCESS_PATTERN = "teleop_hand_and_arm.py"
+# XR auto-resume. Every closed-loop arm command suspends xr-teleop (there is
+# one owner of rt/arm_sdk), which used to leave the headset dead until someone
+# restarted the service by hand (eight times on 2026-10-12). The server now
+# restarts the XR services itself once the arm session is over: finished,
+# cancelled, faulted, or merely holding (holding=True) -- and a session still
+# converging after XR_RESUME_MAX_WAIT_S is treated as stuck and released. Person
+# tracking is never cut short. XR_AUTO_RESUME=0 disables it.
+XR_AUTO_RESUME = os.environ.get("XR_AUTO_RESUME", "1") != "0"
+XR_RESUME_POLL_S = 2.0
+XR_RESUME_GRACE_S = 3.0
+XR_RESUME_MAX_WAIT_S = float(os.environ.get("XR_RESUME_MAX_WAIT_S", "30"))
+
+
+def xr_resume_action(
+    *,
+    pending: bool,
+    age_s: float,
+    replay_alive: bool,
+    track_alive: bool,
+    holding: bool,
+    grace_s: float = XR_RESUME_GRACE_S,
+    max_wait_s: float = XR_RESUME_MAX_WAIT_S,
+) -> str:
+    """What the XR auto-resume loop should do this tick.
+
+    "idle": nothing was suspended. "wait": an arm session is still moving (or
+    the suspend is too fresh to judge). "release": the session only holds a
+    pose, or has been converging too long -- cancel it so XR can take the arms
+    back. "start": the arms are free, start the XR services.
+    """
+    if not pending:
+        return "idle"
+    if age_s < grace_s or track_alive:
+        return "wait"
+    if replay_alive:
+        return "release" if (holding or age_s >= max_wait_s) else "wait"
+    return "start"
 UNITREE_ROS2_INSTALL = (
     APP_DIR
     / "execution/semantic_teleoperation/external/unitree_ros2/cyclonedds_ws/install"
@@ -3012,6 +3049,10 @@ class TelemetryStore:
         self.wrist_cancel: threading.Event | None = None
         self.wrist_thread: threading.Thread | None = None
         self.replay_cancel: threading.Event | None = None
+        self.xr_resume_enabled = XR_AUTO_RESUME
+        self.xr_resume_pending = False
+        self.xr_suspended_at: float | None = None
+        self.xr_resume_last: dict[str, Any] | None = None
         self.replay_thread: threading.Thread | None = None
         # Person-tracking session (guarded, mutually exclusive with replay).
         self.track_cancel: threading.Event | None = None
@@ -3078,6 +3119,70 @@ class TelemetryStore:
         self.running = True
         self.thread = threading.Thread(target=self._run, name="unitree-lowstate", daemon=True)
         self.thread.start()
+        if XR_AUTO_RESUME and shutil.which("systemctl"):
+            threading.Thread(target=self._run_xr_resume, name="xr-auto-resume", daemon=True).start()
+
+    def _xr_resume_inputs(self) -> dict[str, Any]:
+        with self.command_lock:
+            replay = self.replay_thread
+            track = self.track_thread
+            last = (self.wrist_status.get("last_command") or {}) if isinstance(self.wrist_status, dict) else {}
+            return {
+                "pending": self.xr_resume_pending and self.xr_resume_enabled,
+                "age_s": 0.0 if self.xr_suspended_at is None else max(0.0, time.time() - self.xr_suspended_at),
+                "replay_alive": replay is not None and replay.is_alive(),
+                "track_alive": track is not None and track.is_alive(),
+                "holding": isinstance(last, dict) and last.get("holding") is True,
+            }
+
+    def _run_xr_resume(self) -> None:
+        while self.running:
+            time.sleep(XR_RESUME_POLL_S)
+            try:
+                inputs = self._xr_resume_inputs()
+                action = xr_resume_action(**inputs)
+                if action == "release":
+                    with self.command_lock:
+                        cancel = self.replay_cancel
+                        self.xr_resume_last = {"action": "release", "at": time.time(), "age_s": round(inputs["age_s"], 1)}
+                    if cancel is not None:
+                        cancel.set()
+                    print(f"[xr-resume] releasing arm session after {inputs['age_s']:.0f}s so XR can resume", flush=True)
+                elif action == "start":
+                    result = subprocess.run(
+                        ["systemctl", "--user", "start", "--no-block", *XR_MOTION_SERVICES],
+                        capture_output=True, text=True, timeout=15, check=False,
+                    )
+                    ok = result.returncode == 0
+                    with self.command_lock:
+                        if ok:
+                            self.xr_resume_pending = False
+                        self.xr_resume_last = {
+                            "action": "start", "ok": ok, "at": time.time(),
+                            "error": (result.stderr or result.stdout).strip() or None,
+                        }
+                    print(f"[xr-resume] started XR services (ok={ok})", flush=True)
+            except Exception as exc:  # pragma: no cover - keep the loop alive
+                with self.command_lock:
+                    self.xr_resume_last = {"action": "error", "at": time.time(), "error": str(exc)}
+
+    def xr_resume_snapshot(self) -> dict[str, Any]:
+        with self.command_lock:
+            return {
+                "ok": True,
+                "enabled": self.xr_resume_enabled,
+                "pending": self.xr_resume_pending,
+                "suspended_at": self.xr_suspended_at,
+                "last": dict(self.xr_resume_last) if self.xr_resume_last else None,
+            }
+
+    def set_xr_resume(self, payload: Any) -> tuple[int, dict[str, Any]]:
+        enabled = payload.get("enabled") if isinstance(payload, dict) else None
+        if not isinstance(enabled, bool):
+            return 400, {"ok": False, "error": "enabled must be a boolean."}
+        with self.command_lock:
+            self.xr_resume_enabled = enabled
+        return 200, self.xr_resume_snapshot()
 
     def cached_network_status(self) -> dict[str, Any]:
         """network_status() forks `ip route get` + reads /proc + opens a UDP
@@ -3105,6 +3210,7 @@ class TelemetryStore:
             "network": self.cached_network_status(),
             "loco": self._loco_status_payload(loco_status, robot, loco_available, include_metadata=False),
             "arm_proposal": self.arm_proposal_public(),
+            "xr": self.xr_resume_snapshot(),
         }
 
     def update_spatial_pose(self, payload: Any) -> tuple[int, dict[str, Any]]:
@@ -4746,11 +4852,15 @@ class TelemetryStore:
                 for line in str(process_check.get("stdout", "")).splitlines()
                 if XR_TELEOP_PROCESS_PATTERN in line
             ]
+        with self.command_lock:
+            self.xr_resume_pending = True
+            self.xr_suspended_at = time.time()
         return {
             "ok": not remaining_processes,
             "services": list(XR_MOTION_SERVICES),
             "remaining_processes": remaining_processes,
             "actions": actions,
+            "auto_resume": self.xr_resume_enabled,
         }
 
     @staticmethod
@@ -7844,6 +7954,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.spatial_pose_snapshot())
         elif request_path == "/api/motion/active":
             self._send_json(self.store.motion_active_snapshot())
+        elif request_path == "/api/xr/resume":
+            self._send_json(self.store.xr_resume_snapshot())
         elif request_path == "/api/pose/feedback/data":
             self._send_json(pose_feedback_dataset())
         elif request_path.startswith("/api/pose/feedback/image/"):
@@ -7944,6 +8056,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/robot/straight",
             "/api/loco/command",
             "/api/xr/mode",
+            "/api/xr/resume",
             "/api/lights",
             "/api/chat",
             "/api/spatial/pose",
@@ -7981,6 +8094,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/robot/chill",
             "/api/loco/command",
             "/api/xr/mode",
+            "/api/xr/resume",
             "/api/lights",
             "/api/chat",
             "/api/spatial/pose",
@@ -8120,6 +8234,10 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/xr/mode":
             status, response = self.store.switch_xr_mode(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+        if request_path == "/api/xr/resume":
+            status, response = self.store.set_xr_resume(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
         if request_path == "/api/lights":

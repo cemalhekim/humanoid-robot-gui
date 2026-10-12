@@ -20,6 +20,7 @@ extracted directly from `server.py` (dispatch around lines 5487–5618). There i
 | `/api/camera` | JSON | Camera worker + backend state |
 | `/api/webcam` | JSON | Webcam source state |
 | `/api/ros-graph` | JSON | ROS 2 graph snapshot (when available) |
+| `/api/lights` | JSON | Lab WLED LED strip state: `on`, `bri`, `rgb`, `hex`, `reachable` (proxied from `WLED_BASE_URL`, default `http://10.2.100.185`) |
 | `/api/entrances` | JSON | Remote-entrance list (`remote-entrance.json`) |
 | `/api/wrist/status` | JSON | Right-wrist control state |
 | `/api/loco/status` | JSON | LocoClient / locomotion state |
@@ -50,6 +51,7 @@ extracted directly from `server.py` (dispatch around lines 5487–5618). There i
 | `/api/robot/straight` | Straight posture preset | XR suspend |
 | `/api/loco/command` | H1 `LocoClient` command (see actions below) | validation, fails closed |
 | `/api/xr/mode` | Request an XR teleop mode change | — |
+| `/api/lights` | `{"color": "#rrggbb" \| "rgb": [r,g,b], "bri": 0-255, "on": bool}` (any subset) | **200** with the resulting strip state; **400** bad input; **502** strip unreachable; **503** `WLED_BASE_URL` empty |
 
 `/api/loco/command` accepts `LOCO_ACTIONS`: `ready`, `balance_stand`,
 `stand_up`, `start`, `stop_move`, `damp`, `zero_torque`, `high_stand`,

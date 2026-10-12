@@ -4567,3 +4567,85 @@ button:not(:disabled):active { transform: scale(0.96); }
   border-radius: 6px;
   padding: 1px 5px;
 }
+
+/* Lights card (WLED strip) */
+.lights-visual {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.lights-visual i {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--lights-color, #ff0000);
+  box-shadow: 0 0 14px 2px color-mix(in srgb, var(--lights-color, #ff0000) 70%, transparent);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.lights-picker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.lights-color-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.lights-color-label strong {
+  font-variant-numeric: tabular-nums;
+}
+.lights-color-input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+.lights-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.lights-color-input::-webkit-color-swatch,
+.lights-color-input::-moz-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+.lights-presets {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 6px;
+}
+.lights-presets button {
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--swatch);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.lights-presets button:hover {
+  transform: translateY(-1px) scale(1.05);
+}
+.lights-message {
+  display: block;
+  opacity: 0.75;
+}
+.loco-card-lights.is-off .lights-visual i {
+  background: #333;
+  box-shadow: none;
+}
+@media (max-width: 640px) {
+  .lights-picker-row {
+    grid-template-columns: 1fr;
+  }
+}

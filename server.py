@@ -16,6 +16,7 @@ import math
 import mimetypes
 import os
 import queue
+import re
 import shutil
 import socket
 import ssl
@@ -574,6 +575,12 @@ HA_BASE_URL = os.environ.get("HA_BASE_URL", "http://10.2.200.100").rstrip("/")
 HA_TOKEN = os.environ.get("HA_TOKEN", "")
 HA_SWITCH_ENTITY = os.environ.get("HA_SWITCH_ENTITY", "switch.5g_construction_display")
 HA_TIMEOUT_SECONDS = float(os.environ.get("HA_TIMEOUT_SECONDS", "6"))
+# Lab LED strip driven by an ESP32 running WLED (JSON API at /json/state). The
+# dashboard's Lights card proxies through this server so the browser never
+# needs to reach the strip itself (it is on the lab Wi-Fi, the UI may be opened
+# over the robot's Ethernet entrance). Empty WLED_BASE_URL disables the card.
+WLED_BASE_URL = os.environ.get("WLED_BASE_URL", "http://10.2.100.185").rstrip("/")
+WLED_TIMEOUT_SECONDS = float(os.environ.get("WLED_TIMEOUT_SECONDS", "4"))
 # Transient connection failures to the LLM (flaky robot Wi-Fi) are retried, since
 # the request never reached the model — no tool ran, so retrying is side-effect-free.
 # The robot's USB Wi-Fi dongle drops for ~10-15s at a time (periodic driver scans),
@@ -6896,6 +6903,89 @@ class TelemetryStore:
             self._power_status_cache = (now, result)
         return result
 
+    @staticmethod
+    def _wled_state_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        segments = payload.get("seg") or []
+        first = segments[0] if segments and isinstance(segments[0], dict) else {}
+        colors = first.get("col") or [[0, 0, 0]]
+        rgb = [max(0, min(255, int(v))) for v in (list(colors[0]) + [0, 0, 0])[:3]]
+        return {
+            "on": bool(payload.get("on", False)),
+            "bri": max(0, min(255, int(payload.get("bri", 0) or 0))),
+            "rgb": rgb,
+            "hex": "#{:02x}{:02x}{:02x}".format(*rgb),
+            "effect": int(first.get("fx", 0) or 0),
+        }
+
+    def _wled_request(self, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        request = urllib.request.Request(
+            f"{WLED_BASE_URL}/json/state",
+            data=data,
+            headers={"Content-Type": "application/json"} if data else {},
+            method="POST" if data else "GET",
+        )
+        with urllib.request.urlopen(request, timeout=WLED_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def lights_status(self) -> dict[str, Any]:
+        """Current state of the WLED strip (see GET /api/lights). Unreachable is
+        reported as reachable=false, never as an HTTP error to the client."""
+        if not WLED_BASE_URL:
+            return {"enabled": False, "reachable": False, "device": ""}
+        try:
+            payload = self._wled_request()
+        except Exception as exc:
+            return {"enabled": True, "reachable": False, "device": WLED_BASE_URL, "error": str(exc)}
+        return {"enabled": True, "reachable": True, "device": WLED_BASE_URL, **self._wled_state_summary(payload)}
+
+    def set_lights(self, payload: dict[str, Any] | None) -> tuple[int, dict[str, Any]]:
+        """POST /api/lights: {"color": "#rrggbb" | "rgb": [r,g,b], "bri": 0-255, "on": bool}.
+        Any subset is accepted; a colour always selects the solid effect (fx 0)
+        on segment 0 so the picked colour is what the strip shows."""
+        if not WLED_BASE_URL:
+            return 503, {"ok": False, "error": "Lights are not configured (WLED_BASE_URL is empty)."}
+        payload = payload if isinstance(payload, dict) else {}
+        body: dict[str, Any] = {}
+        rgb: list[int] | None = None
+        color = payload.get("color")
+        if color is not None:
+            if not isinstance(color, str) or not re.fullmatch(r"#?[0-9a-fA-F]{6}", color.strip()):
+                return 400, {"ok": False, "error": "color must be a hex string like #ff0000"}
+            value = color.strip().lstrip("#")
+            rgb = [int(value[i:i + 2], 16) for i in (0, 2, 4)]
+        elif payload.get("rgb") is not None:
+            try:
+                rgb = [int(v) for v in payload["rgb"]]
+            except (TypeError, ValueError):
+                return 400, {"ok": False, "error": "rgb must be three integers 0-255"}
+            if len(rgb) != 3 or any(v < 0 or v > 255 for v in rgb):
+                return 400, {"ok": False, "error": "rgb must be three integers 0-255"}
+        if rgb is not None:
+            body["seg"] = [{"id": 0, "col": [rgb, [0, 0, 0], [0, 0, 0]], "fx": 0}]
+            body["on"] = True
+        if payload.get("bri") is not None:
+            try:
+                bri = int(payload["bri"])
+            except (TypeError, ValueError):
+                return 400, {"ok": False, "error": "bri must be an integer 0-255"}
+            if bri < 0 or bri > 255:
+                return 400, {"ok": False, "error": "bri must be an integer 0-255"}
+            body["bri"] = bri
+        if payload.get("on") is not None:
+            if not isinstance(payload["on"], bool):
+                return 400, {"ok": False, "error": "on must be true or false"}
+            body["on"] = payload["on"]
+        if not body:
+            return 400, {"ok": False, "error": "Nothing to set: give color, rgb, bri or on."}
+        body["v"] = True  # ask WLED to return the resulting state
+        try:
+            result = self._wled_request(body)
+        except Exception as exc:
+            return 502, {"ok": False, "error": f"WLED at {WLED_BASE_URL} did not answer: {exc}"}
+        summary = self._wled_state_summary(result) if isinstance(result, dict) and "seg" in result else {}
+        return 200, {"ok": True, "device": WLED_BASE_URL, **summary}
+
     def chill_motors(self) -> tuple[int, dict[str, Any]]:
         return self.request_chill({"armed": True, "i_understand_risk": True})
 
@@ -7690,6 +7780,8 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             # operator Mac's https tunnel — browsers block the page's own direct
             # http probes as mixed content.
             self._send_json_cors(self.store.probe_entrances())
+        elif request_path == "/api/lights":
+            self._send_json(self.store.lights_status())
         elif request_path == "/api/power/status":
             # Smart-plug state for the welcome page's wake/sleep button,
             # relayed from the lab Home Assistant (CORS-open, read-only; the
@@ -7811,6 +7903,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/robot/straight",
             "/api/loco/command",
             "/api/xr/mode",
+            "/api/lights",
             "/api/chat",
             "/api/spatial/pose",
             "/api/pose/feedback",
@@ -7847,6 +7940,7 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             "/api/robot/chill",
             "/api/loco/command",
             "/api/xr/mode",
+            "/api/lights",
             "/api/chat",
             "/api/spatial/pose",
             "/api/pose/feedback",
@@ -7985,6 +8079,10 @@ class TelemetryHandler(BaseHTTPRequestHandler):
 
         if request_path == "/api/xr/mode":
             status, response = self.store.switch_xr_mode(payload)
+            self._send_json_status(response, HTTPStatus(status))
+            return
+        if request_path == "/api/lights":
+            status, response = self.store.set_lights(payload)
             self._send_json_status(response, HTTPStatus(status))
             return
 

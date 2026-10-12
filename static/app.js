@@ -175,6 +175,16 @@ const els = {
   locoModePr: document.getElementById("locoModePr"),
   locoMotionOwner: document.getElementById("locoMotionOwner"),
   locoMessage: document.getElementById("locoMessage"),
+  lightsCard: document.getElementById("lightsCard"),
+  lightsSwatch: document.getElementById("lightsSwatch"),
+  lightsColor: document.getElementById("lightsColor"),
+  lightsColorValue: document.getElementById("lightsColorValue"),
+  lightsOn: document.getElementById("lightsOn"),
+  lightsOff: document.getElementById("lightsOff"),
+  lightsBri: document.getElementById("lightsBri"),
+  lightsBriValue: document.getElementById("lightsBriValue"),
+  lightsMessage: document.getElementById("lightsMessage"),
+  lightsPresets: document.querySelectorAll("[data-lights-color]"),
   locoLastCommand: document.getElementById("locoLastCommand"),
   locoReady: document.getElementById("locoReady"),
   locoBalanceStand: document.getElementById("locoBalanceStand"),
@@ -1875,6 +1885,104 @@ function setupLocoControls() {
   els.locoBalanceModeGait?.addEventListener("click", () => sendLocoCommand("set_balance_mode", { balance_mode: 1 }));
   els.locoSendVelocity?.addEventListener("click", () => sendLocoCommand("velocity"));
   els.locoMove?.addEventListener("click", () => sendLocoCommand("move"));
+
+// --- Lights (WLED strip) ------------------------------------------------------
+// The server proxies /api/lights to the strip's JSON API. Colour changes from the
+// wheel stream while dragging, so they are rate-limited to one request in flight
+// plus the latest pending value; brightness applies on release.
+const lightsState = { inFlight: false, pending: null };
+
+function renderLights(state) {
+  if (!els.lightsCard) return;
+  if (state && state.enabled === false) {
+    els.lightsCard.hidden = true;
+    return;
+  }
+  const reachable = Boolean(state && state.reachable !== false && (state.ok !== false));
+  if (state && typeof state.hex === "string") {
+    els.lightsColor.value = state.hex;
+    els.lightsColorValue.textContent = state.hex;
+    els.lightsCard.style.setProperty("--lights-color", state.hex);
+  }
+  if (state && Number.isFinite(state.bri)) {
+    els.lightsBri.value = String(Math.max(1, state.bri));
+    els.lightsBriValue.textContent = String(state.bri);
+  }
+  els.lightsCard.classList.toggle("is-off", Boolean(state && state.on === false));
+  if (!reachable) {
+    els.lightsMessage.textContent = `Strip unreachable${state && state.device ? ` (${state.device})` : ""}.`;
+  } else if (state && state.on === false) {
+    els.lightsMessage.textContent = "Strip is off.";
+  } else {
+    els.lightsMessage.textContent = `Strip on, ${state.hex} at ${state.bri}/255.`;
+  }
+}
+
+async function postLights(body) {
+  if (lightsState.inFlight) {
+    lightsState.pending = { ...(lightsState.pending || {}), ...body };
+    return;
+  }
+  lightsState.inFlight = true;
+  try {
+    const response = await fetch("/api/lights", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      els.lightsMessage.textContent = payload.error || "Lights request failed.";
+      return;
+    }
+    renderLights({ enabled: true, reachable: true, ...payload });
+  } catch (error) {
+    els.lightsMessage.textContent = error instanceof Error ? error.message : "Lights request failed.";
+  } finally {
+    lightsState.inFlight = false;
+    if (lightsState.pending) {
+      const next = lightsState.pending;
+      lightsState.pending = null;
+      postLights(next);
+    }
+  }
+}
+
+async function refreshLights() {
+  if (!els.lightsCard) return;
+  try {
+    const response = await fetch("/api/lights");
+    renderLights(await response.json());
+  } catch (error) {
+    renderLights({ enabled: true, reachable: false });
+  }
+}
+
+if (els.lightsCard) {
+  els.lightsColor?.addEventListener("input", () => {
+    const hex = els.lightsColor.value;
+    els.lightsColorValue.textContent = hex;
+    els.lightsCard.style.setProperty("--lights-color", hex);
+    postLights({ color: hex });
+  });
+  els.lightsBri?.addEventListener("input", () => {
+    els.lightsBriValue.textContent = els.lightsBri.value;
+  });
+  els.lightsBri?.addEventListener("change", () => postLights({ bri: Number(els.lightsBri.value) }));
+  els.lightsOn?.addEventListener("click", () => postLights({ on: true }));
+  els.lightsOff?.addEventListener("click", () => postLights({ on: false }));
+  els.lightsPresets.forEach((button) => {
+    button.addEventListener("click", () => {
+      const hex = button.dataset.lightsColor;
+      els.lightsColor.value = hex;
+      els.lightsColorValue.textContent = hex;
+      els.lightsCard.style.setProperty("--lights-color", hex);
+      postLights({ color: hex });
+    });
+  });
+  refreshLights();
+}
+
   els.locoSetHeight?.addEventListener("click", () => sendLocoCommand("set_height"));
   els.locoSetSwingHeight?.addEventListener("click", () => sendLocoCommand("set_swing_height"));
   els.locoSetTargetPosition?.addEventListener("click", () => sendLocoCommand("set_target_position"));

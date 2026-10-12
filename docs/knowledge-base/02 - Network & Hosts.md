@@ -13,6 +13,7 @@ summary: Hosts, IP addresses, ports, service map, and the 60 s auto-update timer
 | Robot PC (Wi-Fi) | `10.2.100.142` | Dashboard, XR, camera over Wi-Fi | **Flaky** — reachable ≠ DDS-visible |
 | AI host ("AI-DEV") | `10.2.125.3` | On-prem LLM + STT/TTS + YOLO detection | Ollama, faster-whisper, TTS, detect |
 | Home Assistant | `10.2.200.100` | Showcase Sonoff smart plug | Proxied via `/api/smartplug/*` |
+| WLED LED strip (ESP32 `WLED-Heinz`) | `10.2.100.185` (Wi-Fi, DHCP) | Lab LED strip behind the dashboard's Lights card (`/api/lights`, `WLED_BASE_URL`) | mDNS `wled-12c198.local`; a second strip `WLED-SDWAN2` sits at `10.2.100.161` and is not wired to the UI |
 | Jetson AGX Orin | `192.168.123.100` (eth, static) / `10.2.100.178` (Wi-Fi, DHCP) | Edge GPU box (JetPack 5.1.2) | On `Vaderfone@CSIG` Wi-Fi + robot subnet — see 29 - Jetson AGX Orin |
 
 - Jetson SSH user: `jetson` (`ssh jetson` alias on the Mac; key auth via `id_ed25519_robot`).

@@ -621,6 +621,42 @@
                     <button id="locoSetTargetPosition" class="loco-btn primary" type="button" title="Walk to the target pose (x, y, yaw).">Go To Target</button>
                   </div>
                 </article>
+
+                <article class="loco-card loco-card-lights" id="lightsCard">
+                  <header class="loco-card-head">
+                    <span class="loco-card-index">06</span>
+                    <div>
+                      <h3>Lights</h3>
+                      <p>Lab LED strip (WLED on an ESP32). Pick a colour on the wheel; changes apply live.</p>
+                    </div>
+                    <span class="loco-card-visual lights-visual" aria-hidden="true"><i id="lightsSwatch"></i></span>
+                  </header>
+                  <div class="lights-picker-row">
+                    <label class="lights-color-label" for="lightsColor">
+                      <input id="lightsColor" class="lights-color-input" type="color" value="#ff0000" title="Open the colour wheel and pick the strip colour.">
+                      <span>Colour <strong id="lightsColorValue">#ff0000</strong></span>
+                    </label>
+                    <div class="loco-btn-grid cols-2 lights-power-grid">
+                      <button id="lightsOn" class="loco-btn primary" type="button" title="Turn the strip on.">On</button>
+                      <button id="lightsOff" class="loco-btn danger" type="button" title="Turn the strip off.">Off</button>
+                    </div>
+                  </div>
+                  <label class="slider-row">
+                    <span>Brightness <strong id="lightsBriValue">128</strong></span>
+                    <input id="lightsBri" type="range" min="1" max="255" value="128" step="1" title="Strip brightness, applied on release.">
+                  </label>
+                  <div class="lights-presets">
+                    <button type="button" data-lights-color="#ff0000" style="--swatch:#ff0000" title="Red"></button>
+                    <button type="button" data-lights-color="#ff8c00" style="--swatch:#ff8c00" title="Orange"></button>
+                    <button type="button" data-lights-color="#ffd000" style="--swatch:#ffd000" title="Yellow"></button>
+                    <button type="button" data-lights-color="#00ff40" style="--swatch:#00ff40" title="Green"></button>
+                    <button type="button" data-lights-color="#00c8ff" style="--swatch:#00c8ff" title="Cyan"></button>
+                    <button type="button" data-lights-color="#2040ff" style="--swatch:#2040ff" title="Blue"></button>
+                    <button type="button" data-lights-color="#c000ff" style="--swatch:#c000ff" title="Purple"></button>
+                    <button type="button" data-lights-color="#ffffff" style="--swatch:#ffffff" title="White"></button>
+                  </div>
+                  <small id="lightsMessage" class="lights-message">Checking the strip&hellip;</small>
+                </article>
               </section>
 
               <aside class="loco-history">

@@ -3299,8 +3299,10 @@ function setupChat() {
       // surfaces as a raw "Cannot reach LLM … Connection refused"; explain it
       // and tell the operator to just resend — nothing was executed.
       const unreachable = /cannot reach llm|connection refused|errno 111|timed out|502|503|504/i.test(raw);
+      // Keep the raw reason (which host:port refused) under the friendly text —
+      // without it a stale CLAUDE_BRIDGE_URL and a dead Ollama look identical.
       pending.p.textContent = unreachable
-        ? "AI server şu an ulaşılamıyor (geçici) — mesajını tekrar gönder. / AI server temporarily unreachable — resend your message."
+        ? `AI server şu an ulaşılamıyor (geçici) — mesajını tekrar gönder. / AI server temporarily unreachable — resend your message.\n(${raw})`
         : raw;
       // Drop the failed user turn so it isn't resent with the next message.
       history.pop();

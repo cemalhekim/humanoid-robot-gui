@@ -127,7 +127,7 @@ vision-capable model (Opus). A toggle in the chat header selects it.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `CLAUDE_BRIDGE_URL` | empty | Bridge base URL (e.g. `http://10.2.100.81:8399`); empty = backend unavailable |
+| `CLAUDE_BRIDGE_URL` | empty | Bridge base URL (e.g. `http://192.168.123.222:8399`); empty = backend unavailable |
 | `CLAUDE_BRIDGE_MODEL` | `claude` | Model id passed to the bridge |
 | `CLAUDE_BRIDGE_TOKEN` | empty | Optional bearer for the bridge |
 
